@@ -133,6 +133,34 @@
     touch-action:manipulation;-webkit-user-select:none;user-select:none;
   }
   .keypad button:active{background:var(--accent);border-color:var(--accent);}
+
+  /* ===== شاشة تسجيل الدخول (Firebase) ===== */
+  #authScreen{
+    position:fixed;inset:0;
+    background:
+      repeating-linear-gradient(-45deg, rgba(255,255,255,0.035) 0 2px, transparent 2px 26px),
+      linear-gradient(165deg,var(--primary-dark) 0%,#0D2A21 55%,var(--primary-dark) 100%);
+    display:flex;align-items:center;justify-content:center;flex-direction:column;
+    z-index:10000;color:#fff;padding:20px;text-align:center;
+  }
+  #authScreen h1{font-family:var(--font-display);font-size:22px;font-weight:700;margin:2px 0 6px;}
+  #authScreen p.sub{color:#CFE3DA;margin-top:0;margin-bottom:20px;font-size:13px;}
+  .auth-card{
+    background:var(--card);border-radius:16px;padding:22px 20px;width:100%;max-width:340px;
+    box-shadow:0 12px 30px rgba(0,0,0,0.3);text-align:right;
+  }
+  .auth-card .field{margin-bottom:12px;}
+  .auth-card .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px;font-weight:600;}
+  .auth-card .field input{
+    width:100%;box-sizing:border-box;padding:11px 12px;border-radius:var(--btn-radius);
+    border:1.5px solid var(--border);background:var(--card-alt);color:var(--text);font-size:14.5px;
+  }
+  .auth-card .field input:focus{outline:none;border-color:var(--primary);}
+  #authError{color:var(--danger);font-size:13px;min-height:18px;margin-bottom:8px;font-weight:600;}
+  #authMsg{color:var(--ok);font-size:13px;min-height:18px;margin-bottom:8px;font-weight:600;}
+  .auth-switch{margin-top:14px;font-size:13px;color:var(--muted);}
+  .auth-switch button{background:none;border:none;color:var(--primary);font-weight:700;padding:4px;}
+  #authLoading{color:#CFE3DA;font-size:13.5px;}
   .keypad button.wide{font-size:14px;font-weight:500;font-family:var(--font-body);}
   #lockError{color:#F0B7A8;min-height:20px;font-size:13.5px;margin-bottom:6px;}
   .pin-input{-webkit-text-security:disc;text-security:disc;letter-spacing:4px;}
@@ -363,8 +391,37 @@
 </head>
 <body>
 
+<!-- ===================== شاشة تسجيل الدخول (حساب الورشة) ===================== -->
+<div id="authScreen" style="display:none;">
+  <div class="brand-emblem"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></div>
+  <h1>ورشة تفصيل الجلابيب</h1>
+  <p class="sub" id="authSubText">سجّل دخولك عشان بياناتك تتحفظ بأمان في السحابة</p>
+  <div class="auth-card">
+    <div id="authError"></div>
+    <div id="authMsg"></div>
+    <div class="field">
+      <label>البريد الإلكتروني</label>
+      <input id="authEmail" type="email" autocomplete="username" placeholder="example@email.com" inputmode="email">
+    </div>
+    <div class="field">
+      <label>كلمة المرور</label>
+      <input id="authPassword" type="password" autocomplete="current-password" placeholder="6 أحرف على الأقل">
+    </div>
+    <div id="authLoading" style="display:none;">جاري التحميل...</div>
+    <div class="btn-row" style="margin-top:6px;">
+      <button class="btn accent" id="authSubmitBtn" style="width:100%;" onclick="handleAuthSubmit()">دخول</button>
+    </div>
+    <div class="auth-switch" id="authSwitchWrap">
+      حساب جديد؟ <button onclick="setAuthMode('signup')">إنشاء حساب</button>
+    </div>
+    <div class="auth-switch" id="authForgotWrap">
+      <button onclick="handleForgotPassword()">نسيت كلمة المرور؟</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== شاشة القفل ===================== -->
-<div id="lockScreen">
+<div id="lockScreen" style="display:none;">
   <div class="brand-emblem"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></div>
   <h1 id="lockTitle">ورشة تفصيل الجلابيب</h1>
   <p class="sub">أدخل الرقم السري للدخول</p>
@@ -647,8 +704,16 @@
         </div>
       </div>
       <div class="card">
+        <h3>☁️ حساب الورشة والمزامنة</h3>
+        <p class="meta">مسجّل دخول بحساب: <b id="settingsAccountEmail">-</b></p>
+        <p class="meta" id="settingsSyncStatus">بياناتك بتتحفظ تلقائيًا في السحابة، وتقدر تدخل من أي جهاز بنفس الحساب.</p>
+        <div class="btn-row">
+          <button class="btn outline" onclick="handleLogout()">🚪 تسجيل الخروج</button>
+        </div>
+      </div>
+      <div class="card">
         <h3>ℹ️ عن التطبيق</h3>
-        <p class="meta">تطبيق إدارة ورشة تفصيل جلابيب — كل البيانات محفوظة على جهازك فقط (لا يوجد إنترنت أو سيرفر).</p>
+        <p class="meta">تطبيق إدارة ورشة تفصيل جلابيب — البيانات محفوظة محليًا على جهازك وكمان متزامنة في السحابة عبر Firebase.</p>
       </div>
     </section>
   </main>
@@ -681,10 +746,34 @@
 </div>
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK (compat build - يشتغل بـ script tags عادية من غير npm/bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
 <script>
 /* ============================================================
-   ورشة تفصيل الجلابيب - إدارة كاملة بـ localStorage
+   ورشة تفصيل الجلابيب - إدارة كاملة + مزامنة سحابية عبر Firebase
    ============================================================ */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCT2PH6xcxjUAqmsvZjJnHyNNoomeDcAfk",
+  authDomain: "jalabiya-workshop.firebaseapp.com",
+  projectId: "jalabiya-workshop",
+  storageBucket: "jalabiya-workshop.firebasestorage.app",
+  messagingSenderId: "363434208383",
+  appId: "1:363434208383:web:3c6c7b1a135c4e8a76234a",
+  measurementId: "G-H16NXJ69LV"
+};
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+const fbDb = firebase.firestore();
+// يشتغل الأوفلاين تلقائيًا: بيحفظ نسخة محلية ويزامن السحابة تاني لما النت يرجع
+try{ fbDb.enablePersistence({synchronizeTabs:true}).catch(()=>{}); }catch(e){}
+
+let currentUser = null;       // المستخدم المسجّل دخوله حاليًا (Firebase Auth)
+let saveDebounceTimer = null; // لتجميع عمليات الحفظ المتلاحقة في كتابة واحدة للسحابة
+let authMode = 'signin';      // 'signin' أو 'signup'
 
 const STORAGE_KEY = 'jalaba_db_v1';
 let db = null;
@@ -762,38 +851,43 @@ async function saveOrShareFile(blob, filename){
   }
 }
 
+function fillDBDefaults(obj){
+  if(!obj || typeof obj !== 'object') obj = {};
+  if(!obj.password) obj.password = '0000';
+  if(!obj.customers) obj.customers=[];
+  if(!obj.orders) obj.orders=[];
+  if(!obj.payments) obj.payments=[];
+  if(!obj.expenses) obj.expenses=[];
+  if(!obj.dailyCapacity) obj.dailyCapacity=500;
+  if(!obj.garmentTypes) obj.garmentTypes=[];
+  if(!obj.vipThreshold) obj.vipThreshold=3;
+  if(!obj.idleLockMinutes) obj.idleLockMinutes=3;
+  if(!obj.debtThreshold) obj.debtThreshold=2000;
+  if(obj.lastBackupDate===undefined) obj.lastBackupDate=null;
+  if(obj.dayOffWeekday===undefined || obj.dayOffWeekday===null) obj.dayOffWeekday=0;
+  if(!obj.workshopName) obj.workshopName='ورشة تفصيل الجلابيب';
+  if(obj.ownerName===undefined) obj.ownerName='';
+  if(obj.ownerPhone===undefined) obj.ownerPhone='';
+  if(obj.workshopAddress===undefined) obj.workshopAddress='';
+  if(!obj.theme) obj.theme={primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'};
+  if(!obj.btnRadius) obj.btnRadius=12;
+  if(obj.customCSS===undefined) obj.customCSS='';
+  if(obj.customJS===undefined) obj.customJS='';
+  if(obj.darkMode===undefined) obj.darkMode=false;
+  if(!obj.workStartHour) obj.workStartHour=9;
+  if(!obj.workEndHour) obj.workEndHour=18;
+  if(!obj.queueManualOrder) obj.queueManualOrder=[];
+  if(!obj.trash) obj.trash=[];
+  if(!obj.nextInvoiceNumber) obj.nextInvoiceNumber=1001;
+  if(obj.taxDefaultPercent===undefined || obj.taxDefaultPercent===null) obj.taxDefaultPercent=0;
+  return obj;
+}
+
 function loadDB(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     if(raw){
-      db = JSON.parse(raw);
-      if(!db.password) db.password = '0000';
-      if(!db.customers) db.customers=[];
-      if(!db.orders) db.orders=[];
-      if(!db.payments) db.payments=[];
-      if(!db.expenses) db.expenses=[];
-      if(!db.dailyCapacity) db.dailyCapacity=500;
-      if(!db.garmentTypes) db.garmentTypes=[];
-      if(!db.vipThreshold) db.vipThreshold=3;
-      if(!db.idleLockMinutes) db.idleLockMinutes=3;
-      if(!db.debtThreshold) db.debtThreshold=2000;
-      if(db.lastBackupDate===undefined) db.lastBackupDate=null;
-      if(db.dayOffWeekday===undefined || db.dayOffWeekday===null) db.dayOffWeekday=0;
-      if(!db.workshopName) db.workshopName='ورشة تفصيل الجلابيب';
-      if(db.ownerName===undefined) db.ownerName='';
-      if(db.ownerPhone===undefined) db.ownerPhone='';
-      if(db.workshopAddress===undefined) db.workshopAddress='';
-      if(!db.theme) db.theme={primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'};
-      if(!db.btnRadius) db.btnRadius=12;
-      if(db.customCSS===undefined) db.customCSS='';
-      if(db.customJS===undefined) db.customJS='';
-      if(db.darkMode===undefined) db.darkMode=false;
-      if(!db.workStartHour) db.workStartHour=9;
-      if(!db.workEndHour) db.workEndHour=18;
-      if(!db.queueManualOrder) db.queueManualOrder=[];
-      if(!db.trash) db.trash=[];
-      if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
-      if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
+      db = fillDBDefaults(JSON.parse(raw));
       purgeOldTrash();
     } else {
       db = defaultDB();
@@ -811,6 +905,55 @@ function saveDB(){
   }catch(e){
     console.warn('تعذر حفظ البيانات محليًا (وضع التصفح الخاص أو متصفح مقيّد):', e);
   }
+  scheduleCloudSave();
+}
+
+/* ============================================================
+   المزامنة السحابية (Firebase Firestore)
+   كل بيانات الورشة بتتحفظ في مستند واحد: workshops/{uid}
+   ============================================================ */
+let unsubscribeCloudSync = null;
+let cloudSyncActive = false;
+
+function scheduleCloudSave(){
+  if(!currentUser) return;
+  clearTimeout(saveDebounceTimer);
+  saveDebounceTimer = setTimeout(()=>{
+    setSyncStatus('جاري الحفظ في السحابة...');
+    fbDb.collection('workshops').doc(currentUser.uid).set(db).then(()=>{
+      setSyncStatus('بياناتك بتتحفظ تلقائيًا في السحابة، وتقدر تدخل من أي جهاز بنفس الحساب.');
+    }).catch(e=>{
+      console.warn('تعذر رفع البيانات للسحابة، هتترفع تلقائيًا لما النت يرجع:', e);
+      setSyncStatus('تعذر الاتصال بالسحابة الآن، بياناتك محفوظة على جهازك وهتتزامن تلقائيًا لما النت يرجع.');
+    });
+  }, 1200);
+}
+
+function setSyncStatus(text){
+  const el = document.getElementById('settingsSyncStatus');
+  if(el) el.textContent = text;
+}
+
+function startCloudSync(uid){
+  if(unsubscribeCloudSync){ unsubscribeCloudSync(); unsubscribeCloudSync=null; }
+  cloudSyncActive = false;
+  unsubscribeCloudSync = fbDb.collection('workshops').doc(uid).onSnapshot((snap)=>{
+    if(snap.metadata.hasPendingWrites) return; // ده تحديث محلي إحنا اللي بعتناه، تجاهله
+    if(snap.exists){
+      db = fillDBDefaults(snap.data());
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
+      if(cloudSyncActive && document.getElementById('app') && document.getElementById('app').style.display==='block'){
+        try{ applyWorkshopBranding(); applyTheme(); applyDarkMode(); applyCustomCSS(); renderAll(); }catch(e){}
+      }
+    } else {
+      // أول مرة لهذا الحساب: ارفع البيانات المحلية الحالية كبداية للسحابة
+      fbDb.collection('workshops').doc(uid).set(db).catch(()=>{});
+    }
+    cloudSyncActive = true;
+  }, (err)=>{
+    console.warn('تعذر الاتصال بالمزامنة السحابية:', err);
+    setSyncStatus('تعذر الاتصال بالسحابة الآن، بياناتك محفوظة على جهازك وهتتزامن تلقائيًا لما النت يرجع.');
+  });
 }
 
 function uid(){
@@ -1880,1897 +2023,4 @@ function onItemTypeChange(sel){
   const row = sel.closest('.item-row');
   const wrap = row.querySelector('.it-customWrap');
   if(sel.value==='__custom__'){
-    wrap.style.display='block';
-  } else {
-    wrap.style.display='none';
-    const opt = sel.options[sel.selectedIndex];
-    const price = opt ? opt.getAttribute('data-price') : null;
-    if(price!==null){ row.querySelector('.it-price').value = price; }
-  }
-  recalcItemsTotal();
-}
-
-function onItemQtyPriceInput(){
-  recalcItemsTotal();
-}
-
-// تبديل تسمية حقل قيمة الخصم حسب نوعه (نسبة % أو مبلغ ثابت)
-function onDiscountTypeChange(){
-  const type = document.getElementById('f_discountType').value;
-  const lbl = document.getElementById('f_discountValueLabel');
-  if(lbl) lbl.textContent = type==='percent' ? 'قيمة الخصم (%)' : 'قيمة الخصم (ج.م)';
-  recalcItemsTotal();
-}
-
-// إعادة حساب إجمالي أجرة كل الأصناف داخل الطلب، مع الخصم والضريبة والإجمالي النهائي
-function recalcItemsTotal(){
-  let sum = 0;
-  document.querySelectorAll('#itemsContainer .item-row').forEach(row=>{
-    const qty = Math.max(1, Number(row.querySelector('.it-qty').value)||1);
-    const price = Number(row.querySelector('.it-price').value)||0;
-    sum += qty*price;
-  });
-  const feeField = document.getElementById('f_feeTotal');
-  if(feeField) feeField.textContent = sum.toLocaleString('ar-EG')+' ج.م';
-
-  const extraEl = document.getElementById('f_extra');
-  const extra = extraEl ? (Number(extraEl.value)||0) : 0;
-  const subtotal = sum + extra;
-
-  const discTypeEl = document.getElementById('f_discountType');
-  const discValEl = document.getElementById('f_discountValue');
-  const taxPctEl = document.getElementById('f_taxPercent');
-  if(discTypeEl && discValEl && taxPctEl){
-    const discType = discTypeEl.value;
-    const discVal = Math.max(0, Number(discValEl.value)||0);
-    let discountAmount = 0;
-    if(discType==='percent') discountAmount = Math.min(subtotal, subtotal*discVal/100);
-    else if(discType==='amount') discountAmount = Math.min(subtotal, discVal);
-    const afterDiscount = subtotal - discountAmount;
-    const taxPct = Math.max(0, Number(taxPctEl.value)||0);
-    const taxAmount = afterDiscount * taxPct/100;
-    const final = Math.max(0, afterDiscount + taxAmount);
-
-    const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = Math.round(val).toLocaleString('ar-EG')+' ج.م'; };
-    set('sumSubtotal', subtotal);
-    set('sumDiscount', discountAmount);
-    set('sumTax', taxAmount);
-    set('sumFinal', final);
-  }
-
-  autoSuggestDate(false);
-  return sum;
-}
-
-function openOrderModal(id, presetCustomerId){
-  const o = id ? db.orders.find(x=>x.id===id) : null;
-  currentEditingOrderId = o ? o.id : null;
-  dateManuallyEdited = !!o; // في التعديل لا نعيد الاقتراح تلقائياً فوق موعد محفوظ
-
-  // بناء قائمة الأصناف: من مصفوفة items الجديدة، أو من الحقول القديمة (توافقاً مع الطلبات السابقة)
-  let items = [];
-  if(o){
-    if(Array.isArray(o.items) && o.items.length){
-      items = o.items;
-    } else {
-      items = [{type:o.type||'', qty:o.qty||1, unitPrice:(o.unitPrice!==undefined?o.unitPrice:o.fee)||0}];
-    }
-  }
-
-  const html = `
-    <div class="modal-head"><h3>${o?'✏️ تعديل طلب':'➕ طلب جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>العميل</label><select id="f_customer">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
-    <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">👗 أصناف الطلب</div>
-    <div id="itemsContainer">${items.map(it=>itemRowHtml(it)).join('') || itemRowHtml()}</div>
-    <button type="button" class="btn sm secondary" style="margin-bottom:14px;" onclick="addItemRow()">➕ إضافة صنف آخر</button>
-    <div class="field-row2">
-      <div class="field"><label>تاريخ الاستلام</label><input id="f_dateReceived" type="date" value="${o?o.dateReceived:todayStr()}"></div>
-      <div class="field"><label>تاريخ التسليم</label><input id="f_dateDelivery" type="date" value="${o?o.dateDelivery:''}" onchange="dateManuallyEdited=true;"></div>
-    </div>
-    <div class="btn-row" style="margin-top:-4px;margin-bottom:10px;">
-      <button type="button" class="btn sm outline" onclick="autoSuggestDate(true)">📅 اقتراح موعد تلقائي</button>
-    </div>
-    <div class="field-row2">
-      <div class="field"><label>مصاريف إضافية (ج.م)</label><input id="f_extra" type="number" value="${o?o.extra||0:0}" oninput="recalcItemsTotal()"></div>
-      <div class="field"><label>إجمالي أجرة الأصناف</label><div style="padding:11px 0;font-weight:900;color:var(--heading);font-size:16px;" id="f_feeTotal">0 ج.م</div></div>
-    </div>
-    <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">💵 خصم وضريبة (اختياري)</div>
-    <div class="field-row2">
-      <div class="field"><label>نوع الخصم</label>
-        <select id="f_discountType" onchange="onDiscountTypeChange()">
-          <option value="none" ${(!o||!o.discountType||o.discountType==='none')?'selected':''}>بدون خصم</option>
-          <option value="percent" ${o&&o.discountType==='percent'?'selected':''}>نسبة %</option>
-          <option value="amount" ${o&&o.discountType==='amount'?'selected':''}>مبلغ ثابت (ج.م)</option>
-        </select>
-      </div>
-      <div class="field"><label id="f_discountValueLabel">قيمة الخصم</label><input id="f_discountValue" type="number" min="0" value="${o&&o.discountValue?o.discountValue:0}" oninput="recalcItemsTotal()"></div>
-    </div>
-    <div class="field"><label>نسبة ضريبة/رسوم إضافية على هذا الطلب (%)</label><input id="f_taxPercent" type="number" min="0" step="0.1" value="${o?(o.taxPercent!==undefined?o.taxPercent:0):(db.taxDefaultPercent||0)}" oninput="recalcItemsTotal()"></div>
-    <div class="card" id="orderTotalsBox" style="margin:4px 0 14px;padding:12px;background:var(--card-alt);">
-      <div class="row"><span class="meta">الإجمالي الفرعي</span><b id="sumSubtotal">0 ج.م</b></div>
-      <div class="row"><span class="meta">الخصم</span><b id="sumDiscount" style="color:var(--danger);">0 ج.م</b></div>
-      <div class="row"><span class="meta">الضريبة/الرسوم</span><b id="sumTax">0 ج.م</b></div>
-      <div class="row" style="border-top:1px dashed var(--stitch);margin-top:6px;padding-top:6px;"><span style="font-weight:700;">الإجمالي النهائي</span><b style="color:var(--heading);font-size:16px;" id="sumFinal">0 ج.م</b></div>
-    </div>
-    <div class="field"><label>تكلفة الخامة/القماش (ج.م) <span class="meta">— اختياري، لحساب صافي الربح</span></label><input id="f_materialCost" type="number" value="${o?o.materialCost||0:0}"></div>
-    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="f_urgent" type="checkbox" style="width:18px;height:18px;" ${o&&o.urgent?'checked':''}> 🔥 طلب مستعجل</label></div>
-    <div class="field"><label>المدفوع مقدماً (ج.م)</label><input id="f_paid" type="number" value="${o?o.paid||0:0}" ${o?'disabled':''}></div>
-    ${o?'<p class="meta">لتسجيل دفعة جديدة استخدم زر "تسجيل دفعة" من قائمة الطلبات.</p>':''}
-    <div class="field"><label>الحالة</label>
-      <select id="f_status">
-        <option value="قيد العمل" ${o&&o.status==='قيد العمل'?'selected':''}>قيد العمل</option>
-        <option value="جاهز للتسليم" ${o&&o.status==='جاهز للتسليم'?'selected':''}>جاهز للتسليم</option>
-        <option value="تم التسليم" ${o&&o.status==='تم التسليم'?'selected':''}>تم التسليم</option>
-      </select>
-    </div>
-    <button class="btn" onclick="saveOrder(${o?`'${o.id}'`:'null'})">💾 حفظ</button>
-  `;
-  openModal(html);
-  onDiscountTypeChange();
-}
-
-// حساب قيمة الشغل المتبقي (غير المسلَّم) بالجنيه، باستثناء الطلب الجاري تعديله
-function calcPendingWorkValue(excludeId){
-  return db.orders
-    .filter(o=>o.status!=='تم التسليم' && o.id!==excludeId)
-    .reduce((s,o)=>s+orderTotal(o),0);
-}
-
-// متوسط أيام التأخير الفعلي عن الموعد المتوقع، بناءً على آخر الطلبات المسلَّمة فعلياً
-function avgDelayDays(){
-  const completed = db.orders.filter(o=>o.deliveredDate && o.dateDelivery).slice(-30);
-  if(completed.length===0) return 0;
-  const totalDelay = completed.reduce((s,o)=>{
-    const diff = Math.round((new Date(o.deliveredDate)-new Date(o.dateDelivery))/86400000);
-    return s+diff;
-  },0);
-  return totalDelay/completed.length;
-}
-
-// force=true يعني ضغط المستخدم على زر الاقتراح صراحةً (يتجاوز قفل التعديل اليدوي)
-function autoSuggestDate(force){
-  if(dateManuallyEdited && !force) return;
-  let itemsSum = 0;
-  document.querySelectorAll('#itemsContainer .item-row').forEach(row=>{
-    const qty = Math.max(1, Number(row.querySelector('.it-qty').value)||1);
-    const price = Number(row.querySelector('.it-price').value)||0;
-    itemsSum += qty*price;
-  });
-  const extra = Number(document.getElementById('f_extra').value)||0;
-  const capacity = Number(db.dailyCapacity)||500;
-  const pending = calcPendingWorkValue(currentEditingOrderId) + itemsSum + extra;
-  const daysNeeded = Math.max(1, Math.ceil(pending/capacity));
-  const avgDelay = avgDelayDays();
-  const safetyDays = avgDelay>0.5 ? 2+Math.ceil(avgDelay) : 2;
-  const totalDays = daysNeeded + safetyDays;
-  const suggested = addWorkDaysFromNow(totalDays);
-  const suggestedStr = suggested.toISOString().slice(0,10);
-  document.getElementById('f_dateDelivery').value = suggestedStr;
-  dateManuallyEdited = !force ? dateManuallyEdited : false;
-  if(force) toast('تم اقتراح موعد تسليم مناسب 📅');
-}
-
-function saveOrder(id){
-  const customerId = document.getElementById('f_customer').value;
-
-  const items = [];
-  let hasInvalidPrice = false;
-  document.querySelectorAll('#itemsContainer .item-row').forEach(row=>{
-    const typeSel = row.querySelector('.it-type');
-    let type = '';
-    if(typeSel.value==='__custom__'){
-      type = row.querySelector('.it-custom').value.trim();
-    } else {
-      const g = db.garmentTypes.find(x=>x.id===typeSel.value);
-      type = g ? g.name : '';
-    }
-    const qtyRaw = Number(row.querySelector('.it-qty').value);
-    const qty = Math.max(1, qtyRaw||1);
-    const priceRaw = Number(row.querySelector('.it-price').value);
-    if(priceRaw<0){ hasInvalidPrice = true; }
-    const unitPrice = Math.max(0, priceRaw||0);
-    if(type){ items.push({type, qty, unitPrice}); }
-  });
-
-  const dateReceived = document.getElementById('f_dateReceived').value;
-  const dateDelivery = document.getElementById('f_dateDelivery').value;
-  const extra = Number(document.getElementById('f_extra').value)||0;
-  const materialCost = Number(document.getElementById('f_materialCost').value)||0;
-  const urgent = document.getElementById('f_urgent').checked;
-  const status = document.getElementById('f_status').value;
-  const fee = items.reduce((s,it)=>s+it.qty*it.unitPrice,0);
-  const discountType = document.getElementById('f_discountType').value;
-  const discountValue = Math.max(0, Number(document.getElementById('f_discountValue').value)||0);
-  const taxPercent = Math.max(0, Number(document.getElementById('f_taxPercent').value)||0);
-
-  if(!customerId){ toast('اختر عميل أولاً'); return; }
-  if(items.length===0){ toast('أضف صنف واحد على الأقل واختر نوعه'); return; }
-  if(hasInvalidPrice){ toast('السعر لا يمكن أن يكون رقماً سالباً'); return; }
-  if(extra<0){ toast('المصاريف الإضافية لا يمكن أن تكون رقماً سالباً'); return; }
-  if(materialCost<0){ toast('تكلفة الخامة لا يمكن أن تكون رقماً سالباً'); return; }
-  if(discountType==='percent' && discountValue>100){ toast('نسبة الخصم لا يمكن أن تتعدى 100%'); return; }
-  if(!dateDelivery){ toast('أدخل تاريخ التسليم'); return; }
-  if(dateReceived && dateDelivery && dateDelivery<dateReceived){
-    toast('تاريخ التسليم لا يمكن أن يكون قبل تاريخ الاستلام');
-    return;
-  }
-
-  // نحتفظ بحقول type/qty/unitPrice على مستوى الطلب (من أول صنف) لأغراض التوافق مع نسخ سابقة من التطبيق
-  const legacyType = items.map(it=>(it.qty>1?it.qty+' × ':'')+it.type).join('، ');
-
-  if(id){
-    const o = db.orders.find(x=>x.id===id);
-    const wasDelivered = o.status==='تم التسليم';
-    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent});
-    if(status==='تم التسليم' && !wasDelivered && !o.deliveredDate){
-      o.deliveredDate = todayStr();
-    }
-    if(status!=='تم التسليم'){
-      o.deliveredDate = null;
-    }
-  } else {
-    const paid = Number(document.getElementById('f_paid').value)||0;
-    if(paid<0){ toast('المبلغ المدفوع لا يمكن أن يكون رقماً سالباً'); return; }
-    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001};
-    db.nextInvoiceNumber = (db.nextInvoiceNumber||1001) + 1;
-    if(paid>orderTotal(newOrder)){ toast('المبلغ المدفوع أكبر من إجمالي الطلب، تأكد من الرقم'); db.nextInvoiceNumber--; return; }
-    db.orders.push(newOrder);
-    if(paid>0){
-      db.payments.push({id:uid(), orderId:newOrder.id, amount:paid, date:dateReceived||todayStr()});
-    }
-  }
-  saveDB();
-  closeModal();
-  renderOrders();
-  toast('تم حفظ الطلب ✅');
-}
-
-async function deleteOrder(id){
-  if(!await appConfirm('هل تريد حذف هذا الطلب؟ يمكنك استرجاعه خلال 7 أيام من سلة المحذوفات.')) return;
-  const o = db.orders.find(x=>x.id===id);
-  if(!o) return;
-  const relatedPayments = db.payments.filter(p=>p.orderId===id);
-  db.orders = db.orders.filter(x=>x.id!==id);
-  db.payments = db.payments.filter(p=>p.orderId!==id);
-  db.trash.push({id:uid(), type:'order', deletedAt:todayStr(), data:o, payments:relatedPayments});
-  saveDB();
-  renderOrders();
-  toast('تم نقل الطلب لسلة المحذوفات');
-}
-
-/* ============================================================
-   حاسبة تسعير سريعة — قبل تسجيل الطلب رسمياً
-   ============================================================ */
-let _pcLastResult = null;
-
-function openPricingCalculatorModal(){
-  _pcLastResult = null;
-  const html = `
-    <div class="modal-head"><h3>🧮 حاسبة تسعير سريعة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <p class="meta">اختار نوع القطعة وعدد القطع، وهيديك سعر مقترح بناءً على متوسط أسعارك في الطلبات السابقة لنفس النوع — من غير ما تسجل طلب رسمي.</p>
-    <div class="field"><label>نوع القطعة</label><select id="pc_type" onchange="onPcTypeChange()">${itemTypeOptionsHtml('')}</select></div>
-    <div class="field it-customWrap" id="pc_customWrap" style="display:none;">
-      <label>اكتب النوع يدوياً</label><input id="pc_custom" oninput="calcQuickPrice()">
-    </div>
-    <div class="field"><label>عدد القطع</label><input id="pc_qty" type="number" min="1" value="1" oninput="calcQuickPrice()"></div>
-    <div id="pc_result"></div>
-  `;
-  openModal(html);
-  calcQuickPrice();
-}
-
-function onPcTypeChange(){
-  const sel = document.getElementById('pc_type');
-  document.getElementById('pc_customWrap').style.display = sel.value==='__custom__' ? 'block' : 'none';
-  calcQuickPrice();
-}
-
-function calcQuickPrice(){
-  const sel = document.getElementById('pc_type');
-  let typeName = '';
-  if(sel.value==='__custom__'){
-    typeName = document.getElementById('pc_custom').value.trim();
-  } else {
-    const g = db.garmentTypes.find(x=>x.id===sel.value);
-    typeName = g ? g.name : '';
-  }
-  const qty = Math.max(1, Number(document.getElementById('pc_qty').value)||1);
-  const box = document.getElementById('pc_result');
-  _pcLastResult = null;
-  if(!typeName){ box.innerHTML = '<div class="empty-msg">اختر أو اكتب نوع القطعة</div>'; return; }
-
-  // اجمع كل أسعار القطع من الطلبات السابقة لنفس النوع
-  const prices = [];
-  db.orders.forEach(o=>{
-    const items = Array.isArray(o.items)&&o.items.length ? o.items : [{type:o.type, unitPrice:(o.unitPrice!==undefined?o.unitPrice:o.fee)||0}];
-    items.forEach(it=>{ if(it.type===typeName && Number(it.unitPrice)>0) prices.push(Number(it.unitPrice)); });
-  });
-
-  if(!prices.length){
-    const g = db.garmentTypes.find(x=>x.name===typeName);
-    if(g && g.price){
-      const total = g.price*qty;
-      box.innerHTML = `
-        <div class="card" style="padding:12px;background:var(--card-alt);">
-          <p class="meta" style="margin-top:0;">لا يوجد تاريخ طلبات سابقة لهذا النوع، فالسعر مقترح من السعر الأساسي المسجل له في الإعدادات.</p>
-          <div class="row"><span class="meta">السعر الأساسي للقطعة</span><b>${Number(g.price).toLocaleString('ar-EG')} ج.م</b></div>
-          <div class="row" style="border-top:1px dashed var(--stitch);margin-top:6px;padding-top:6px;"><span style="font-weight:700;">إجمالي مقترح لـ ${qty} قطعة</span><b style="color:var(--heading);font-size:16px;">${total.toLocaleString('ar-EG')} ج.م</b></div>
-          <button class="btn sm secondary" style="margin-top:10px;width:100%;" onclick="useQuickPriceInNewOrder()">➕ إنشاء طلب بهذا السعر</button>
-        </div>`;
-      _pcLastResult = {typeName, qty, unitPrice: Math.round(g.price)};
-    } else {
-      box.innerHTML = '<div class="empty-msg">لا يوجد تاريخ أسعار سابق لهذا النوع بعد — أضف سعره الأساسي من الإعدادات أو اكتب سعر يدوي في الطلب.</div>';
-    }
-    return;
-  }
-
-  const avg = prices.reduce((a,b)=>a+b,0)/prices.length;
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const total = Math.round(avg)*qty;
-  box.innerHTML = `
-    <div class="card" style="padding:12px;background:var(--card-alt);">
-      <div class="row"><span class="meta">متوسط سعر القطعة (آخر ${prices.length} ${prices.length===1?'طلب':'طلبات'})</span><b>${Math.round(avg).toLocaleString('ar-EG')} ج.م</b></div>
-      <div class="row"><span class="meta">أقل سعر سُجل</span><b>${min.toLocaleString('ar-EG')} ج.م</b></div>
-      <div class="row"><span class="meta">أعلى سعر سُجل</span><b>${max.toLocaleString('ar-EG')} ج.م</b></div>
-      <div class="row" style="border-top:1px dashed var(--stitch);margin-top:6px;padding-top:6px;"><span style="font-weight:700;">إجمالي مقترح لـ ${qty} قطعة</span><b style="color:var(--heading);font-size:16px;">${total.toLocaleString('ar-EG')} ج.م</b></div>
-      <button class="btn sm secondary" style="margin-top:10px;width:100%;" onclick="useQuickPriceInNewOrder()">➕ إنشاء طلب بهذا السعر</button>
-    </div>`;
-  _pcLastResult = {typeName, qty, unitPrice: Math.round(avg)};
-}
-
-// يفتح فورم "طلب جديد" ويملأ أول صنف بالنوع والعدد والسعر المقترح من الحاسبة
-function useQuickPriceInNewOrder(){
-  if(!_pcLastResult) return;
-  const r = _pcLastResult;
-  openOrderModal(null);
-  setTimeout(()=>{
-    const row = document.querySelector('#itemsContainer .item-row');
-    if(!row) return;
-    const sel = row.querySelector('.it-type');
-    const g = db.garmentTypes.find(x=>x.name===r.typeName);
-    if(g){
-      sel.value = g.id;
-    } else {
-      sel.value = '__custom__';
-    }
-    onItemTypeChange(sel);
-    if(!g){ row.querySelector('.it-custom').value = r.typeName; }
-    row.querySelector('.it-qty').value = r.qty;
-    row.querySelector('.it-price').value = r.unitPrice;
-    recalcItemsTotal();
-  }, 90);
-}
-
-/* ---- تسجيل دفعة ---- */
-function openPaymentModal(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  const remaining = orderRemaining(o);
-  const html = `
-    <div class="modal-head"><h3>💵 تسجيل دفعة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <p class="meta">المتبقي الحالي: <b>${remaining.toLocaleString('ar-EG')} ج.م</b></p>
-    <div class="field"><label>المبلغ المدفوع الآن (ج.م)</label><input id="f_payAmount" type="number" placeholder="0"></div>
-    <div class="field"><label>التاريخ</label><input id="f_payDate" type="date" value="${todayStr()}"></div>
-    <button class="btn" onclick="savePayment('${orderId}')">💾 حفظ الدفعة</button>
-  `;
-  openModal(html);
-}
-
-async function savePayment(orderId){
-  const amount = Number(document.getElementById('f_payAmount').value)||0;
-  const date = document.getElementById('f_payDate').value || todayStr();
-  if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
-  const o = db.orders.find(x=>x.id===orderId);
-  const remaining = orderRemaining(o);
-  if(amount>remaining){
-    const ok = await appConfirm(`المبلغ (${amount.toLocaleString('ar-EG')} ج.م) أكبر من المتبقي على الطلب (${remaining.toLocaleString('ar-EG')} ج.م). هل أنت متأكد من المبلغ؟`, {okText:'نعم، تسجيل', danger:false});
-    if(!ok) return;
-  }
-  o.paid = (Number(o.paid)||0) + amount;
-  db.payments.push({id:uid(), orderId, amount, date});
-  saveDB();
-  closeModal();
-  renderOrders();
-  toast('تم تسجيل الدفعة ✅');
-}
-
-/* ---- فاتورة واتساب ---- */
-function sendWhatsApp(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
-  const c = customerById(o.customerId);
-  if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
-  let phone = c.phone.replace(/[^0-9]/g,'');
-  if(phone.startsWith('0')) phone = '2'+phone; // مصر
-  const subtotal = orderSubtotal(o);
-  const discount = orderDiscountAmount(o);
-  const tax = orderTaxAmount(o);
-  const total = orderTotal(o);
-  const remaining = orderRemaining(o);
-  const extraLines = [];
-  if(discount>0) extraLines.push(`الخصم: -${Math.round(discount).toLocaleString('ar-EG')} ج.م`);
-  if(tax>0) extraLines.push(`الضريبة/الرسوم: +${Math.round(tax).toLocaleString('ar-EG')} ج.م`);
-  const msg =
-`فاتورة تفصيل جلابة 🧵
-رقم الفاتورة: ${o.invoiceNumber}
-العميل: ${c.name}
-الأصناف:
-${itemsBreakdownLines(o).join('\n')}
-تاريخ الاستلام: ${fmtDate(o.dateReceived)}
-تاريخ التسليم: ${fmtDate(o.dateDelivery)}
-مصاريف إضافية: ${o.extra||0} ج.م
-${extraLines.length?extraLines.join('\n')+'\n':''}الإجمالي: ${Math.round(total).toLocaleString('ar-EG')} ج.م
-المدفوع: ${o.paid||0} ج.م
-المتبقي: ${Math.round(remaining).toLocaleString('ar-EG')} ج.م
-شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
-}
-
-function sendReminder(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  const c = customerById(o.customerId);
-  if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
-  let phone = c.phone.replace(/[^0-9]/g,'');
-  if(phone.startsWith('0')) phone = '2'+phone;
-  const msg =
-`تذكير من ${db.workshopName||'ورشة تفصيل الجلابيب'} 🧵
-حضرتك، جلابيتك (${orderTypeLabel(o)}) هتكون جاهزة يوم ${fmtDate(o.dateDelivery)} إن شاء الله.
-المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م
-في انتظار حضرتك 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
-}
-
-function printReceipt(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
-  const c = customerById(o.customerId);
-  const discount = orderDiscountAmount(o);
-  const tax = orderTaxAmount(o);
-  const total = orderTotal(o);
-  const remaining = orderRemaining(o);
-  const html = `
-    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>إيصال - ${escapeHtml(c?c.name:'')}</title>
-    <style>
-      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
-      h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
-      table{width:100%;border-collapse:collapse;margin-top:14px;}
-      td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
-      td.lbl{color:#666;width:45%;}
-      td.val{font-weight:bold;}
-      .total-row td{font-size:17px;color:#1F6D57;}
-      .items-table td{font-size:13.5px;padding:7px 6px;}
-      .items-table th{text-align:right;font-size:12.5px;color:#666;border-bottom:2px solid #ddd;padding:6px;}
-    </style></head><body>
-      ${printBrandHeaderHtml()}
-      <h1>🧾 إيصال تفصيل جلابة <span style="font-size:13px;color:#888;">رقم ${o.invoiceNumber||'-'}</span></h1>
-      <table>
-        <tr><td class="lbl">العميل</td><td class="val">${escapeHtml(c?c.name:'-')}</td></tr>
-        <tr><td class="lbl">الهاتف</td><td class="val">${escapeHtml(c?c.phone||'-':'-')}</td></tr>
-        <tr><td class="lbl">تاريخ الاستلام</td><td class="val">${fmtDate(o.dateReceived)}</td></tr>
-        <tr><td class="lbl">تاريخ التسليم المتوقع</td><td class="val">${fmtDate(o.dateDelivery)}</td></tr>
-      </table>
-      <table class="items-table">
-        <tr><th>الصنف</th><th>العدد</th><th>سعر القطعة</th><th>الإجمالي</th></tr>
-        ${(Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]).map(it=>`
-          <tr>
-            <td>${escapeHtml(it.type)}</td>
-            <td>${it.qty||1}</td>
-            <td>${(Number(it.unitPrice)||0).toLocaleString('ar-EG')} ج.م</td>
-            <td>${((it.qty||1)*(Number(it.unitPrice)||0)).toLocaleString('ar-EG')} ج.م</td>
-          </tr>
-        `).join('')}
-      </table>
-      <table>
-        <tr><td class="lbl">مصاريف إضافية</td><td class="val">${o.extra||0} ج.م</td></tr>
-        ${discount>0?`<tr><td class="lbl">الخصم</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-        ${tax>0?`<tr><td class="lbl">الضريبة/الرسوم</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-        <tr class="total-row"><td class="lbl">الإجمالي</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td class="lbl">المدفوع</td><td class="val">${o.paid||0} ج.م</td></tr>
-        <tr><td class="lbl">المتبقي</td><td class="val">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
-      </table>
-    </body></html>
-  `;
-  openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
-}
-
-function printOrderLabel(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  const c = customerById(o.customerId);
-  const shortId = o.id.slice(-5).toUpperCase();
-  const html = `
-    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>ملصق - ${escapeHtml(c?c.name:'')}</title>
-    <style>
-      @page{ size:80mm 50mm; margin:4mm; }
-      body{font-family:Tahoma,Arial,sans-serif;color:#111;margin:0;padding:10px;}
-      .label{border:2px dashed #1F6D57;border-radius:10px;padding:10px 12px;}
-      .label h1{font-size:16px;margin:0 0 6px;color:#1F6D57;}
-      .label .row{display:flex;justify-content:space-between;font-size:12.5px;margin:3px 0;}
-      .label .row b{font-weight:700;}
-      .label .code{margin-top:6px;text-align:center;font-size:18px;font-weight:900;letter-spacing:2px;border-top:1px dashed #ccc;padding-top:6px;}
-    </style></head><body>
-      <div class="label">
-        <div style="font-size:10.5px;color:#888;margin-bottom:2px;">${escapeHtml(db.workshopName||'ورشة تفصيل الجلابيب')}</div>
-        <h1>🧵 ${escapeHtml(c?c.name:'عميل')}</h1>
-        <div class="row"><span>النوع</span><b>${escapeHtml(orderTypeLabel(o))}</b></div>
-        <div class="row"><span>الاستلام</span><b>${fmtDate(o.dateReceived)}</b></div>
-        <div class="row"><span>التسليم</span><b>${fmtDate(o.dateDelivery)}</b></div>
-        <div class="code">#${shortId}</div>
-      </div>
-    </body></html>
-  `;
-  openPrintWindow(html, 'ملصق_'+(c?c.name:'طلب'));
-}
-
-/* ============================================================
-   المواعيد
-   ============================================================ */
-function renderDeliveriesCalendar(){
-  const box = document.getElementById('deliveriesCalendar');
-  if(!box) return;
-  if(!calendarMonth) calendarMonth = todayStr().slice(0,7);
-
-  const [y,m] = calendarMonth.split('-').map(Number);
-  const firstOfMonth = new Date(y, m-1, 1);
-  const daysInMonth = new Date(y, m, 0).getDate();
-  const startWeekday = firstOfMonth.getDay(); // 0=الأحد
-  const today = todayStr();
-  const monthLabel = firstOfMonth.toLocaleDateString('ar-EG', {month:'long', year:'numeric'});
-
-  // عدد الطلبات (غير المُسلَّمة) في كل يوم من الشهر
-  const countsByDay = {};
-  db.orders.forEach(o=>{
-    if(o.status==='تم التسليم' || !o.dateDelivery) return;
-    if(o.dateDelivery.slice(0,7)!==calendarMonth) return;
-    countsByDay[o.dateDelivery] = (countsByDay[o.dateDelivery]||0)+1;
-  });
-
-  let cells = '';
-  for(let i=0;i<startWeekday;i++){ cells += `<div></div>`; }
-  for(let d=1; d<=daysInMonth; d++){
-    const dateStr = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const count = countsByDay[dateStr]||0;
-    const isToday = dateStr===today;
-    const isSelected = dateStr===calendarSelectedDay;
-    const off = isDayOff(dateStr);
-    cells += `<div onclick="selectCalendarDay('${dateStr}')" style="
-        cursor:pointer;text-align:center;padding:6px 2px;border-radius:10px;position:relative;
-        background:${isSelected?'var(--primary)':(isToday?'var(--primary-light)':'transparent')};
-        color:${isSelected?'#fff':(off?'var(--danger)':'var(--text)')};
-        font-weight:${isToday||isSelected?'800':'500'};font-size:13px;">
-        ${d}
-        ${count>0?`<div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);width:6px;height:6px;border-radius:50%;background:${isSelected?'#fff':'var(--accent)'};"></div>`:''}
-      </div>`;
-  }
-
-  box.innerHTML = `
-    <div class="card">
-      <div class="row" style="margin-bottom:10px;">
-        <button class="btn sm outline" onclick="changeCalendarMonth(-1)">◀</button>
-        <h3 style="font-size:15px;">📅 ${monthLabel}</h3>
-        <button class="btn sm outline" onclick="changeCalendarMonth(1)">▶</button>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:4px;">
-        ${WEEKDAY_NAMES_AR.map(n=>`<div style="text-align:center;font-size:11px;color:var(--muted);font-weight:700;">${n[0]}</div>`).join('')}
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">${cells}</div>
-      ${calendarSelectedDay?`<button class="btn sm outline" style="margin-top:10px;" onclick="selectCalendarDay(null)">✕ إلغاء التصفية (${fmtDate(calendarSelectedDay)})</button>`:''}
-    </div>
-  `;
-}
-
-function changeCalendarMonth(delta){
-  const [y,m] = calendarMonth.split('-').map(Number);
-  const d = new Date(y, m-1+delta, 1);
-  calendarMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  renderDeliveriesCalendar();
-}
-
-function selectCalendarDay(dateStr){
-  calendarSelectedDay = (calendarSelectedDay===dateStr) ? null : dateStr;
-  renderDeliveriesCalendar();
-  renderDeliveriesList();
-}
-
-function renderDeliveries(){
-  renderDeliveriesCalendar();
-  renderDeliveriesList();
-}
-
-function renderDeliveriesList(){
-  let list = db.orders.filter(o=>o.status!=='تم التسليم').slice().sort((a,b)=>(a.dateDelivery||'').localeCompare(b.dateDelivery||''));
-  if(calendarSelectedDay){ list = list.filter(o=>o.dateDelivery===calendarSelectedDay); }
-  const today = todayStr();
-  const html = list.map(o=>{
-    const c = customerById(o.customerId);
-    const diffDays = Math.round((new Date(o.dateDelivery) - new Date(today))/86400000);
-    let daysTxt = '';
-    if(diffDays<0) daysTxt = `<span class="tag-late-text">متأخر ${Math.abs(diffDays)} يوم</span>`;
-    else if(diffDays===0) daysTxt = `<span style="color:var(--warn);font-weight:700;">التسليم اليوم</span>`;
-    else daysTxt = `<span style="color:var(--primary);font-weight:700;">باقي ${diffDays} يوم</span>`;
-    const onDayOff = isDayOff(o.dateDelivery);
-    return `<div class="card">
-      <div class="row">
-        <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
-        ${statusBadge(o)}
-      </div>
-      <div class="meta">👗 ${escapeHtml(orderTypeLabel(o))}</div>
-      <div class="meta">📅 تاريخ التسليم: ${fmtDate(o.dateDelivery)} — ${daysTxt}</div>
-      ${onDayOff?`<div class="meta" style="color:var(--danger);">⚠️ الموعد ده يصادف ${dayOffName()} (يوم الإجازة) — يُفضّل التنسيق مع العميل</div>`:''}
-      <div class="btn-row">
-        <button class="btn sm accent" onclick="sendReminder('${o.id}')">🔔 تذكير واتساب</button>
-      </div>
-    </div>`;
-  }).join('');
-  document.getElementById('deliveriesList').innerHTML = html || `<div class="empty-msg">${calendarSelectedDay?'لا توجد مواعيد تسليم في هذا اليوم':'لا توجد مواعيد تسليم قادمة'}</div>`;
-}
-
-/* ============================================================
-   المالية
-   ============================================================ */
-function renderFinance(){
-  const today = todayStr();
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
-  const yearMonth = today.slice(0,7);
-  const year = today.slice(0,4);
-
-  const revenueToday = db.payments.filter(p=>p.date===today).reduce((s,p)=>s+Number(p.amount||0),0);
-  const revenue7 = db.payments.filter(p=>p.date>=sevenDaysAgo).reduce((s,p)=>s+Number(p.amount||0),0);
-  const totalFees = db.orders.reduce((s,o)=>s+orderTotal(o),0);
-  const totalCollected = db.payments.reduce((s,p)=>s+Number(p.amount||0),0);
-  const totalRemaining = totalFees-totalCollected;
-
-  const collectedMonth = db.payments.filter(p=>p.date.slice(0,7)===yearMonth).reduce((s,p)=>s+Number(p.amount||0),0);
-  const expensesMonth = db.expenses.filter(e=>e.date.slice(0,7)===yearMonth).reduce((s,e)=>s+Number(e.amount||0),0);
-  const netMonth = collectedMonth-expensesMonth;
-
-  const collectedYear = db.payments.filter(p=>p.date.slice(0,4)===year).reduce((s,p)=>s+Number(p.amount||0),0);
-  const expensesYear = db.expenses.filter(e=>e.date.slice(0,4)===year).reduce((s,e)=>s+Number(e.amount||0),0);
-  const netYear = collectedYear-expensesYear;
-
-  const totalMaterialCost = db.orders.reduce((s,o)=>s+(Number(o.materialCost)||0),0);
-  const trueNetProfit = totalFees - totalMaterialCost - db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
-
-  document.getElementById('financeStats').innerHTML = `
-    <div class="stat-card"><div class="stat-ic">💰</div><div><div class="num">${revenueToday.toLocaleString('ar-EG')}</div><div class="lbl">إيراد اليوم</div></div></div>
-    <div class="stat-card"><div class="stat-ic">📈</div><div><div class="num">${revenue7.toLocaleString('ar-EG')}</div><div class="lbl">إيراد آخر 7 أيام</div></div></div>
-    <div class="stat-card"><div class="stat-ic">🧵</div><div><div class="num">${totalFees.toLocaleString('ar-EG')}</div><div class="lbl">إجمالي أجور التفصيل</div></div></div>
-    <div class="stat-card"><div class="stat-ic">✅</div><div><div class="num">${totalCollected.toLocaleString('ar-EG')}</div><div class="lbl">إجمالي المحصّل</div></div></div>
-    <div class="stat-card danger"><div class="stat-ic">⏳</div><div><div class="num">${totalRemaining.toLocaleString('ar-EG')}</div><div class="lbl">إجمالي المتبقي</div></div></div>
-    <div class="stat-card ${netMonth<0?'danger':''}"><div class="stat-ic">📆</div><div><div class="num">${netMonth.toLocaleString('ar-EG')}</div><div class="lbl">صافي الشهر (بعد المصروفات)</div></div></div>
-    <div class="stat-card ${netYear<0?'danger':''}"><div class="stat-ic">🗓️</div><div><div class="num">${netYear.toLocaleString('ar-EG')}</div><div class="lbl">صافي السنة (بعد المصروفات)</div></div></div>
-    <div class="stat-card"><div class="stat-ic">🧶</div><div><div class="num">${totalMaterialCost.toLocaleString('ar-EG')}</div><div class="lbl">إجمالي تكلفة الخامة</div></div></div>
-    <div class="stat-card ${trueNetProfit<0?'danger':''}"><div class="stat-ic">💎</div><div><div class="num">${trueNetProfit.toLocaleString('ar-EG')}</div><div class="lbl">صافي الربح الحقيقي (أجور - خامة - مصروفات)</div></div></div>
-  `;
-
-  renderAdvancedAnalytics();
-  renderWorkshopInsights();
-  renderDebtsList();
-
-  const lastPays = db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
-  document.getElementById('lastPayments').innerHTML = lastPays.length ? lastPays.map(p=>{
-    const o = db.orders.find(x=>x.id===p.orderId);
-    const c = o ? customerById(o.customerId) : null;
-    return `<div class="card">
-      <div class="row">
-        <h3>${c?escapeHtml(c.name):'عميل'}</h3>
-        <b style="color:var(--primary)">${Number(p.amount).toLocaleString('ar-EG')} ج.م</b>
-      </div>
-      <div class="meta">📅 ${fmtDate(p.date)}${o?' — '+escapeHtml(orderTypeLabel(o)):''}</div>
-    </div>`;
-  }).join('') : `<div class="empty-msg">لا توجد دفعات مسجلة بعد</div>`;
-
-  renderRevenueChart();
-  populateMonthSelect();
-  renderMonthlyReport();
-}
-
-/* ============================================================
-   شاشة المديونيات: كل عميل عليه متبقي، مرتب من الأكبر للأصغر
-   ============================================================ */
-function renderDebtsList(){
-  const box = document.getElementById('debtsList');
-  if(!box) return;
-  const byCustomer = {};
-  db.orders.forEach(o=>{
-    const remaining = orderRemaining(o);
-    if(remaining<=0) return;
-    if(!byCustomer[o.customerId]) byCustomer[o.customerId] = {remaining:0, orders:0};
-    byCustomer[o.customerId].remaining += remaining;
-    byCustomer[o.customerId].orders += 1;
-  });
-  const rows = Object.entries(byCustomer)
-    .map(([cid,v])=>({c:customerById(cid), ...v}))
-    .filter(r=>r.c)
-    .sort((a,b)=>b.remaining-a.remaining);
-
-  const totalDebt = rows.reduce((s,r)=>s+r.remaining,0);
-  const totalTxt = document.getElementById('totalDebtsTxt');
-  if(totalTxt) totalTxt.textContent = rows.length ? '('+totalDebt.toLocaleString('ar-EG')+' ج.م)' : '';
-
-  box.innerHTML = rows.length ? rows.map(r=>`
-    <div class="card">
-      <div class="row">
-        <h3 class="name-row">${avatarChip(r.c.name)}${escapeHtml(r.c.name)}</h3>
-        <b style="color:var(--danger);font-size:16px;">${r.remaining.toLocaleString('ar-EG')} ج.م</b>
-      </div>
-      <div class="meta">${r.orders} طلب غير مسدد بالكامل${r.c.phone?' — 📞 '+escapeHtml(r.c.phone):''}</div>
-      <div class="btn-row">
-        ${r.c.phone?`<button class="btn sm outline" onclick="sendDebtReminder('${r.c.id}')">💬 تذكير واتساب</button>`:''}
-        <button class="btn sm outline" onclick="openCustomerHistory('${r.c.id}')">📜 عرض السجل</button>
-      </div>
-    </div>
-  `).join('') : `<div class="empty-msg">لا توجد مديونيات حالياً 🎉</div>`;
-}
-
-function sendDebtReminder(customerId){
-  const c = customerById(customerId);
-  if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
-  const unpaidOrders = db.orders.filter(o=>o.customerId===customerId && orderRemaining(o)>0);
-  const totalRemaining = unpaidOrders.reduce((s,o)=>s+orderRemaining(o),0);
-  let phone = c.phone.replace(/[^0-9]/g,'');
-  if(phone.startsWith('0')) phone = '2'+phone;
-  const msg =
-`تذكير من ${db.workshopName||'ورشة تفصيل الجلابيب'} 🧵
-حضرتك، إجمالي المتبقي على حسابك: ${totalRemaining.toLocaleString('ar-EG')} ج.م
-عدد الطلبات غير المسددة بالكامل: ${unpaidOrders.length}
-في انتظار حضرتك 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
-}
-
-/* ============================================================
-   تحليلات متقدمة: توقعات، قيمة العملاء، كفاءة التشغيل، خريطة حرارية
-   ============================================================ */
-function renderAdvancedAnalytics(){
-  const box = document.getElementById('advancedAnalytics');
-  if(!box) return;
-
-  const now = new Date();
-  const todayS = todayStr();
-  const capacity = Number(db.dailyCapacity)||500;
-  const weekCapacity = capacity*7;
-
-  // 1) توقع إيراد الشهر القادم — متوسط تحصيل آخر 3 شهور فيهم دخل فعلي
-  const last3 = [];
-  for(let i=1;i<=3;i++){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
-    last3.push(db.payments.filter(p=>p.date.slice(0,7)===key).reduce((s,p)=>s+Number(p.amount||0),0));
-  }
-  const validMonths = last3.filter(v=>v>0);
-  const forecast = validMonths.length ? Math.round(validMonths.reduce((a,b)=>a+b,0)/validMonths.length) : 0;
-
-  // 2) تنبيه تكدس الأسبوع القادم
-  const in7 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
-  const nextWeekOrders = db.orders.filter(o=>o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery>todayS && o.dateDelivery<=in7);
-  const nextWeekValue = nextWeekOrders.reduce((s,o)=>s+orderTotal(o),0);
-  const congested = nextWeekValue > weekCapacity;
-
-  // 3) متوسط قيمة الطلب (AOV) الشهر الحالي مقابل السابق
-  const thisMonthKey = todayS.slice(0,7);
-  const prevMonthKey = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
-  const thisMonthOrders = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===thisMonthKey);
-  const prevMonthOrders = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===prevMonthKey);
-  const aovThis = thisMonthOrders.length ? Math.round(thisMonthOrders.reduce((s,o)=>s+orderTotal(o),0)/thisMonthOrders.length) : 0;
-  const aovPrev = prevMonthOrders.length ? Math.round(prevMonthOrders.reduce((s,o)=>s+orderTotal(o),0)/prevMonthOrders.length) : 0;
-  const aovDiff = aovPrev>0 ? Math.round(((aovThis-aovPrev)/aovPrev)*100) : null;
-
-  // 4) أفضل 10 عملاء بإجمالي المدفوع فعلياً (من سجل الدفعات)
-  const paidByCustomer = {};
-  db.payments.forEach(p=>{
-    const o = db.orders.find(x=>x.id===p.orderId);
-    if(!o) return;
-    paidByCustomer[o.customerId] = (paidByCustomer[o.customerId]||0) + Number(p.amount||0);
-  });
-  const topCustomers = Object.entries(paidByCustomer)
-    .map(([cid,total])=>({c:customerById(cid), total}))
-    .filter(x=>x.c)
-    .sort((a,b)=>b.total-a.total)
-    .slice(0,10);
-
-  // 5) نسبة العملاء المتكررين (عملهم أكتر من طلب واحد)
-  const ordersPerCustomer = {};
-  db.orders.forEach(o=>{ ordersPerCustomer[o.customerId] = (ordersPerCustomer[o.customerId]||0)+1; });
-  const customersWithOrders = Object.keys(ordersPerCustomer).length;
-  const repeatCustomers = Object.values(ordersPerCustomer).filter(n=>n>1).length;
-  const retentionPct = customersWithOrders ? Math.round((repeatCustomers/customersWithOrders)*100) : 0;
-
-  // 6) نسبة استخدام الطاقة — قيمة الطلبات المُستلمة آخر 7 أيام مقابل الطاقة الأسبوعية
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
-  const receivedLast7Value = db.orders.filter(o=>o.dateReceived && o.dateReceived>=sevenDaysAgo && o.dateReceived<=todayS).reduce((s,o)=>s+orderTotal(o),0);
-  const utilizationPct = weekCapacity ? Math.round((receivedLast7Value/weekCapacity)*100) : 0;
-
-  // 7) تكلفة التأخير — قيمة الطلبات المتأخرة حالياً
-  const delayCost = db.orders.filter(isOverdue).reduce((s,o)=>s+orderTotal(o),0);
-
-  // 8) تأثير الطلبات المستعجلة
-  const activeOrders = db.orders.filter(o=>o.status!=='تم التسليم');
-  const urgentActive = activeOrders.filter(o=>o.urgent);
-  const urgentPct = activeOrders.length ? Math.round((urgentActive.length/activeOrders.length)*100) : 0;
-  const urgentLateCount = urgentActive.filter(isOverdue).length;
-
-  // 9) خريطة حرارية شهرية لمواعيد التسليم
-  const heatMonthKey = todayS.slice(0,7);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const countsByDay = {};
-  db.orders.forEach(o=>{
-    if(o.dateDelivery && o.dateDelivery.slice(0,7)===heatMonthKey){
-      countsByDay[o.dateDelivery] = (countsByDay[o.dateDelivery]||0)+1;
-    }
-  });
-  const dayCountValues = Object.values(countsByDay);
-  const maxDayCount = dayCountValues.length ? Math.max(...dayCountValues) : 0;
-  let heatCells = '';
-  for(let day=1; day<=daysInMonth; day++){
-    const dStr = heatMonthKey+'-'+String(day).padStart(2,'0');
-    const cnt = countsByDay[dStr]||0;
-    const intensity = maxDayCount ? cnt/maxDayCount : 0;
-    const bg = cnt===0 ? 'var(--border)' : `rgba(31,109,87,${(0.15+intensity*0.75).toFixed(2)})`;
-    heatCells += `<div title="${fmtDate(dStr)}: ${cnt} تسليم" style="background:${bg};border-radius:4px;height:24px;display:flex;align-items:center;justify-content:center;font-size:9px;color:${intensity>0.5?'#fff':'var(--muted)'};">${day}</div>`;
-  }
-
-  box.innerHTML = `
-    <div class="card">
-      <h3>🔮 توقع إيراد الشهر القادم</h3>
-      <div class="num" style="font-size:22px;color:var(--primary);">${forecast.toLocaleString('ar-EG')} ج.م</div>
-      <p class="meta">بناءً على متوسط تحصيل ${validMonths.length||0} من آخر 3 شهور.</p>
-    </div>
-    ${congested?`<div class="alert-banner danger"><span class="ic">⚠️</span><div><b>تكدس متوقع الأسبوع القادم</b>قيمة الطلبات المستحقة (${nextWeekValue.toLocaleString('ar-EG')} ج.م) فوق طاقتك الأسبوعية (${weekCapacity.toLocaleString('ar-EG')} ج.م) — خطط بدري.</div></div>`:''}
-    <div class="grid-cards">
-      <div class="stat-card"><div class="stat-ic">🧾</div><div><div class="num">${aovThis.toLocaleString('ar-EG')}</div><div class="lbl">متوسط قيمة الطلب${aovDiff!==null?` (${aovDiff>=0?'+':''}${aovDiff}% عن الشهر اللي فات)`:''}</div></div></div>
-      <div class="stat-card ${retentionPct<30?'warn':''}"><div class="stat-ic">🔁</div><div><div class="num">${retentionPct}%</div><div class="lbl">عملاء متكررون</div></div></div>
-      <div class="stat-card ${utilizationPct>100?'danger':''}"><div class="stat-ic">⚙️</div><div><div class="num">${utilizationPct}%</div><div class="lbl">استخدام الطاقة (آخر 7 أيام)</div></div></div>
-      <div class="stat-card ${delayCost>0?'danger':''}"><div class="stat-ic">⏳</div><div><div class="num">${delayCost.toLocaleString('ar-EG')}</div><div class="lbl">قيمة الطلبات المتأخرة (ج.م)</div></div></div>
-      <div class="stat-card ${urgentPct>30?'warn':''}"><div class="stat-ic">🔥</div><div><div class="num">${urgentPct}%</div><div class="lbl">نسبة الطلبات المستعجلة${urgentLateCount>0?` (${urgentLateCount} متأخر منها)`:''}</div></div></div>
-    </div>
-    ${topCustomers.length?`
-    <div class="card">
-      <h3>🏆 أفضل 10 عملاء (إجمالي المدفوع)</h3>
-      ${topCustomers.map((x,i)=>`
-        <div class="row" style="padding:6px 0;${i<topCustomers.length-1?'border-bottom:1px dashed var(--border);':''}">
-          <span class="name-row">${avatarChip(x.c.name)} ${escapeHtml(x.c.name)}</span>
-          <b style="color:var(--primary);">${x.total.toLocaleString('ar-EG')} ج.م</b>
-        </div>
-      `).join('')}
-    </div>`:''}
-    <div class="card">
-      <h3>🗓️ خريطة مواعيد التسليم — ${new Date(heatMonthKey+'-01').toLocaleDateString('ar-EG',{month:'long',year:'numeric'})}</h3>
-      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:8px;">${heatCells}</div>
-    </div>
-    <div class="btn-row">
-      <button class="btn secondary" onclick="shareAnalyticsSummary()">📤 مشاركة ملخص التحليلات عبر واتساب</button>
-    </div>
-  `;
-}
-
-// مشاركة ملخص التحليلات كنص عبر واتساب (نفس أسلوب مشاركة ملخص الأسبوع)
-function shareAnalyticsSummary(){
-  const now = new Date();
-  const last3 = [];
-  for(let i=1;i<=3;i++){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
-    last3.push(db.payments.filter(p=>p.date.slice(0,7)===key).reduce((s,p)=>s+Number(p.amount||0),0));
-  }
-  const validMonths = last3.filter(v=>v>0);
-  const forecast = validMonths.length ? Math.round(validMonths.reduce((a,b)=>a+b,0)/validMonths.length) : 0;
-  const delayCost = db.orders.filter(isOverdue).reduce((s,o)=>s+orderTotal(o),0);
-  const activeOrders = db.orders.filter(o=>o.status!=='تم التسليم');
-  const urgentPct = activeOrders.length ? Math.round((activeOrders.filter(o=>o.urgent).length/activeOrders.length)*100) : 0;
-  const capacity = Number(db.dailyCapacity)||500;
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
-  const todayS = todayStr();
-  const receivedLast7Value = db.orders.filter(o=>o.dateReceived && o.dateReceived>=sevenDaysAgo && o.dateReceived<=todayS).reduce((s,o)=>s+orderTotal(o),0);
-  const utilizationPct = capacity*7 ? Math.round((receivedLast7Value/(capacity*7))*100) : 0;
-
-  const msg =
-`🔮 ملخص تحليلات ${db.workshopName||'الورشة'}
-📅 ${todayS}
-
-💰 توقع إيراد الشهر القادم: ${forecast.toLocaleString('ar-EG')} ج.م
-⚙️ استخدام الطاقة (آخر 7 أيام): ${utilizationPct}%
-⏳ قيمة الطلبات المتأخرة: ${delayCost.toLocaleString('ar-EG')} ج.م
-🔥 نسبة الطلبات المستعجلة: ${urgentPct}%
-📋 عدد الطلبات النشطة: ${activeOrders.length}`;
-
-  if(navigator.share){
-    navigator.share({title:'ملخص التحليلات', text:msg}).catch(()=>{});
-    return;
-  }
-  openExternalLink(`https://wa.me/?text=${encodeURIComponent(msg)}`);
-}
-
-/* ============================================================
-   رؤى الورشة: أكتر نوع تفصيل مطلوب + متوسط وقت تنفيذ الطلب
-   ============================================================ */
-function renderWorkshopInsights(){
-  const box = document.getElementById('workshopInsights');
-  if(!box) return;
-
-  // أكتر نوع تفصيل مطلوب (بالعدّ الفعلي للقطع في كل الطلبات)
-  const typeCounts = {};
-  db.orders.forEach(o=>{
-    const items = (Array.isArray(o.items)&&o.items.length) ? o.items : [{type:o.type, qty:o.qty||1}];
-    items.forEach(it=>{
-      if(!it.type) return;
-      typeCounts[it.type] = (typeCounts[it.type]||0) + (Number(it.qty)||1);
-    });
-  });
-  const sortedTypes = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  const maxCount = sortedTypes.length ? sortedTypes[0][1] : 0;
-
-  const topTypesHtml = sortedTypes.length ? `
-    <div class="card">
-      <h3>👗 الأنواع الأكثر طلباً</h3>
-      ${sortedTypes.map(([name,count])=>`
-        <div style="margin:10px 0;">
-          <div class="row" style="margin-bottom:4px;">
-            <span style="font-size:13.5px;">${escapeHtml(name)}</span>
-            <b style="font-size:13px;color:var(--muted);">${count} قطعة</b>
-          </div>
-          <div style="background:var(--border);border-radius:20px;height:8px;overflow:hidden;">
-            <div style="background:var(--primary);height:100%;width:${maxCount? Math.round(count/maxCount*100):0}%;border-radius:20px;"></div>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-  ` : `<div class="empty-msg">لا توجد بيانات كافية بعد</div>`;
-
-  // متوسط وقت تنفيذ الطلب: من تاريخ الاستلام لتاريخ التسليم الفعلي (للطلبات المُسلَّمة فقط)
-  const delivered = db.orders.filter(o=>o.status==='تم التسليم' && o.deliveredDate && o.dateReceived);
-  let avgTurnaroundHtml = `<div class="empty-msg">لا توجد طلبات مُسلَّمة كفاية لحساب المتوسط</div>`;
-  if(delivered.length){
-    const totalDays = delivered.reduce((s,o)=>{
-      const d = Math.round((new Date(o.deliveredDate)-new Date(o.dateReceived))/86400000);
-      return s + (d>0?d:0);
-    },0);
-    const avgDays = Math.round(totalDays/delivered.length);
-
-    // نفس الحساب لكن مقسّم حسب نوع القطعة (أول نوع في الطلب) عشان يبان لو نوع معين بياخد وقت أطول
-    const byType = {};
-    delivered.forEach(o=>{
-      const items = (Array.isArray(o.items)&&o.items.length) ? o.items : [{type:o.type}];
-      const typeName = items[0]?.type || 'غير محدد';
-      const d = Math.round((new Date(o.deliveredDate)-new Date(o.dateReceived))/86400000);
-      if(d<0) return;
-      if(!byType[typeName]) byType[typeName] = {sum:0,count:0};
-      byType[typeName].sum += d;
-      byType[typeName].count += 1;
-    });
-    const byTypeRows = Object.entries(byType)
-      .map(([name,v])=>({name, avg:Math.round(v.sum/v.count), count:v.count}))
-      .sort((a,b)=>b.avg-a.avg)
-      .slice(0,4);
-
-    avgTurnaroundHtml = `
-      <div class="card">
-        <h3>⏱️ متوسط وقت تنفيذ الطلب</h3>
-        <div class="row"><span style="font-size:13.5px;color:var(--muted);">من ${delivered.length} طلب مُسلَّم</span>
-          <b style="font-family:var(--font-display);font-size:19px;color:var(--heading);">${avgDays} يوم</b>
-        </div>
-        ${byTypeRows.length?`<hr class="sep">${byTypeRows.map(r=>`
-          <div class="row" style="margin-bottom:4px;">
-            <span style="font-size:13px;">${escapeHtml(r.name)}</span>
-            <span style="font-size:13px;color:var(--muted);">${r.avg} يوم (${r.count} طلب)</span>
-          </div>
-        `).join('')}`:''}
-      </div>
-    `;
-  }
-
-  box.innerHTML = topTypesHtml + avgTurnaroundHtml;
-}
-
-/* ---- رسم بياني بسيط للإيرادات الشهرية (Canvas بدون مكتبات) ---- */
-function renderRevenueChart(){
-  const canvas = document.getElementById('revenueChart');
-  if(!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0,0,W,H);
-
-  const now = new Date();
-  const months = [];
-  for(let i=5;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({key:d.toISOString().slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
-  }
-  const values = months.map(m=>db.payments.filter(p=>p.date.slice(0,7)===m.key).reduce((s,p)=>s+Number(p.amount||0),0));
-  const maxVal = Math.max(...values, 1);
-
-  const padL=40, padB=26, padT=14, padR=10;
-  const chartW = W-padL-padR, chartH = H-padT-padB;
-  const barGap = 14;
-  const barW = (chartW - barGap*(months.length-1)) / months.length;
-
-  ctx.strokeStyle = '#e4d9bf';
-  ctx.beginPath();
-  ctx.moveTo(padL, padT); ctx.lineTo(padL, H-padB); ctx.lineTo(W-padR, H-padB);
-  ctx.stroke();
-
-  ctx.font = '11px "IBM Plex Sans Arabic", Tahoma, Arial, sans-serif';
-  ctx.fillStyle = '#847c6c';
-  ctx.textAlign = 'center';
-
-  months.forEach((m,i)=>{
-    const x = padL + i*(barW+barGap);
-    const h = (values[i]/maxVal) * (chartH-16);
-    const y = H-padB-h;
-    ctx.fillStyle = '#1F6D57';
-    ctx.beginPath();
-    if(ctx.roundRect){ ctx.roundRect(x, y, barW, h, [5,5,0,0]); ctx.fill(); }
-    else { ctx.fillRect(x,y,barW,h); }
-    ctx.fillStyle = '#123C2F';
-    ctx.fillText(values[i].toLocaleString('ar-EG'), x+barW/2, y-5);
-    ctx.fillStyle = '#847c6c';
-    ctx.fillText(m.label, x+barW/2, H-padB+14);
-  });
-}
-
-/* ---- التقرير الشهري ---- */
-function populateMonthSelect(){
-  const sel = document.getElementById('reportMonthSelect');
-  const prev = sel.value;
-  let opts = '';
-  const now = new Date();
-  for(let i=0;i<12;i++){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const val = d.toISOString().slice(0,7);
-    const label = d.toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
-    opts += `<option value="${val}">${label}</option>`;
-  }
-  sel.innerHTML = opts;
-  sel.value = prev || now.toISOString().slice(0,7);
-}
-
-function renderMonthlyReport(){
-  const sel = document.getElementById('reportMonthSelect');
-  if(!sel) return;
-  const month = sel.value || todayStr().slice(0,7);
-  const ordersReceived = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===month).length;
-  const ordersDelivered = db.orders.filter(o=>o.deliveredDate && o.deliveredDate.slice(0,7)===month).length;
-  const collected = db.payments.filter(p=>p.date.slice(0,7)===month).reduce((s,p)=>s+Number(p.amount||0),0);
-  const expenses = db.expenses.filter(e=>e.date.slice(0,7)===month).reduce((s,e)=>s+Number(e.amount||0),0);
-  const net = collected-expenses;
-  document.getElementById('monthlyReportBody').innerHTML = `
-    <div class="meta">📥 طلبات استُلمت هذا الشهر: <b>${ordersReceived}</b></div>
-    <div class="meta">📤 طلبات تم تسليمها هذا الشهر: <b>${ordersDelivered}</b></div>
-    <div class="meta">💰 المحصَّل: <b>${collected.toLocaleString('ar-EG')} ج.م</b></div>
-    <div class="meta">🧵 المصروفات: <b style="color:var(--danger)">${expenses.toLocaleString('ar-EG')} ج.م</b></div>
-    <hr class="sep">
-    <div class="row"><h3>الصافي</h3><b style="color:${net<0?'var(--danger)':'var(--ok)'};font-size:17px;">${net.toLocaleString('ar-EG')} ج.م</b></div>
-  `;
-}
-
-function printMonthlyReport(){
-  const sel = document.getElementById('reportMonthSelect');
-  const month = sel.value || todayStr().slice(0,7);
-  const label = new Date(month+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
-  const ordersReceived = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===month).length;
-  const ordersDelivered = db.orders.filter(o=>o.deliveredDate && o.deliveredDate.slice(0,7)===month).length;
-  const collected = db.payments.filter(p=>p.date.slice(0,7)===month).reduce((s,p)=>s+Number(p.amount||0),0);
-  const expensesList = db.expenses.filter(e=>e.date.slice(0,7)===month);
-  const expenses = expensesList.reduce((s,e)=>s+Number(e.amount||0),0);
-  const net = collected-expenses;
-  const html = `
-    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>تقرير ${label}</title>
-    <style>
-      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
-      h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
-      table{width:100%;border-collapse:collapse;margin-top:14px;}
-      td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
-      td.lbl{color:#666;width:55%;}
-      td.val{font-weight:bold;}
-      .total-row td{font-size:17px;color:#1F6D57;}
-      h2{font-size:15px;margin-top:22px;}
-    </style></head><body>
-      <h1>📊 التقرير الشهري — ${label}</h1>
-      <table>
-        <tr><td class="lbl">طلبات استُلمت</td><td class="val">${ordersReceived}</td></tr>
-        <tr><td class="lbl">طلبات تم تسليمها</td><td class="val">${ordersDelivered}</td></tr>
-        <tr><td class="lbl">إجمالي المحصَّل</td><td class="val">${collected.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td class="lbl">إجمالي المصروفات</td><td class="val">${expenses.toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr class="total-row"><td class="lbl">الصافي</td><td class="val">${net.toLocaleString('ar-EG')} ج.م</td></tr>
-      </table>
-      ${expensesList.length?`<h2>🧵 تفاصيل المصروفات</h2><table>${expensesList.map(e=>`<tr><td class="lbl">${escapeHtml(e.desc)} (${fmtDate(e.date)})</td><td class="val">${Number(e.amount).toLocaleString('ar-EG')} ج.م</td></tr>`).join('')}</table>`:''}
-    </body></html>
-  `;
-  openPrintWindow(html, 'تقرير_'+label);
-}
-
-/* ============================================================
-   المصروفات
-   ============================================================ */
-function renderExpenses(){
-  const total = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
-  document.getElementById('totalExpensesTxt').textContent = total.toLocaleString('ar-EG')+' ج.م';
-  const list = db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
-  document.getElementById('expensesList').innerHTML = list.length ? list.map(e=>`
-    <div class="card">
-      <div class="row">
-        <h3>${escapeHtml(e.desc)}</h3>
-        <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
-      </div>
-      <div class="meta">📅 ${fmtDate(e.date)}</div>
-      <div class="btn-row">
-        <button class="btn sm danger" onclick="deleteExpense('${e.id}')">🗑️ حذف</button>
-      </div>
-    </div>
-  `).join('') : `<div class="empty-msg">لا توجد مصروفات مسجلة</div>`;
-}
-
-function openExpenseModal(){
-  const html = `
-    <div class="modal-head"><h3>➕ مصروف جديد</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>وصف المصروف</label><input id="f_expDesc" placeholder="مثال: خيوط، أزرار، سوست..."></div>
-    <div class="field"><label>المبلغ (ج.م)</label><input id="f_expAmount" type="number" placeholder="0"></div>
-    <div class="field"><label>التاريخ</label><input id="f_expDate" type="date" value="${todayStr()}"></div>
-    <button class="btn" onclick="saveExpense()">💾 حفظ</button>
-  `;
-  openModal(html);
-}
-
-function saveExpense(){
-  const desc = document.getElementById('f_expDesc').value.trim();
-  const amount = Number(document.getElementById('f_expAmount').value)||0;
-  const date = document.getElementById('f_expDate').value || todayStr();
-  if(!desc){ toast('أدخل وصف المصروف'); return; }
-  if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
-  db.expenses.push({id:uid(), desc, amount, date});
-  saveDB();
-  closeModal();
-  renderExpenses();
-  toast('تم إضافة المصروف ✅');
-}
-
-async function deleteExpense(id){
-  if(!await appConfirm('حذف هذا المصروف؟')) return;
-  db.expenses = db.expenses.filter(e=>e.id!==id);
-  saveDB();
-  renderExpenses();
-  toast('تم الحذف');
-}
-
-/* ============================================================
-   الإعدادات: الطاقة اليومية + أنواع التفصيل
-   ============================================================ */
-function renderSettings(){
-  document.getElementById('workshopNameInput').value = db.workshopName||'';
-  document.getElementById('ownerNameInput').value = db.ownerName||'';
-  document.getElementById('ownerPhoneInput').value = db.ownerPhone||'';
-  document.getElementById('workshopAddressInput').value = db.workshopAddress||'';
-  fillThemeInputs();
-  document.getElementById('customCSSInput').value = db.customCSS||'';
-  document.getElementById('customJSInput').value = db.customJS||'';
-  document.getElementById('dailyCapacityInput').value = db.dailyCapacity;
-  document.getElementById('workStartHourInput').value = db.workStartHour;
-  document.getElementById('workEndHourInput').value = db.workEndHour;
-  document.getElementById('vipThresholdInput').value = db.vipThreshold;
-  document.getElementById('idleLockInput').value = db.idleLockMinutes;
-  document.getElementById('debtThresholdInput').value = db.debtThreshold;
-  document.getElementById('dayOffInput').value = String(db.dayOffWeekday ?? 0);
-  document.getElementById('nextInvoiceInput').value = db.nextInvoiceNumber||1001;
-  document.getElementById('taxDefaultInput').value = db.taxDefaultPercent||0;
-  document.getElementById('lastBackupTxt').textContent = db.lastBackupDate ? ('📅 آخر نسخة احتياطية: '+fmtDate(db.lastBackupDate)) : '⚠️ لم يتم عمل نسخة احتياطية بعد';
-  renderTrash();
-  renderGarmentTypes();
-}
-
-function saveWorkshopInfo(){
-  const name = document.getElementById('workshopNameInput').value.trim();
-  if(!name){ toast('أدخل اسم الورشة'); return; }
-  db.workshopName = name;
-  db.ownerName = document.getElementById('ownerNameInput').value.trim();
-  db.ownerPhone = document.getElementById('ownerPhoneInput').value.trim();
-  db.workshopAddress = document.getElementById('workshopAddressInput').value.trim();
-  saveDB();
-  applyWorkshopBranding();
-  toast('تم حفظ بيانات الورشة ✅');
-}
-
-// يحدّث اسم الورشة في كل الأماكن التي تظهر فيها داخل الواجهة
-function applyWorkshopBranding(){
-  const name = (db && db.workshopName) ? db.workshopName : 'ورشة تفصيل الجلابيب';
-  document.title = name;
-  const lockTitle = document.getElementById('lockTitle');
-  if(lockTitle) lockTitle.textContent = name;
-  const sidenavTitle = document.getElementById('sidenavTitle');
-  if(sidenavTitle) sidenavTitle.textContent = name;
-}
-
-/* ============================================================
-   تخصيص المظهر: الألوان + شكل الأزرار + كود مخصص
-   ============================================================ */
-const DEFAULT_THEME = {primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'};
-const DEFAULT_BTN_RADIUS = 12;
-
-function applyTheme(){
-  const t = (db && db.theme) ? db.theme : DEFAULT_THEME;
-  const root = document.documentElement.style;
-  root.setProperty('--primary', t.primary||DEFAULT_THEME.primary);
-  root.setProperty('--primary-dark', t.primaryDark||DEFAULT_THEME.primaryDark);
-  root.setProperty('--accent', t.accent||DEFAULT_THEME.accent);
-  root.setProperty('--bg', t.bg||DEFAULT_THEME.bg);
-  root.setProperty('--btn-radius', (Number(db&&db.btnRadius)||DEFAULT_BTN_RADIUS)+'px');
-}
-
-function saveTheme(){
-  db.theme = {
-    primary: document.getElementById('colorPrimary').value,
-    primaryDark: document.getElementById('colorPrimaryDark').value,
-    accent: document.getElementById('colorAccent').value,
-    bg: document.getElementById('colorBg').value
-  };
-  saveDB();
-  applyTheme();
-  toast('تم حفظ الألوان ✅');
-}
-
-function resetTheme(){
-  db.theme = {...DEFAULT_THEME};
-  saveDB();
-  applyTheme();
-  fillThemeInputs();
-  toast('تم استعادة الألوان الافتراضية ✅');
-}
-
-// ===== أشكال ألوان جاهزة =====
-const THEME_PRESETS = {
-  classic: {primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'},
-  modern:  {primary:'#2563A6', primaryDark:'#123C5F', accent:'#3FB6A8', bg:'#EEF3F8'},
-  warm:    {primary:'#A2453A', primaryDark:'#5C201A', accent:'#D4A24C', bg:'#FBF1E7'},
-  mono:    {primary:'#3A3A3A', primaryDark:'#1A1A1A', accent:'#8A8A8A', bg:'#F2F2F0'}
-};
-
-function applyThemePreset(name){
-  const preset = THEME_PRESETS[name];
-  if(!preset) return;
-  db.theme = {...preset};
-  saveDB();
-  applyTheme();
-  fillThemeInputs();
-  toast('تم تطبيق الشكل الجديد ✅');
-}
-
-function saveButtonRadius(){
-  db.btnRadius = Number(document.getElementById('btnRadiusInput').value)||DEFAULT_BTN_RADIUS;
-  saveDB();
-  applyTheme();
-  toast('تم حفظ شكل الأزرار ✅');
-}
-
-/* ===== الوضع الليلي ===== */
-function applyDarkMode(){
-  const on = !!(db && db.darkMode);
-  document.documentElement.setAttribute('data-theme', on ? 'dark' : 'light');
-  const btn = document.getElementById('themeToggleBtn');
-  if(btn) btn.textContent = on ? '☀️' : '🌙';
-  const metaTheme = document.querySelector('meta[name="theme-color"]');
-  if(metaTheme) metaTheme.setAttribute('content', on ? '#171916' : '#1F6D57');
-}
-
-function toggleDarkMode(){
-  db.darkMode = !db.darkMode;
-  saveDB();
-  applyDarkMode();
-}
-
-function fillThemeInputs(){
-  const t = (db && db.theme) ? db.theme : DEFAULT_THEME;
-  const elP=document.getElementById('colorPrimary'), elPD=document.getElementById('colorPrimaryDark'),
-        elA=document.getElementById('colorAccent'), elBg=document.getElementById('colorBg'),
-        elR=document.getElementById('btnRadiusInput');
-  if(elP) elP.value = t.primary||DEFAULT_THEME.primary;
-  if(elPD) elPD.value = t.primaryDark||DEFAULT_THEME.primaryDark;
-  if(elA) elA.value = t.accent||DEFAULT_THEME.accent;
-  if(elBg) elBg.value = t.bg||DEFAULT_THEME.bg;
-  if(elR) elR.value = String(Number(db&&db.btnRadius)||DEFAULT_BTN_RADIUS);
-}
-
-// تطبيق CSS المخصص عبر وسم <style> منفصل، آمن ولا يحتاج تحذير
-function applyCustomCSS(){
-  let styleTag = document.getElementById('userCustomCSS');
-  if(!styleTag){
-    styleTag = document.createElement('style');
-    styleTag.id = 'userCustomCSS';
-    document.head.appendChild(styleTag);
-  }
-  styleTag.textContent = (db && db.customCSS) ? db.customCSS : '';
-}
-
-// تشغيل الـ JavaScript المخصص بأمان قدر الإمكان (محاط بـ try/catch حتى لا يعطل التطبيق كله لو فيه خطأ)
-function runCustomJS(){
-  if(!db || !db.customJS || !db.customJS.trim()) return;
-  try{
-    new Function(db.customJS)();
-  }catch(e){
-    toast('⚠️ خطأ في الكود المخصص: '+e.message);
-  }
-}
-
-function saveCustomCode(){
-  db.customCSS = document.getElementById('customCSSInput').value;
-  db.customJS = document.getElementById('customJSInput').value;
-  saveDB();
-  applyCustomCSS();
-  runCustomJS();
-  toast('تم تطبيق وحفظ الكود المخصص ✅');
-}
-
-async function resetCustomCode(){
-  if(!await appConfirm('هل تريد مسح كل الكود المخصص (CSS وJavaScript) والعودة للوضع الافتراضي؟')) return;
-  db.customCSS = '';
-  db.customJS = '';
-  saveDB();
-  applyCustomCSS();
-  document.getElementById('customCSSInput').value = '';
-  document.getElementById('customJSInput').value = '';
-  toast('تم استعادة الوضع الافتراضي ✅');
-}
-
-// تنزيل نسخة كاملة من كود التطبيق (HTML) بكل التخصيصات الحالية، لفتحها أو تعديلها خارج التطبيق
-async function downloadFullAppCode(){
-  try{
-    const fullHtml = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-    const blob = new Blob([fullHtml], {type:'text/html'});
-    const ok = await saveOrShareFile(blob, (db.workshopName||'تطبيق_الورشة')+'.html');
-    if(ok) toast('تم حفظ نسخة كود التطبيق ✅');
-  }catch(e){
-    toast('حدث خطأ أثناء التنزيل');
-  }
-}
-
-function saveDayOff(){
-  const val = Number(document.getElementById('dayOffInput').value);
-  db.dayOffWeekday = val;
-  saveDB();
-  toast('تم حفظ يوم الإجازة ✅');
-  if(currentPage==='home') renderHome();
-}
-
-function saveDebtThreshold(){
-  const val = Number(document.getElementById('debtThresholdInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  db.debtThreshold = val;
-  saveDB();
-  toast('تم الحفظ ✅');
-}
-
-// إعادة حساب مواعيد التسليم لكل الطلبات النشطة (غير المسلَّمة) من جديد
-// بنفس منطق اقتراح الموعد عند إنشاء الطلب، لكن بناءً على الطاقة الاستيعابية
-// الحالية (بعد التعديل) — مرتبة حسب أسبقية الاستلام (الأقدم يتحسب أولاً)
-function recalculateAllDeliveryDates(){
-  const capacity = Number(db.dailyCapacity)||500;
-  const avgDelay = avgDelayDays();
-  const safetyDays = avgDelay>0.5 ? 2+Math.ceil(avgDelay) : 2;
-
-  const active = db.orders
-    .filter(o=>o.status!=='تم التسليم')
-    .sort((a,b)=>(a.dateReceived||'').localeCompare(b.dateReceived||'') || String(a.id).localeCompare(String(b.id)));
-
-  let cumValue = 0;
-  active.forEach(o=>{
-    cumValue += orderTotal(o);
-    const daysNeeded = Math.max(1, Math.ceil(cumValue/capacity));
-    const totalDays = daysNeeded + safetyDays;
-    o.dateDelivery = addWorkDaysFromNow(totalDays).toISOString().slice(0,10);
-  });
-
-  saveDB();
-  renderAll();
-}
-
-async function saveDailyCapacity(){
-  const val = Number(document.getElementById('dailyCapacityInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  const startH = Number(document.getElementById('workStartHourInput').value);
-  const endH = Number(document.getElementById('workEndHourInput').value);
-  if(!Number.isFinite(startH) || !Number.isFinite(endH) || endH<=startH){
-    toast('تأكد إن ساعة النهاية بعد ساعة البداية'); return;
-  }
-  const capacityChanged = Number(db.dailyCapacity)!==val;
-  db.dailyCapacity = val;
-  db.workStartHour = startH;
-  db.workEndHour = endH;
-  saveDB();
-  if(currentPage==='home') renderTodayPlan();
-  toast('تم حفظ الطاقة اليومية ✅');
-
-  if(capacityChanged){
-    const hasActiveOrders = db.orders.some(o=>o.status!=='تم التسليم');
-    if(hasActiveOrders && await appConfirm('تم تغيير الطاقة الاستيعابية اليومية. هل تريد إعادة حساب مواعيد التسليم لكل الطلبات الحالية (غير المسلَّمة) بناءً على القيمة الجديدة؟', {okText:'إعادة الحساب', danger:false})){
-      recalculateAllDeliveryDates();
-      toast('تم تحديث مواعيد التسليم لكل الطلبات ✅');
-    }
-  }
-}
-
-function saveInvoiceTaxSettings(){
-  const nextInv = Number(document.getElementById('nextInvoiceInput').value);
-  const taxDef = Number(document.getElementById('taxDefaultInput').value);
-  if(!nextInv || nextInv<=0){ toast('أدخل رقم فاتورة صحيح أكبر من صفر'); return; }
-  if(!Number.isFinite(taxDef) || taxDef<0){ toast('نسبة الضريبة لا يمكن أن تكون رقماً سالباً'); return; }
-  db.nextInvoiceNumber = Math.round(nextInv);
-  db.taxDefaultPercent = taxDef;
-  saveDB();
-  toast('تم الحفظ ✅');
-}
-
-function saveVipThreshold(){
-  const val = Number(document.getElementById('vipThresholdInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  db.vipThreshold = val;
-  saveDB();
-  toast('تم الحفظ ✅');
-}
-
-function saveIdleLock(){
-  const val = Number(document.getElementById('idleLockInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  db.idleLockMinutes = val;
-  saveDB();
-  resetIdleTimer();
-  toast('تم الحفظ ✅');
-}
-
-function renderGarmentTypes(){
-  const list = db.garmentTypes.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  document.getElementById('garmentTypesList').innerHTML = list.length ? list.map(g=>`
-    <div class="card" style="margin-bottom:8px;">
-      <div class="row">
-        <h3>${escapeHtml(g.name)}</h3>
-        <b style="color:var(--primary)">${Number(g.price).toLocaleString('ar-EG')} ج.م</b>
-      </div>
-      <div class="btn-row">
-        <button class="btn sm secondary" onclick="openGarmentTypeModal('${g.id}')">✏️ تعديل</button>
-        <button class="btn sm danger" onclick="deleteGarmentType('${g.id}')">🗑️ حذف</button>
-      </div>
-    </div>
-  `).join('') : `<div class="empty-msg">لا توجد أنواع مضافة بعد</div>`;
-}
-
-function openGarmentTypeModal(id){
-  const g = id ? db.garmentTypes.find(x=>x.id===id) : null;
-  const html = `
-    <div class="modal-head"><h3>${g?'✏️ تعديل نوع':'➕ نوع تفصيل جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>اسم نوع التفصيل</label><input id="f_gtName" value="${g?escapeHtml(g.name):''}" placeholder="مثال: جلابية رجالي كلاسيك"></div>
-    <div class="field"><label>السعر الأساسي (ج.م)</label><input id="f_gtPrice" type="number" value="${g?g.price:''}" placeholder="0"></div>
-    <button class="btn" onclick="saveGarmentType(${g?`'${g.id}'`:'null'})">💾 حفظ</button>
-  `;
-  openModal(html);
-}
-
-function saveGarmentType(id){
-  const name = document.getElementById('f_gtName').value.trim();
-  const price = Number(document.getElementById('f_gtPrice').value)||0;
-  if(!name){ toast('أدخل اسم النوع'); return; }
-  if(price<=0){ toast('أدخل سعراً صحيحاً'); return; }
-  const duplicate = db.garmentTypes.find(g=>g.id!==id && g.name.trim()===name);
-  if(duplicate){ toast('يوجد نوع بنفس الاسم بالفعل'); return; }
-  if(id){
-    const g = db.garmentTypes.find(x=>x.id===id);
-    Object.assign(g, {name, price});
-  } else {
-    db.garmentTypes.push({id:uid(), name, price});
-  }
-  saveDB();
-  closeModal();
-  renderGarmentTypes();
-  toast('تم الحفظ ✅');
-}
-
-async function deleteGarmentType(id){
-  if(!await appConfirm('حذف هذا النوع؟')) return;
-  db.garmentTypes = db.garmentTypes.filter(g=>g.id!==id);
-  saveDB();
-  renderGarmentTypes();
-  toast('تم الحذف');
-}
-
-/* ============================================================
-   الإعدادات: كلمة المرور + نسخ احتياطي
-   ============================================================ */
-function changePassword(){
-  const oldP = document.getElementById('oldPass').value;
-  const newP = document.getElementById('newPass').value;
-  if(oldP !== db.password){ toast('الرقم الحالي غير صحيح'); return; }
-  if(!/^\d{4}$/.test(newP)){ toast('الرقم الجديد يجب أن يكون 4 أرقام'); return; }
-  db.password = newP;
-  saveDB();
-  document.getElementById('oldPass').value='';
-  document.getElementById('newPass').value='';
-  toast('تم تغيير الرقم السري بنجاح ✅');
-}
-
-function csvEscape(val){
-  let s = (val===null||val===undefined) ? '' : String(val);
-  if(/[",\n]/.test(s)) s = '"'+s.replace(/"/g,'""')+'"';
-  return s;
-}
-
-async function downloadCSV(rows, filename){
-  const content = rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
-  // BOM في الأول عشان Excel يعرض العربي صح
-  const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
-  const ok = await saveOrShareFile(blob, filename);
-  if(ok) toast('تم حفظ الملف ✅');
-}
-
-function exportOrdersCSV(){
-  const rows = [['رقم الفاتورة','اسم العميل','رقم الهاتف','نوع الجلابية','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي']];
-  db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||'')).forEach(o=>{
-    const c = customerById(o.customerId);
-    rows.push([
-      o.invoiceNumber||'', c?c.name:'عميل محذوف', c?(c.phone||''):'', orderTypeLabel(o),
-      fmtDate(o.dateReceived), fmtDate(o.dateDelivery), o.status||'',
-      orderTotal(o), Number(o.paid)||0, orderRemaining(o)
-    ]);
-  });
-  downloadCSV(rows, 'تقرير_الطلبات_'+todayStr()+'.csv');
-}
-
-function exportCustomersCSV(){
-  const rows = [['اسم العميل','رقم الهاتف','الطول','طول الكم','الصدر','الخزنة','وسع الكم','ملاحظات']];
-  db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).forEach(c=>{
-    rows.push([c.name, c.phone||'', c.length||'', c.sleeve||'', c.chest||'', c.waist||'', c.shoulder||'', c.notes||'']);
-  });
-  downloadCSV(rows, 'تقرير_العملاء_'+todayStr()+'.csv');
-}
-
-function exportExpensesCSV(){
-  const rows = [['الوصف','المبلغ','التاريخ']];
-  db.expenses.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).forEach(e=>{
-    rows.push([e.desc||'', Number(e.amount)||0, fmtDate(e.date)]);
-  });
-  downloadCSV(rows, 'تقرير_المصروفات_'+todayStr()+'.csv');
-}
-
-async function exportBackup(){
-  const blob = new Blob([JSON.stringify(db, null, 2)], {type:'application/json'});
-  await saveOrShareFile(blob, 'نسخة_احتياطية_ورشة_الجلابيب_'+todayStr()+'.json');
-  db.lastBackupDate = todayStr();
-  saveDB();
-  if(currentPage==='settings') renderSettings();
-  toast('تم تنزيل النسخة الاحتياطية ✅');
-}
-
-
-function importBackup(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = async function(e){
-    try{
-      const imported = JSON.parse(e.target.result);
-      if(!imported.customers || !imported.orders){
-        toast('ملف غير صالح');
-        return;
-      }
-      if(!await appConfirm('سيتم استبدال كل البيانات الحالية بالنسخة المستوردة. هل أنت متأكد؟')) return;
-      db = imported;
-      if(!db.password) db.password='0000';
-      if(!db.payments) db.payments=[];
-      if(!db.expenses) db.expenses=[];
-      if(!db.dailyCapacity) db.dailyCapacity=500;
-      if(!db.garmentTypes) db.garmentTypes=[];
-      if(!db.vipThreshold) db.vipThreshold=3;
-      if(!db.idleLockMinutes) db.idleLockMinutes=3;
-      if(!db.debtThreshold) db.debtThreshold=2000;
-      if(db.lastBackupDate===undefined) db.lastBackupDate=null;
-      if(db.dayOffWeekday===undefined || db.dayOffWeekday===null) db.dayOffWeekday=0;
-      if(!db.workshopName) db.workshopName='ورشة تفصيل الجلابيب';
-      if(db.ownerName===undefined) db.ownerName='';
-      if(db.ownerPhone===undefined) db.ownerPhone='';
-      if(db.workshopAddress===undefined) db.workshopAddress='';
-      if(!db.theme) db.theme={...DEFAULT_THEME};
-      if(!db.btnRadius) db.btnRadius=DEFAULT_BTN_RADIUS;
-      if(db.customCSS===undefined) db.customCSS='';
-      if(db.customJS===undefined) db.customJS='';
-      if(db.darkMode===undefined) db.darkMode=false;
-      if(!db.workStartHour) db.workStartHour=9;
-      if(!db.workEndHour) db.workEndHour=18;
-      if(!db.queueManualOrder) db.queueManualOrder=[];
-      if(!db.trash) db.trash=[];
-      if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
-      if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
-      saveDB();
-      renderAll();
-      applyWorkshopBranding();
-      applyTheme();
-      applyDarkMode();
-      applyCustomCSS();
-      toast('تم استيراد النسخة الاحتياطية بنجاح ✅');
-    }catch(err){
-      toast('حدث خطأ أثناء قراءة الملف');
-    }
-  };
-  reader.readAsText(file);
-  event.target.value='';
-}
-
-/* ============================================================
-   سلة المحذوفات — استرجاع العملاء/الطلبات المحذوفة خلال 7 أيام
-   ============================================================ */
-const TRASH_RETENTION_DAYS = 7;
-
-function purgeOldTrash(){
-  if(!db.trash || !db.trash.length) return;
-  const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS*86400000).toISOString().slice(0,10);
-  db.trash = db.trash.filter(t=>t.deletedAt >= cutoff);
-}
-
-function renderTrash(){
-  const box = document.getElementById('trashList');
-  const countTxt = document.getElementById('trashCountTxt');
-  if(!box) return;
-  purgeOldTrash();
-  saveDB();
-  const items = (db.trash||[]).slice().sort((a,b)=>b.deletedAt.localeCompare(a.deletedAt));
-  if(countTxt) countTxt.textContent = items.length ? `(${items.length})` : '';
-  box.innerHTML = items.length ? items.map(t=>{
-    const daysLeft = Math.max(0, TRASH_RETENTION_DAYS - Math.round((new Date(todayStr())-new Date(t.deletedAt))/86400000));
-    const label = t.type==='customer' ? `👤 عميل: ${escapeHtml(t.data.name)}` : `📋 طلب: ${escapeHtml(customerById(t.data.customerId)?customerById(t.data.customerId).name:(t.data.type||'طلب'))}`;
-    return `<div class="card">
-      <div class="row"><h3 style="font-size:14.5px;">${label}</h3><span class="meta">باقي ${daysLeft} يوم</span></div>
-      <div class="meta">حُذف بتاريخ ${fmtDate(t.deletedAt)}</div>
-      <div class="btn-row">
-        <button class="btn sm outline" onclick="restoreFromTrash('${t.id}')">↩️ استرجاع</button>
-        <button class="btn sm danger" onclick="permanentlyDeleteTrashItem('${t.id}')">🗑️ حذف نهائي</button>
-      </div>
-    </div>`;
-  }).join('') : `<div class="empty-msg">سلة المحذوفات فارغة</div>`;
-}
-
-async function restoreFromTrash(trashId){
-  const t = db.trash.find(x=>x.id===trashId);
-  if(!t) return;
-  if(t.type==='customer'){
-    db.customers.push(t.data);
-  } else if(t.type==='order'){
-    db.orders.push(t.data);
-    if(t.payments && t.payments.length){
-      db.payments.push(...t.payments);
-    }
-  }
-  db.trash = db.trash.filter(x=>x.id!==trashId);
-  saveDB();
-  renderTrash();
-  renderCustomers();
-  renderOrders();
-  toast('تم الاسترجاع بنجاح ✅');
-}
-
-async function permanentlyDeleteTrashItem(trashId){
-  if(!await appConfirm('هل تريد حذف هذا العنصر نهائياً؟ لن يمكن التراجع عن هذا الإجراء.')) return;
-  db.trash = db.trash.filter(x=>x.id!==trashId);
-  saveDB();
-  renderTrash();
-  toast('تم الحذف النهائي');
-}
-
-/* ============================================================
-   المودال العام
-   ============================================================ */
-function openModal(html){
-  const box = document.getElementById('modalBox');
-  box.innerHTML = html;
-  box.scrollTop = 0;
-  document.getElementById('modalOverlay').classList.add('active');
-  syncNavState();
-}
-function closeModal(){
-  document.getElementById('modalOverlay').classList.remove('active');
-  syncNavState();
-}
-
-/* ============================================================
-   تأكيد مخصص (appConfirm) — بديل عن confirm() الأصلية
-   بعض تطبيقات الـ WebView (زي تطبيقات WebIntoApp) تمنع أو تتجاهل
-   نوافذ confirm()/alert()/prompt() الافتراضية بتاعة المتصفح، فبنستخدم
-   مودال داخلي بدلها عشان أزرار الحذف والتأكيد تشتغل دايمًا.
-   ============================================================ */
-function appConfirm(message, opts){
-  opts = opts || {};
-  const okText = opts.okText || 'تأكيد';
-  const cancelText = opts.cancelText || 'إلغاء';
-  const danger = opts.danger !== false;
-  return new Promise((resolve)=>{
-    openModal(`
-      <div class="modal-head"><h3>⚠️ تأكيد</h3></div>
-      <div style="padding:4px 2px 14px;font-size:14.5px;line-height:1.7;">${escapeHtml(message)}</div>
-      <div class="btn-row">
-        <button class="btn outline" id="appConfirmCancel">${escapeHtml(cancelText)}</button>
-        <button class="btn ${danger?'danger':''}" id="appConfirmOk">${escapeHtml(okText)}</button>
-      </div>
-    `);
-    const cleanup = (result)=>{
-      closeModal();
-      resolve(result);
-    };
-    document.getElementById('appConfirmOk').onclick = ()=>cleanup(true);
-    document.getElementById('appConfirmCancel').onclick = ()=>cleanup(false);
-  });
-}
-document.getElementById('modalOverlay').addEventListener('click', function(e){
-  if(e.target===this) closeModal();
-});
-
-/* ============================================================
-   دعم زر الرجوع في تطبيقات الأندرويد (WebView / APK)
-   من غير الكود ده، ضغط زر الرجوع وانت فاتح مودال أو القائمة
-   الجانبية أو صفحة غير الرئيسية كان هيقفل التطبيق نفسه فورًا.
-
-   الفكرة: كل "طبقة" مفتوحة فوق الحالة الأساسية (صفحة غير الرئيسية،
-   مودال، قائمة جانبية) ليها history entry واحد بالظبط. بعد أي تغيير
-   في الواجهة بنحسب "العمق" المفروض (navDepth) ونطابق history الحقيقي
-   معاه: نزوّد entries لو بعدنا طبقة، أو نسحب نفس عدد الطبقات اللي
-   قفلناها لو رجعنا للخلف من غير ما نستخدم زرار الرجوع نفسه (زرار
-   إلغاء/إغلاق مثلاً)، عشان history الحقيقي يفضل مطابق تمامًا للي
-   ظاهر على الشاشة أيًا كان عمق التداخل.
-
-   وبما إن بعض تطبيقات الـ WebView (مش كلها بتتعامل بنفس الطريقة مع
-   زر الرجوع) ممكن ماتدعمش history.pushState فعليًا (خصوصًا لو الملف
-   شغال من مسار محلي)، أو تبعت ضغطة الرجوع كإيفنت "backbutton" مخصص
-   أو حتى كـ keydown عادي بدل تفعيل popstate، بنغطي الاحتمالات التلاتة
-   مع بعض عشان أعلى فرصة ممكنة إن زر الرجوع يشتغل صح.
-   ============================================================ */
-let handlingBackNav = false;
-let syntheticBackCount = 0;
-let navDepth = 0;
-let lockedScrollY = 0;
-let scrollLocked = false;
-
-function currentUiDepth(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  return (currentPage!=='home' ? 1:0) + (modalOpen?1:0) + (navOpen?1:0);
-}
-
-// هل فيه "طبقة عائمة" فوق الصفحة فعليًا (مودال أو قائمة جانبية)؟
-// مهم إننا نفرّقها عن currentUiDepth، لأن الانتقال بين الصفحات العادية
-// (زي فتح صفحة الطلبات أو المالية) بيزوّد currentUiDepth كمان لأغراض
-// زر الرجوع، لكنه مش المفروض يقفل تمرير الصفحة — القفل مطلوب بس
-// وقت ما يكون فيه حاجة عائمة فوق المحتوى نفسه.
-function isOverlayOpen(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  return modalOpen || navOpen;
-}
-
-/* قفل تمرير الصفحة اللي وراء المودال/القائمة الجانبية أثناء فتحها.
-   من غير القفل ده، سحب الإصبع فوق المودال ممكن "يسرّب" ويحرّك صفحة
-   الخلفية بدل محتوى المودال بس — وده اللي بيسبب إحساس إنك تقدر تسحب
-   المودال لتحت بس مش لفوق (لأن صفحة الخلفية بتتحرك في اتجاه واحد
-   ومش بترجع تاني، خصوصًا لما تفتح لوحة المفاتيح على حقل داخل المودال). */
-function lockBodyScroll(){
-  lockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
-  document.body.style.position = 'fixed';
-  document.body.style.top = (-lockedScrollY) + 'px';
-  document.body.style.left = '0';
-  document.body.style.right = '0';
-  document.body.style.width = '100%';
-}
-function unlockBodyScroll(){
-  document.body.style.position = '';
-  document.body.style.top = '';
-  document.body.style.left = '';
-  document.body.style.right = '';
-  document.body.style.width = '';
-  window.scrollTo(0, lockedScrollY);
-}
-
-// تنفيذ آمن لعمليات history — بعض بيئات WebView (خصوصًا لو الملف شغال
-// من مسار محلي مش عبر سيرفر) ممكن ترفض pushState/back برمي خطأ بصمت،
-// فبنلف كل نداء عشان أي خطأ هنا ميوقفش باقي منطق التنقل الداخلي للتطبيق
-function safeHistoryOp(fn){
-  try{ fn(); }catch(e){ /* تجاهل: التنقل الداخلي هيشتغل برضه من غير history */ }
-}
-
-// يُنادى بعد أي تغيير في الواجهة (فتح/قفل صفحة، مودال، أو قائمة جانبية)
-// عشان يزامن حالة history الحقيقية مع اللي ظاهر على الشاشة فعليًا
-function syncNavState(){
-  if(handlingBackNav) return;
-  const target = currentUiDepth();
-  const overlayOpen = isOverlayOpen();
-  if(!scrollLocked && overlayOpen){ lockBodyScroll(); scrollLocked = true; }
-  else if(scrollLocked && !overlayOpen){ unlockBodyScroll(); scrollLocked = false; }
-  if(target > navDepth){
-    while(navDepth < target){
-      navDepth++;
-      safeHistoryOp(()=>history.pushState({navLevel:navDepth}, ''));
-    }
-  } else if(target < navDepth){
-    const steps = navDepth - target;
-    navDepth = target;
-    syntheticBackCount += steps;
-    for(let i=0;i<steps;i++) safeHistoryOp(()=>history.back());
-  } else if(target === navDepth && target > 0){
-    safeHistoryOp(()=>history.replaceState({navLevel:navDepth}, ''));
-  }
-}
-
-
-// يقفل أعلى "طبقة" مفتوحة حاليًا: مودال، وإلا قائمة جانبية، وإلا يرجع للرئيسية
-function closeTopLayer(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  if(modalOpen){
-    closeModal();
-  } else if(navOpen){
-    closeSideNav();
-  } else if(currentPage !== 'home'){
-    showPage('home');
-  }
-}
-
-function handleRealBackNavigation(){
-  handlingBackNav = true;
-  closeTopLayer();
-  navDepth = Math.max(0, navDepth-1);
-  setTimeout(()=>{ handlingBackNav = false; }, 0);
-}
-
-// 1) المسار المعتاد: الـ WebView بيدعم history الحقيقي، وضغط زر الرجوع بيطلق popstate
-window.addEventListener('popstate', function(){
-  if(syntheticBackCount > 0){
-    // إحنا اللي استهلكنا الحالة دي برمجيًا (مش ضغطة زرار رجوع حقيقية)
-    // فالواجهة أصلاً متزامنة، مفيش داعي نعمل أي إجراء إضافي
-    syntheticBackCount--;
-    return;
-  }
-  if(window.BACK_NAV_DEBUG) toast('🔧 popstate اشتغل');
-  handleRealBackNavigation();
-});
-
-// 2) مسار احتياطي: بعض تطبيقات الـ WebView بتبعت إيفنت "backbutton" مخصص
-//    (زي أسلوب Cordova القديم) بدل ما تعتمد على history الحقيقي فعليًا
-document.addEventListener('backbutton', function(e){
-  if(window.BACK_NAV_DEBUG) toast('🔧 backbutton اشتغل');
-  if(currentUiDepth() > 0){
-    if(e && typeof e.preventDefault==='function') e.preventDefault();
-    handleRealBackNavigation();
-  }
-}, false);
-
-// 3) مسار احتياطي أخير: لو الـ WebView بيمرر ضغطة الرجوع كـ keydown عادي
-//    (keyCode 4 هو الكود التقليدي لزر الرجوع في أندرويد)
-document.addEventListener('keydown', function(e){
-  if(e.keyCode===4 || e.key==='GoBack'){
-    if(window.BACK_NAV_DEBUG) toast('🔧 keydown اشتغل');
-    if(currentUiDepth() > 0){
-      e.preventDefault();
-      handleRealBackNavigation();
-    }
-  }
-});
-
-// وضع تشخيص مؤقت لزر الرجوع: فعّله من الإعدادات لو عايز تعرف أي مسار
-// من التلاتة (لو حتى وحد منهم) بيشتغل فعليًا جوه الـ APK بعد التغليف.
-// لو ضغطت زر الرجوع ومفيش أي رسالة ظهرت خالص، معناه إن تطبيق التغليف
-// (WebIntoApp أو غيره) بيقفل النشاط مباشرة على مستوى النظام قبل ما
-// الضغطة توصل لصفحة الويب أصلاً — وده حاجة تتظبط من إعدادات التطبيق
-// نفسه (دور على خيار زي "Back Button" أو "Use WebView History")، مش
-// من كود الصفحة، لأن الكود مبيوصلوش الإشعار بالضغطة من الأساس.
-window.BACK_NAV_DEBUG = false;
-function toggleBackNavDebug(on){
-  window.BACK_NAV_DEBUG = !!on;
-  toast(on ? 'تشخيص زر الرجوع مفعّل — دلوقتي جرّب اضغط رجوع' : 'تشخيص زر الرجوع متوقف');
-}
-
-/* ============================================================
-   بدء التشغيل
-   ============================================================ */
-initLock();
-
-// تسجيل الـ Service Worker (يفعّل التثبيت كتطبيق وتشغيل الأوفلاين)
-// شرط أساسي: لازم الملف يكون شغال من سيرفر HTTPS أو localhost (مش file:// مباشرة)
-if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{ /* تجاهل الخطأ لو الملف مش موجود بجانب الصفحة */ });
-  });
-}
-</script>
-</body>
-</html>
+    wrap.st
