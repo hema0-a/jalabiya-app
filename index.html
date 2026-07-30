@@ -359,6 +359,56 @@
   .alert-banner .close-x{margin-inline-start:auto;background:none;border:none;color:inherit;font-size:15px;opacity:.7;}
   .small-link{background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;padding:6px;}
   .tag-late-text{color:var(--danger);font-weight:700;}
+
+  /* ===== ملاحظات صوتية ===== */
+  .voice-box{background:var(--card-alt);border:1.5px dashed var(--border);border-radius:14px;padding:12px;margin:6px 0 14px;}
+  .voice-rec-btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    padding:12px;border-radius:12px;border:none;font-family:var(--font-display);font-size:14.5px;font-weight:700;
+    background:var(--primary);color:#fff;transition:background .15s,transform .08s;
+  }
+  .voice-rec-btn:active{transform:translateY(1px);}
+  .voice-rec-btn.recording{background:var(--danger);animation:pulse-rec 1.1s infinite;}
+  @keyframes pulse-rec{0%,100%{box-shadow:0 0 0 0 rgba(162,59,44,0.45);}50%{box-shadow:0 0 0 10px rgba(162,59,44,0);}}
+  .voice-rec-hint{font-size:12px;color:var(--muted);text-align:center;margin-top:6px;}
+  .voice-list{margin-top:10px;}
+  .voice-item{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:9px 11px;margin-bottom:8px;}
+  .voice-play{
+    flex-shrink:0;width:40px;height:40px;border-radius:50%;border:none;cursor:pointer;
+    background:var(--primary-light);color:var(--heading);font-size:15px;display:flex;align-items:center;justify-content:center;
+    transition:transform .1s;
+  }
+  .voice-play:active{transform:scale(0.93);}
+  .voice-play.playing{background:var(--primary);color:#fff;}
+  .voice-item .voice-meta{flex:1;min-width:0;}
+  .voice-item .voice-meta .vm-time{font-size:12.5px;color:var(--muted);}
+  .voice-item .voice-meta .vm-dur{font-size:11px;color:var(--muted);}
+  .voice-del{flex-shrink:0;background:none;border:none;color:var(--danger);font-size:16px;cursor:pointer;padding:4px;}
+  .voice-empty{font-size:12.5px;color:var(--muted);text-align:center;padding:6px 0 2px;}
+  .voice-tag{
+    display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;
+    color:var(--accent-dark);background:var(--accent-light);padding:2px 9px;border-radius:20px;cursor:pointer;
+  }
+  .voice-tag:hover{text-decoration:underline;}
+
+  /* ===== إدخال سريع ===== */
+  .quick-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;}
+  .quick-amount{
+    display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 12px;
+  }
+  .quick-chip{
+    padding:8px 14px;border-radius:20px;border:1.5px solid var(--border);background:var(--card-alt);
+    font-family:var(--font-display);font-weight:700;font-size:13.5px;color:var(--heading);cursor:pointer;
+    transition:background .12s,border-color .12s;
+  }
+  .quick-chip.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+  .quick-chip:active{transform:scale(0.96);}
+  .quick-preview{
+    background:var(--card-alt);border:1px solid var(--border);border-radius:12px;padding:11px 12px;margin:8px 0 12px;
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .quick-preview .qp-lbl{font-size:12.5px;color:var(--muted);}
+  .quick-preview .qp-val{font-family:var(--font-display);font-weight:900;font-size:17px;color:var(--heading);}
 </style>
 </head>
 <body>
@@ -407,6 +457,7 @@
         <div class="btn-row" style="margin-bottom:14px;flex-wrap:wrap;">
           <button class="btn accent" onclick="openCustomerModal(null)">➕ عميل جديد</button>
           <button class="btn" onclick="openOrderModal(null)">🧵 طلب جديد</button>
+          <button class="btn secondary" onclick="openQuickOrderModal()">⚡ إدخال سريع</button>
           <button class="btn secondary" onclick="showWeeklySummary()">📋 ملخص الأسبوع</button>
           <button class="btn outline" onclick="openPricingCalculatorModal()">🧮 حاسبة تسعير سريعة</button>
         </div>
@@ -2194,6 +2245,7 @@ function renderOrders(){
       <div class="meta">📅 الاستلام: ${fmtDate(o.dateReceived)} | التسليم: ${fmtDate(o.dateDelivery)}</div>
       <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
       <div class="meta">⏱️ وقت الشغل الفعلي: ${o.workStartedAt ? `<b style="color:var(--accent);">جاري التسجيل الآن...</b>` : (o.actualMinutes?formatMinutesLabel(o.actualMinutes):'لم يبدأ بعد')}</div>
+      ${o.voiceNotes && o.voiceNotes.length ? `<div class="meta"><span class="voice-tag" onclick="playOrderVoiceNotes('${o.id}')">🎙️ ${o.voiceNotes.length} ملاحظة صوتية</span></div>` : ''}
       <div class="btn-row">
         <button class="btn sm secondary" onclick="openOrderModal('${o.id}')">✏️ تعديل</button>
         <button class="btn sm outline" onclick="openPaymentModal('${o.id}')">💵 تسجيل دفعة</button>
@@ -2396,9 +2448,16 @@ function openOrderModal(id, presetCustomerId){
         <option value="تم التسليم" ${o&&o.status==='تم التسليم'?'selected':''}>تم التسليم</option>
       </select>
     </div>
+    <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">🎙️ ملاحظات صوتية</div>
+    <div class="voice-box">
+      <button type="button" class="voice-rec-btn" id="voiceRecBtn" onclick="toggleVoiceRecord()">🎙️ اضغط للتسجيل</button>
+      <div class="voice-rec-hint" id="voiceRecHint">اضغط مرة تبدأ التسجيل وضغطة تانية تقفله</div>
+      <div class="voice-list" id="voiceList"></div>
+    </div>
     <button class="btn" onclick="saveOrder(${o?`'${o.id}'`:'null'})">💾 حفظ</button>
   `;
   openModal(html);
+  initVoiceNotes(o ? (o.voiceNotes||[]) : []);
   onDiscountTypeChange();
   checkDeliveryDateWarning();
 }
@@ -2510,7 +2569,7 @@ function saveOrder(id){
     const o = db.orders.find(x=>x.id===id);
     const before = JSON.parse(JSON.stringify(o));
     const wasDelivered = o.status==='تم التسليم';
-    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent});
+    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent, voiceNotes: _currentVoiceNotes.slice()});
     if(status==='تم التسليم' && !wasDelivered && !o.deliveredDate){
       o.deliveredDate = todayStr();
       finalizeWorkTimeIfRunning(o);
@@ -2529,7 +2588,7 @@ function saveOrder(id){
   } else {
     const paid = Number(document.getElementById('f_paid').value)||0;
     if(paid<0){ toast('المبلغ المدفوع لا يمكن أن يكون رقماً سالباً'); return; }
-    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001};
+    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001, voiceNotes: _currentVoiceNotes.slice()};
     db.nextInvoiceNumber = (db.nextInvoiceNumber||1001) + 1;
     if(paid>orderTotal(newOrder)){ toast('المبلغ المدفوع أكبر من إجمالي الطلب، تأكد من الرقم'); db.nextInvoiceNumber--; return; }
     db.orders.push(newOrder);
@@ -2565,6 +2624,280 @@ async function deleteOrder(id){
   saveDB();
   renderOrders();
   toast('تم نقل الطلب لسلة المحذوفات');
+}
+
+/* ============================================================
+   ملاحظات صوتية على الطلبات
+   ============================================================ */
+let _currentVoiceNotes = [];
+let _voiceRecorder = null;
+let _voiceChunks = [];
+let _voiceRecStartTime = 0;
+let _voiceRecMaxTimer = null;
+const VOICE_MAX_SECONDS = 60;
+
+function initVoiceNotes(existing){
+  stopVoiceRecording(true);
+  _currentVoiceNotes = (existing && Array.isArray(existing)) ? existing.slice() : [];
+  renderVoiceList();
+}
+
+function renderVoiceList(){
+  const box = document.getElementById('voiceList');
+  if(!box) return;
+  if(_currentVoiceNotes.length === 0){
+    box.innerHTML = '<div class="voice-empty">مفيش ملاحظات صوتية بعد</div>';
+    return;
+  }
+  box.innerHTML = _currentVoiceNotes.map((v,i)=>`
+    <div class="voice-item">
+      <button class="voice-play" onclick="playVoiceNote(${i}, this)">▶️</button>
+      <div class="voice-meta">
+        <div class="vm-time">ملاحظة #${i+1}</div>
+        <div class="vm-dur">${v.duration} ثانية</div>
+      </div>
+      <button class="voice-del" onclick="deleteVoiceNote(${i})">🗑️</button>
+    </div>
+  `).join('');
+}
+
+async function toggleVoiceRecord(){
+  if(_voiceRecorder && _voiceRecorder.state === 'recording'){
+    stopVoiceRecording();
+    return;
+  }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === 'undefined'){
+    toast('المتصفح ده مش بيدعم التسجيل الصوتي');
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    _voiceChunks = [];
+    _voiceRecorder = new MediaRecorder(stream);
+    _voiceRecorder.ondataavailable = e => { if(e.data.size > 0) _voiceChunks.push(e.data); };
+    _voiceRecorder.onstop = () => {
+      const blob = new Blob(_voiceChunks, {type:'audio/webm'});
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const duration = Math.round((Date.now() - _voiceRecStartTime) / 1000);
+        if(duration >= 1){
+          _currentVoiceNotes.push({id:uid(), dataUrl:reader.result, duration, createdAt:todayStr()});
+          renderVoiceList();
+        }
+      };
+      reader.readAsDataURL(blob);
+      stream.getTracks().forEach(t => t.stop());
+    };
+    _voiceRecorder.start();
+    _voiceRecStartTime = Date.now();
+    const btn = document.getElementById('voiceRecBtn');
+    if(btn){ btn.classList.add('recording'); btn.innerHTML = '⏹️ وقف التسجيل'; }
+    const hint = document.getElementById('voiceRecHint');
+    if(hint){ hint.textContent = 'جاري التسجيل... اضغط مرة تانية للإيقاف'; }
+    _voiceRecMaxTimer = setTimeout(() => {
+      if(_voiceRecorder && _voiceRecorder.state === 'recording'){
+        stopVoiceRecording();
+        toast('تم إيقاف التسجيل تلقائياً عند '+VOICE_MAX_SECONDS+' ثانية');
+      }
+    }, VOICE_MAX_SECONDS * 1000);
+  } catch(e){
+    toast('تعذر الوصول للميكروفون — تأكد من السماح بالإذن');
+  }
+}
+
+function stopVoiceRecording(silent){
+  if(_voiceRecMaxTimer){ clearTimeout(_voiceRecMaxTimer); _voiceRecMaxTimer = null; }
+  if(_voiceRecorder && _voiceRecorder.state === 'recording'){
+    try { _voiceRecorder.stop(); } catch(e){}
+  }
+  _voiceRecorder = null;
+  _voiceChunks = [];
+  const btn = document.getElementById('voiceRecBtn');
+  if(btn){ btn.classList.remove('recording'); btn.innerHTML = '🎙️ اضغط للتسجيل'; }
+  const hint = document.getElementById('voiceRecHint');
+  if(hint){ hint.textContent = 'اضغط مرة تبدأ التسجيل وضغطة تانية تقفله'; }
+}
+
+function playVoiceNote(index, btn){
+  const v = _currentVoiceNotes[index];
+  if(!v) return;
+  document.querySelectorAll('.voice-play.playing').forEach(b => { b.classList.remove('playing'); b.innerHTML = '▶️'; });
+  const audio = new Audio(v.dataUrl);
+  if(btn){ btn.classList.add('playing'); btn.innerHTML = '⏸️'; }
+  audio.play().catch(()=>{});
+  audio.onended = () => { if(btn){ btn.classList.remove('playing'); btn.innerHTML = '▶️'; } };
+}
+
+function deleteVoiceNote(index){
+  _currentVoiceNotes.splice(index, 1);
+  renderVoiceList();
+}
+
+function playOrderVoiceNotes(orderId){
+  const o = db.orders.find(x => x.id === orderId);
+  if(!o || !o.voiceNotes || !o.voiceNotes.length) return;
+  _currentVoiceNotes = o.voiceNotes.slice();
+  openModal(`
+    <div class="modal-head"><h3>🎙️ ملاحظات صوتية</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="voice-box">
+      <div class="voice-list" id="voiceList"></div>
+    </div>
+    <button class="btn" onclick="closeModal()">إغلاق</button>
+  `);
+  renderVoiceList();
+}
+
+/* ============================================================
+   إدخال سريع لطلب جديد
+   ============================================================ */
+function openQuickOrderModal(){
+  if(db.customers.length === 0){
+    toast('أضف عميل أولاً قبل إنشاء طلب');
+    openCustomerModal(null);
+    return;
+  }
+  _currentVoiceNotes = [];
+  const html = `
+    <div class="modal-head"><h3>⚡ إدخال سريع لطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <p class="meta">سجّل طلب في ثواني — العميل، النوع، الكمية، والمبلغ المدفوع. باقي التفاصيل تقدر تظبطها بعدين من تعديل الطلب.</p>
+    <div class="field"><label>العميل</label><select id="q_customer">${customerOptions(null)}</select></div>
+    <div class="quick-grid">
+      <div class="field"><label>النوع</label><select id="q_type" onchange="onQuickTypeChange()">${itemTypeOptionsHtml('')}</select></div>
+      <div class="field"><label>الكمية</label><input id="q_qty" type="number" min="1" value="1" oninput="updateQuickPreview()"></div>
+    </div>
+    <div class="field it-customWrap" id="q_customWrap" style="display:none;">
+      <label>اكتب النوع يدوياً</label><input id="q_custom" oninput="updateQuickPreview()">
+    </div>
+    <div class="field"><label>سعر القطعة (ج.م)</label><input id="q_price" type="number" value="0" oninput="updateQuickPreview()"></div>
+    <div class="section-title" style="margin:6px 0 4px;font-size:14.5px;">💵 المدفوع مقدماً</div>
+    <div class="quick-amount" id="quickAmountChips">
+      <button type="button" class="quick-chip active" data-val="0">بدون</button>
+      <button type="button" class="quick-chip" data-val="50">50</button>
+      <button type="button" class="quick-chip" data-val="100">100</button>
+      <button type="button" class="quick-chip" data-val="200">200</button>
+      <button type="button" class="quick-chip" data-val="500">500</button>
+    </div>
+    <div class="field"><label>أو اكتب مبلغ يدوي (ج.م)</label><input id="q_paid" type="number" value="0" oninput="updateQuickPreview()"></div>
+    <div class="quick-preview">
+      <span class="qp-lbl">إجمالي الطلب</span>
+      <span class="qp-val" id="q_total">0 ج.م</span>
+    </div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="q_urgent" type="checkbox" style="width:18px;height:18px;"> 🔥 مستعجل</label></div>
+    <button class="btn" onclick="saveQuickOrder()">💾 حفظ سريع</button>
+  `;
+  openModal(html);
+  document.querySelectorAll('#quickAmountChips .quick-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('#quickAmountChips .quick-chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      document.getElementById('q_paid').value = chip.getAttribute('data-val');
+      updateQuickPreview();
+    });
+  });
+  updateQuickPreview();
+}
+
+function onQuickTypeChange(){
+  const sel = document.getElementById('q_type');
+  const wrap = document.getElementById('q_customWrap');
+  if(!sel) return;
+  wrap.style.display = sel.value === '__custom__' ? 'block' : 'none';
+  if(sel.value !== '__custom__' && sel.value !== ''){
+    const opt = sel.options[sel.selectedIndex];
+    const price = opt ? opt.getAttribute('data-price') : null;
+    if(price !== null){ document.getElementById('q_price').value = price; }
+  }
+  updateQuickPreview();
+}
+
+function updateQuickPreview(){
+  const qty = Math.max(1, Number(document.getElementById('q_qty').value) || 1);
+  const price = Number(document.getElementById('q_price').value) || 0;
+  const total = qty * price;
+  const el = document.getElementById('q_total');
+  if(el) el.textContent = total.toLocaleString('ar-EG') + ' ج.م';
+}
+
+function saveQuickOrder(){
+  const customerId = document.getElementById('q_customer').value;
+  if(!customerId){ toast('اختر عميل'); return; }
+
+  const typeSel = document.getElementById('q_type');
+  let typeName = '';
+  if(typeSel.value === '__custom__'){
+    typeName = document.getElementById('q_custom').value.trim();
+  } else {
+    const g = db.garmentTypes.find(x => x.id === typeSel.value);
+    typeName = g ? g.name : '';
+  }
+  if(!typeName){ toast('اختر نوع القطعة'); return; }
+
+  const qty = Math.max(1, Number(document.getElementById('q_qty').value) || 1);
+  const unitPrice = Math.max(0, Number(document.getElementById('q_price').value) || 0);
+  const paid = Math.max(0, Number(document.getElementById('q_paid').value) || 0);
+  const urgent = document.getElementById('q_urgent').checked;
+
+  const items = [{type: typeName, qty, unitPrice}];
+  const fee = qty * unitPrice;
+  const legacyType = qty > 1 ? qty + ' × ' + typeName : typeName;
+
+  const capacity = Number(db.dailyCapacity) || 500;
+  const pending = calcPendingWorkValue(null) + fee;
+  const daysNeeded = Math.max(1, Math.ceil(pending / capacity));
+  const avgDelay = avgDelayDays();
+  const safetyDays = avgDelay > 0.5 ? 2 + Math.ceil(avgDelay) : 2;
+  const totalDays = daysNeeded + safetyDays;
+  const suggested = addWorkDaysFromNow(totalDays);
+
+  const newOrder = {
+    id: uid(),
+    customerId,
+    items,
+    type: legacyType,
+    dateReceived: todayStr(),
+    dateDelivery: suggested.toISOString().slice(0, 10),
+    fee,
+    extra: 0,
+    materialCost: 0,
+    urgent,
+    paid,
+    status: 'قيد العمل',
+    discountType: 'none',
+    discountValue: 0,
+    taxPercent: db.taxDefaultPercent || 0,
+    deliveredDate: null,
+    invoiceNumber: db.nextInvoiceNumber || 1001,
+    voiceNotes: []
+  };
+
+  if(paid > orderTotal(newOrder)){
+    toast('المبلغ المدفوع أكبر من إجمالي الطلب، تأكد من الرقم');
+    return;
+  }
+
+  db.nextInvoiceNumber = (db.nextInvoiceNumber || 1001) + 1;
+  db.orders.push(newOrder);
+
+  let paymentRecord = null;
+  if(paid > 0){
+    paymentRecord = {id: uid(), orderId: newOrder.id, amount: paid, date: todayStr()};
+    db.payments.push(paymentRecord);
+  }
+
+  logActivity(`⚡ طلب سريع لـ ${customerById(customerId) ? customerById(customerId).name : ''} بقيمة ${Math.round(orderTotal(newOrder)).toLocaleString('ar-EG')} ج.م`);
+  setUndo('الطلب السريع', () => {
+    db.orders = db.orders.filter(x => x.id !== newOrder.id);
+    if(paymentRecord) db.payments = db.payments.filter(p => p.id !== paymentRecord.id);
+    saveDB();
+    renderOrders();
+    renderHome();
+  });
+
+  saveDB();
+  closeModal();
+  renderOrders();
+  renderHome();
+  toast('تم حفظ الطلب السريع ✅');
 }
 
 /* ============================================================
@@ -4088,6 +4421,7 @@ function openModal(html){
   syncNavState();
 }
 function closeModal(){
+  stopVoiceRecording(true);
   document.getElementById('modalOverlay').classList.remove('active');
   syncNavState();
 }
