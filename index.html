@@ -460,6 +460,7 @@
           <button class="btn secondary" onclick="openQuickOrderModal()">⚡ إدخال سريع</button>
           <button class="btn secondary" onclick="showWeeklySummary()">📋 ملخص الأسبوع</button>
           <button class="btn outline" onclick="openPricingCalculatorModal()">🧮 حاسبة تسعير سريعة</button>
+          <button class="btn outline" id="privacyToggleBtn" onclick="togglePrivacyMode()">🛡️ وضع الخصوصية</button>
         </div>
         <div id="homeAlerts"></div>
         <div class="grid-cards" id="homeStats"></div>
@@ -794,7 +795,8 @@ function defaultDB(){
     holidays:[],
     activityLog:[],
     updatedAt: 0,
-    cloudSync: {enabled:false, syncId:null, firebaseConfig:null}
+    cloudSync: {enabled:false, syncId:null, firebaseConfig:null},
+    privacyMode: false
   };
 }
 
@@ -875,6 +877,7 @@ function loadDB(){
       if(!db.activityLog) db.activityLog=[];
       if(db.updatedAt===undefined) db.updatedAt=0;
       if(!db.cloudSync) db.cloudSync={enabled:false, syncId:null, firebaseConfig:null};
+      if(db.privacyMode===undefined) db.privacyMode=false;
       purgeOldTrash();
     } else {
       db = defaultDB();
@@ -1476,6 +1479,41 @@ function debtorCustomers(){
   return Object.keys(map).filter(cid=>map[cid]>=threshold).map(cid=>({customer:customerById(cid), amount:map[cid]})).filter(x=>x.customer).sort((a,b)=>b.amount-a.amount);
 }
 
+/* ==== وضع الخصوصية: إخفاء الأسماء والمبالغ عن الصفحة الرئيسية ==== */
+function privName(name){
+  if(!db.privacyMode) return escapeHtml(name);
+  return '••••';
+}
+function privAvatar(name, variant){
+  if(!db.privacyMode) return avatarChip(name, variant);
+  return '<span class="avatar'+(variant?' '+variant:'')+'">؟</span>';
+}
+function privMoney(val){
+  if(!db.privacyMode) return val.toLocaleString('ar-EG');
+  return '••••';
+}
+function togglePrivacyMode(){
+  db.privacyMode = !db.privacyMode;
+  saveDB();
+  renderHome();
+  updatePrivacyBtn();
+}
+function updatePrivacyBtn(){
+  const btn = document.getElementById('privacyToggleBtn');
+  if(!btn) return;
+  if(db.privacyMode){
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--accent)';
+    btn.innerHTML = '👁️ إظهار البيانات';
+  } else {
+    btn.style.background = '';
+    btn.style.color = '';
+    btn.style.borderColor = '';
+    btn.innerHTML = '🛡️ وضع الخصوصية';
+  }
+}
+
 function renderHomeAlerts(){
   const box = document.getElementById('homeAlerts');
   let html = '';
@@ -1512,7 +1550,7 @@ function renderHomeAlerts(){
   const debtors = debtorCustomers();
   if(debtors.length>0){
     const names = debtors.slice(0,3).map(d=>d.customer.name).join('، ');
-    html += `<div class="alert-banner danger"><span class="ic">💸</span><div><b>${debtors.length} عميل تجاوز حد المديونية (${Number(db.debtThreshold).toLocaleString('ar-EG')} ج.م)</b>${escapeHtml(names)}${debtors.length>3?' وآخرون...':''}</div></div>`;
+    html += `<div class="alert-banner danger"><span class="ic">💸</span><div><b>${debtors.length} عميل تجاوز حد المديونية${db.privacyMode?'':` (${Number(db.debtThreshold).toLocaleString('ar-EG')} ج.م)`}</b>${db.privacyMode?'':escapeHtml(names)}${debtors.length>3?' وآخرون...':''}</div></div>`;
   }
 
   if(db.lastBackupDate){
@@ -1663,7 +1701,7 @@ function renderTodayPlan(){
   </div>`;
 
   if(overCapacity){
-    html += `<div class="alert-banner danger" style="margin-bottom:10px;"><span class="ic">⚠️</span><div><b>حجم شغل النهاردة (${valueMustFinish.toLocaleString('ar-EG')} ج.م) فوق طاقتك اليومية (${capacity.toLocaleString('ar-EG')} ج.م)</b>فكّر تستعين بحد يساعدك، أو تتواصل مع أصحاب الطلبات الأقل أولوية لتأجيل بسيط.</div></div>`;
+    html += `<div class="alert-banner danger" style="margin-bottom:10px;"><span class="ic">⚠️</span><div><b>حجم شغل النهاردة فوق طاقتك اليومية</b>فكّر تستعين بحد يساعدك، أو تتواصل مع أصحاب الطلبات الأقل أولوية لتأجيل بسيط.</div></div>`;
   }
 
   // تقدير وقت الانتهاء التقريبي لكل عنصر بناءً على القيمة التراكمية مقابل الطاقة اليومية وساعات العمل
@@ -1680,7 +1718,7 @@ function renderTodayPlan(){
     const pieces = orderPieceCount(o);
     return `<div class="card" style="margin-bottom:8px;border-right:5px solid ${accent};background:linear-gradient(90deg, ${tint} 0%, var(--card) 14%);">
       <div class="row">
-        <h3 class="name-row"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:${accent};color:#fff;font-size:12.5px;font-weight:900;margin-left:6px;flex-shrink:0;">${position}</span>${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
+        <h3 class="name-row"><span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:${accent};color:#fff;font-size:12.5px;font-weight:900;margin-left:6px;flex-shrink:0;">${position}</span>${privAvatar(c?c.name:'؟')}${c?privName(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
         ${statusBadge(o)}
       </div>
       <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)} — 🧵 ${pieces} قطعة — 🕐 المتوقع الانتهاء حوالي ${estTime}</div>
@@ -1864,8 +1902,8 @@ function renderHome(){
   document.getElementById('homeStats').innerHTML = `
     <div class="stat-card"><div class="stat-ic">📋</div><div><div class="num">${totalOrders}</div><div class="lbl">عدد الطلبات</div></div></div>
     <div class="stat-card warn"><div class="stat-ic">🧵</div><div><div class="num">${inProgress}</div><div class="lbl">قيد العمل</div></div></div>
-    <div class="stat-card"><div class="stat-ic">💰</div><div><div class="num">${revenueToday.toLocaleString('ar-EG')}</div><div class="lbl">إيراد اليوم (ج.م)</div></div></div>
-    <div class="stat-card danger"><div class="stat-ic">⏳</div><div><div class="num">${totalRemaining.toLocaleString('ar-EG')}</div><div class="lbl">إجمالي المتبقي (ج.م)</div></div></div>
+    <div class="stat-card"><div class="stat-ic">💰</div><div><div class="num">${privMoney(revenueToday)}</div><div class="lbl">إيراد اليوم (ج.م)</div></div></div>
+    <div class="stat-card danger"><div class="stat-ic">⏳</div><div><div class="num">${privMoney(totalRemaining)}</div><div class="lbl">إجمالي المتبقي (ج.م)</div></div></div>
   `;
 
   const upcoming = db.orders.filter(o=>o.status!=='تم التسليم').sort((a,b)=>(a.dateDelivery||'').localeCompare(b.dateDelivery||'')).slice(0,5);
@@ -1873,11 +1911,11 @@ function renderHome(){
     const c = customerById(o.customerId);
     return `<div class="card">
       <div class="row">
-        <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
+        <h3 class="name-row">${privAvatar(c?c.name:'؟')}${c?privName(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
         ${statusBadge(o)}
       </div>
       <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)}</div>
-      <div class="meta">💰 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م</div>
+      <div class="meta">💰 المتبقي: ${privMoney(orderRemaining(o))} ج.م</div>
     </div>`;
   }).join('') : `<div class="empty-msg">لا توجد طلبات قيد العمل حالياً 🎉</div>`;
 
@@ -1886,12 +1924,13 @@ function renderHome(){
     const c = customerById(o.customerId);
     return `<div class="card" style="border-right-color:var(--danger)">
       <div class="row">
-        <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
+        <h3 class="name-row">${privAvatar(c?c.name:'؟')}${c?privName(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
         <span class="tag-late-text">متأخر ⏰</span>
       </div>
       <div class="meta">كان يجب التسليم في: ${fmtDate(o.dateDelivery)}</div>
     </div>`;
   }).join('') : `<div class="empty-msg">لا توجد طلبات متأخرة 👍</div>`;
+  updatePrivacyBtn();
 }
 
 function escapeHtml(s){
