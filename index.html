@@ -637,56 +637,60 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   .alert-banner .close-x{margin-inline-start:auto;background:none;border:none;color:inherit;font-size:15px;opacity:.7;}
   .small-link{background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;padding:6px;}
   .tag-late-text{color:var(--danger);font-weight:700;}
-/* === معرض الأعمال === */
-#galleryGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
-#galleryGrid .g-item{ position:relative; aspect-ratio:1/1; border-radius:10px; overflow:hidden; box-shadow:var(--shadow); }
-#galleryGrid .g-item img{ width:100%; height:100%; object-fit:cover; display:block; }
-#galleryGrid .g-empty{ grid-column:1/-1; text-align:center; padding:30px 10px; color:var(--muted); font-size:13px; }
-.gallery-add-btn{
-  width:100%; border:2px dashed var(--stitch); border-radius:12px; padding:14px;
-  background:var(--card-alt); color:var(--muted); font-weight:700; font-size:13.5px;
-}
-/* === كثافة العرض المضغوطة === */
-html.compact-view .card{ padding:10px 12px; }
-html.compact-view .card h3{ font-size:13.5px; margin-bottom:2px; }
-html.compact-view .card .meta{ font-size:11px; margin:1px 0; }
-html.compact-view .card .meta:nth-of-type(n+3){ display:none; }
-html.compact-view .badge{ padding:2px 8px; font-size:10.5px; }
-/* === أكورديون صفحة الإعدادات === */
-#page-settings > .card > h3:active{ opacity:.7; }
-.acc-body{ margin-top:8px; }
-/* === ظل الهيدر عند التمرير + زر الرجوع لأعلى === */
-header.topbar.scrolled{ box-shadow:0 14px 28px -10px rgba(13,42,33,0.55); }
-#scrollTopBtn{
-  position:fixed; bottom:22px; right:18px; z-index:59;
-  width:44px;height:44px;border-radius:50%;
-  background:var(--card); color:var(--primary); border:1px solid var(--border);
-  box-shadow:var(--shadow-lift); display:none; align-items:center; justify-content:center; font-size:18px;
-}
-#scrollTopBtn.show{ display:flex; }
-#alphaStrip button:active{ opacity:.6; }
-header.topbar{ overflow:hidden; gap:8px; }
-.topbar-brand{ min-width:0; flex:1 1 auto; overflow:hidden; }
-.topbar-brand > div:last-child{ min-width:0; overflow:hidden; }
-header.topbar h2{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
-header.topbar .date{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
-header.topbar > div:last-child{ flex-shrink:0; display:flex; align-items:center; gap:6px; }
-@media (max-width:400px){
-  header.topbar{ padding:16px 12px 20px; }
-  .topbar-brand{ gap:8px; }
-  .menu-btn, .theme-toggle-btn{ width:32px; height:32px; font-size:15px; }
-  .brand-emblem.sm{ width:32px; height:32px; }
-  header.topbar h2{ font-size:16px; }
-  header.topbar .date{ font-size:10px; }
-  header.topbar .small-link{
-    padding:0; width:32px; height:32px; justify-content:center;
-    border-radius:10px; margin-inline-start:0 !important;
+
+  /* ===== إضافات جديدة: معرض الأعمال + كثافة العرض + تحسينات الطلبات/العملاء ===== */
+  #galleryGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+  #galleryGrid .g-item{ position:relative; aspect-ratio:1/1; border-radius:10px; overflow:hidden; box-shadow:var(--shadow); }
+  #galleryGrid .g-item img{ width:100%; height:100%; object-fit:cover; display:block; }
+  #galleryGrid .g-empty{ grid-column:1/-1; text-align:center; padding:30px 10px; color:var(--muted); font-size:13px; }
+  .gallery-add-btn{
+    width:100%; border:2px dashed var(--stitch); border-radius:12px; padding:14px;
+    background:var(--card-alt); color:var(--muted); font-weight:700; font-size:13.5px;
   }
-  header.topbar .small-link::before{ display:none; }
-  header.topbar .small-link .lock-text{ display:none; }
-}
-.keypad button{ transition:background .08s, transform .08s; }
-.keypad button.pressed{ background:var(--accent) !important; border-color:var(--accent) !important; transform:scale(0.93); }
+  /* كثافة العرض المضغوطة */
+  html.compact-view .card{ padding:10px 12px; }
+  html.compact-view .card h3{ font-size:13.5px; margin-bottom:2px; }
+  html.compact-view .card .meta{ font-size:11px; margin:1px 0; }
+  html.compact-view .card .meta:nth-of-type(n+3){ display:none; }
+  html.compact-view .badge{ padding:2px 8px; font-size:10.5px; }
+
+  /* أكورديون صفحة الإعدادات */
+  #page-settings > .card > h3:active{ opacity:.7; }
+  .acc-body{ margin-top:8px; }
+  header.topbar.scrolled{ box-shadow:0 14px 28px -10px rgba(13,42,33,0.55); }
+  #scrollTopBtn{
+    position:fixed; bottom:22px; right:18px; z-index:59;
+    width:44px;height:44px;border-radius:50%;
+    background:var(--card); color:var(--primary); border:1px solid var(--border);
+    box-shadow:var(--shadow-lift); display:none; align-items:center; justify-content:center; font-size:18px;
+  }
+  #scrollTopBtn.show{ display:flex; }
+  #alphaStrip button:active{ opacity:.6; }
+  /* منع خروج محتوى الشريط العلوي عن حدود الصفحة */
+  header.topbar{ overflow:hidden; gap:8px; }
+  .topbar-brand{ min-width:0; flex:1 1 auto; overflow:hidden; }
+  .topbar-brand > div:last-child{ min-width:0; overflow:hidden; }
+  header.topbar h2{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  header.topbar .date{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+  header.topbar > div:last-child{ flex-shrink:0; display:flex; align-items:center; gap:6px; }
+
+  /* تصغير الأيقونات على الشاشات الضيقة */
+  @media (max-width:400px){
+    header.topbar{ padding:16px 12px 20px; }
+    .topbar-brand{ gap:8px; }
+    .menu-btn, .theme-toggle-btn{ width:32px; height:32px; font-size:15px; }
+    .brand-emblem.sm{ width:32px; height:32px; }
+    header.topbar h2{ font-size:16px; }
+    header.topbar .date{ font-size:10px; }
+    header.topbar .small-link{
+      padding:0; width:32px; height:32px; justify-content:center;
+      border-radius:10px; margin-inline-start:0 !important;
+    }
+    header.topbar .small-link::before{ display:none; }
+    header.topbar .small-link .lock-text{ display:none; }
+  }
+  .keypad button{ transition:background .08s, transform .08s; }
+  .keypad button.pressed{ background:var(--accent) !important; border-color:var(--accent) !important; transform:scale(0.93); }
 </style>
 </head>
 <body>
@@ -1083,7 +1087,7 @@ function defaultDB(){
     activityLog:[],
     updatedAt: 0,
     cloudSync: {enabled:false, syncId:null, firebaseConfig:null},
-    pushNotify: {vapidKey:'BMcBrKUfVMUyg73mdrdOiOLzDdncPYGvgPvoxL0WRNKjNdhaB2kp7LK0jo3Q673UZAp8CdNFiJmNNBb6gj8s7-0', daysBefore:1, deviceTokens:[], notifiedOrderIds:[]}
+    pushNotify: {vapidKey:null, daysBefore:1, deviceTokens:[], notifiedOrderIds:[]}
   };
 }
 
@@ -1169,7 +1173,6 @@ function loadDB(){
       if(!Array.isArray(db.pushNotify.deviceTokens)) db.pushNotify.deviceTokens=[];
       if(!Array.isArray(db.pushNotify.notifiedOrderIds)) db.pushNotify.notifiedOrderIds=[];
       if(!db.pushNotify.daysBefore) db.pushNotify.daysBefore=1;
-      if(!db.pushNotify.vapidKey) db.pushNotify.vapidKey='BMcBrKUfVMUyg73mdrdOiOLzDdncPYGvgPvoxL0WRNKjNdhaB2kp7LK0jo3Q673UZAp8CdNFiJmNNBb6gj8s7-0';
       purgeOldTrash();
     } else {
       db = defaultDB();
@@ -1616,23 +1619,11 @@ function initLock(){
   try{ applyTheme(); }catch(e){ console.warn(e); }
   try{ applyDarkMode(); }catch(e){ console.warn(e); }
   try{ applyCustomCSS(); }catch(e){ console.warn(e); }
-  // على معظم متصفحات الموبايل وتطبيقات WebView (زي WebIntoApp)، الضغطة الواحدة
-  // بتطلّع حدثين: touchend ثم click. preventDefault على touchend مش دايماً بيوقف
-  // الحدث التاني، فكل رقم كان بيتسجل مرتين والرقم السري بيتعبأ غلط. الحل: نتجاهل
-  // أي حدث متكرر على نفس الزر خلال 350ms.
-  let lastTapTime = 0, lastTapKey = null;
   const handleKeyTap = (e)=>{
     const btn = e.target.closest('button');
     if(!btn) return;
+    if(e.type==='touchend') e.preventDefault(); // يمنع تكرار الضغطة (touch + click) في بعض تطبيقات الـ WebView
     const k = btn.getAttribute('data-k');
-    const now = Date.now();
-    if(now - lastTapTime < 350 && lastTapKey === k){
-      e.preventDefault();
-      return;
-    }
-    lastTapTime = now;
-    lastTapKey = k;
-    if(e.type==='touchend') e.preventDefault();
     if(k==='clear'){ pin=''; updatePinDots(); return; }
     if(k==='back'){ pin = pin.slice(0,-1); updatePinDots(); return; }
     if(pin.length<4){
@@ -6281,7 +6272,7 @@ setTimeout(function(){
   };
 })();
 
-/* 28) معرض الأعمال — صور قابلة للربط بالعملاء والطلبات */
+/* ===== معرض الأعمال (نسخة أساسية) ===== */
 (function(){
   function getGallery(){ try{ return JSON.parse(localStorage.getItem('workGallery')||'[]'); }catch(e){ return []; } }
   function saveGallery(list){
@@ -6293,7 +6284,8 @@ setTimeout(function(){
     reader.onload = function(e){
       var img = new Image();
       img.onload = function(){
-        var maxW = 900, scale = Math.min(1, maxW/img.width);
+        var maxW = 900;
+        var scale = Math.min(1, maxW/img.width);
         var canvas = document.createElement('canvas');
         canvas.width = img.width*scale; canvas.height = img.height*scale;
         canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
@@ -6316,29 +6308,95 @@ setTimeout(function(){
       + '<button class="gallery-add-btn" onclick="triggerGalleryUpload()">➕ إضافة صورة جديدة</button>'
       + '<div id="galleryGrid">'+grid+'</div>'
     );
-    setTimeout(function(){
-      list.forEach(function(item){
-        if(!item.orderId && !item.customerId) return;
-        var el = document.querySelector('.g-item[onclick*="'+item.id+'"]');
-        if(el && !el.querySelector('.g-link-badge')){
-          var b=document.createElement('span'); b.className='g-link-badge';
-          b.style.cssText='position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.55);color:#fff;border-radius:6px;padding:1px 5px;font-size:10px;';
-          b.textContent='🔗';
-          el.appendChild(b);
-        }
-      });
-    }, 30);
   };
 
-  window.triggerGalleryUpload = function(presetCustomerId, presetOrderId){
+  window.viewGalleryItem = function(id){
+    var item = getGallery().find(function(x){ return x.id===id; });
+    if(!item) return;
+    openModal(
+      '<div class="modal-head"><h3>🖼️ تفاصيل الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<img src="'+item.img+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+      + (item.caption ? '<p class="meta">'+escapeHtml(item.caption)+'</p>' : '')
+      + '<p class="meta">'+fmtDate(item.date)+'</p>'
+      + '<button class="btn outline" style="width:100%;margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="deleteGalleryItem(\''+id+'\')">🗑️ حذف الصورة</button>'
+    );
+  };
+
+  window.deleteGalleryItem = function(id){
+    saveGallery(getGallery().filter(function(x){ return x.id!==id; }));
+    toast('🗑️ اتحذفت الصورة');
+    openGalleryModal();
+  };
+
+  // زر الوصول للمعرض في القائمة الجانبية
+  var settingsBtn = document.querySelector('.navbtn[data-page="settings"]');
+  if(settingsBtn){
+    var galleryBtn = document.createElement('button');
+    galleryBtn.className='navbtn';
+    galleryBtn.innerHTML = '<span class="ic">🖼️</span>معرض الأعمال';
+    galleryBtn.onclick = function(){ closeSideNav(); openGalleryModal(); };
+    settingsBtn.insertAdjacentElement('beforebegin', galleryBtn);
+  }
+
+  // يُستبدلان لاحقًا بالنسخة المطوّرة (ربط بعميل/طلب) بالأسفل — موجودان هنا فقط لأخذ نفس الشكل الأساسي عند عدم توفر db
+  window.triggerGalleryUpload = window.triggerGalleryUpload || function(){
     var input = document.createElement('input');
     input.type='file'; input.accept='image/*';
     input.onchange = function(){
       if(!input.files || !input.files[0]) return;
       resizeImage(input.files[0], function(dataUrl){
         window._pendingGalleryImage = dataUrl;
-        openGalleryCaptionStep(presetCustomerId, presetOrderId);
+        openModal(
+          '<div class="modal-head"><h3>✏️ وصف الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+          + '<img src="'+dataUrl+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+          + '<label>وصف مختصر (اختياري)</label>'
+          + '<input id="galleryCaptionInput" placeholder="مثال: جلباب مناسبات - قماش كتان">'
+          + '<button class="btn accent" style="width:100%;margin-top:12px;" onclick="saveGalleryItem()">💾 حفظ في المعرض</button>'
+        );
       });
+    };
+    input.click();
+  };
+
+  window.saveGalleryItem = window.saveGalleryItem || function(){
+    var dataUrl = window._pendingGalleryImage;
+    if(!dataUrl) return;
+    var caption = (document.getElementById('galleryCaptionInput')||{}).value || '';
+    var list = getGallery();
+    list.unshift({id:'g'+Date.now(), img:dataUrl, caption:caption, date:todayStr()});
+    if(saveGallery(list)){
+      toast('✅ اتضافت الصورة للمعرض');
+      window._pendingGalleryImage = null;
+      openGalleryModal();
+    }
+  };
+})();
+
+/* ===== معرض الأعمال (نسخة مطوّرة): ربط اختياري بعميل/طلب، شارة روابط، قسم "صور الطلب" داخل فورم الطلب ===== */
+(function(){
+  function getGallery(){ try{ return JSON.parse(localStorage.getItem('workGallery')||'[]'); }catch(e){ return []; } }
+  function saveGallery(list){ try{ localStorage.setItem('workGallery', JSON.stringify(list)); return true; }catch(e){ toast('⚠️ مساحة التخزين ممتلئة'); return false; } }
+
+  /* استبدال دالة الرفع عشان تقبل ربط اختياري بعميل/طلب من البداية */
+  window.triggerGalleryUpload = function(presetCustomerId, presetOrderId){
+    var input = document.createElement('input');
+    input.type='file'; input.accept='image/*';
+    input.onchange = function(){
+      if(!input.files || !input.files[0]) return;
+      var reader = new FileReader();
+      reader.onload = function(e){
+        var img = new Image();
+        img.onload = function(){
+          var maxW=900, scale=Math.min(1, maxW/img.width);
+          var canvas=document.createElement('canvas');
+          canvas.width=img.width*scale; canvas.height=img.height*scale;
+          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+          window._pendingGalleryImage = canvas.toDataURL('image/jpeg',0.72);
+          openGalleryCaptionStep(presetCustomerId, presetOrderId);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(input.files[0]);
     };
     input.click();
   };
@@ -6372,6 +6430,7 @@ setTimeout(function(){
     wrap.innerHTML = '<label style="margin-top:8px;">ربط بطلب معين (اختياري)</label><select id="galleryOrderSelect">'+opts+'</select>';
   };
 
+  /* استبدال دالة الحفظ عشان تخزن الربط */
   window.saveGalleryItem = function(){
     var dataUrl = window._pendingGalleryImage;
     if(!dataUrl) return;
@@ -6388,52 +6447,25 @@ setTimeout(function(){
     }
   };
 
-  window.viewGalleryItem = function(id){
-    var item = getGallery().find(function(x){ return x.id===id; });
-    if(!item) return;
-    openModal(
-      '<div class="modal-head"><h3>🖼️ تفاصيل الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
-      + '<img src="'+item.img+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
-      + (item.caption ? '<p class="meta">'+escapeHtml(item.caption)+'</p>' : '')
-      + '<p class="meta">'+fmtDate(item.date)+'</p>'
-      + '<button class="btn outline" style="width:100%;margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="deleteGalleryItem(\''+id+'\')">🗑️ حذف الصورة</button>'
-    );
+  /* شارة 🔗 على الصور المرتبطة داخل شبكة المعرض */
+  var origOpenGalleryModal = openGalleryModal;
+  openGalleryModal = function(){
+    origOpenGalleryModal();
+    setTimeout(function(){
+      getGallery().forEach(function(item){
+        if(!item.orderId && !item.customerId) return;
+        var el = document.querySelector('.g-item[onclick*="'+item.id+'"]');
+        if(el && !el.querySelector('.g-link-badge')){
+          var b=document.createElement('span'); b.className='g-link-badge';
+          b.style.cssText='position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.55);color:#fff;border-radius:6px;padding:1px 5px;font-size:10px;';
+          b.textContent='🔗';
+          el.appendChild(b);
+        }
+      });
+    }, 30);
   };
 
-  window.deleteGalleryItem = function(id){
-    saveGallery(getGallery().filter(function(x){ return x.id!==id; }));
-    toast('🗑️ اتحذفت الصورة');
-    openGalleryModal();
-  };
-
-  window.openGalleryPickerForOrder = function(orderId, customerId){
-    var list = getGallery();
-    var grid = list.length===0 ? '<div class="g-empty">المعرض فاضي</div>' : list.map(function(item){
-      return '<div class="g-item" onclick="linkGalleryItemToOrder(\''+item.id+'\',\''+orderId+'\',\''+customerId+'\')"><img src="'+item.img+'" loading="lazy"></div>';
-    }).join('');
-    openModal(
-      '<div class="modal-head"><h3>🖼️ اختر صورة لربطها بالطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
-      + '<div id="galleryGrid">'+grid+'</div>'
-    );
-  };
-
-  window.linkGalleryItemToOrder = function(itemId, orderId, customerId){
-    var list = getGallery();
-    var item = list.find(function(x){ return x.id===itemId; });
-    if(item){ item.orderId=orderId; item.customerId=customerId; saveGallery(list); toast('🔗 اترابطت الصورة بالطلب'); }
-    closeModal();
-    openOrderModal(orderId);
-  };
-
-  var settingsBtn = document.querySelector('.navbtn[data-page="settings"]');
-  if(settingsBtn && !document.getElementById('navGallery')){
-    var galleryBtn = document.createElement('button');
-    galleryBtn.className='navbtn'; galleryBtn.id='navGallery';
-    galleryBtn.innerHTML = '<span class="ic">🖼️</span>معرض الأعمال';
-    galleryBtn.onclick = function(){ closeSideNav(); openGalleryModal(); };
-    settingsBtn.insertAdjacentElement('beforebegin', galleryBtn);
-  }
-
+  /* قسم "صور الطلب" داخل فورم تعديل الطلب */
   var origOOMGallery = openOrderModal;
   openOrderModal = function(id, presetCustomerId){
     var r = origOOMGallery.apply(this, arguments);
@@ -6462,12 +6494,31 @@ setTimeout(function(){
     }
     return r;
   };
+
+  window.openGalleryPickerForOrder = function(orderId, customerId){
+    var list = getGallery();
+    var grid = list.length===0 ? '<div class="g-empty">المعرض فاضي</div>' : list.map(function(item){
+      return '<div class="g-item" onclick="linkGalleryItemToOrder(\''+item.id+'\',\''+orderId+'\',\''+customerId+'\')"><img src="'+item.img+'" loading="lazy"></div>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>🖼️ اختر صورة لربطها بالطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div id="galleryGrid">'+grid+'</div>'
+    );
+  };
+
+  window.linkGalleryItemToOrder = function(itemId, orderId, customerId){
+    var list = getGallery();
+    var item = list.find(function(x){ return x.id===itemId; });
+    if(item){ item.orderId=orderId; item.customerId=customerId; saveGallery(list); toast('🔗 اترابطت الصورة بالطلب'); }
+    closeModal();
+    openOrderModal(orderId);
+  };
 })();
 
-/* 29) زر كثافة العرض (مريح/مضغوط) */
+/* 1) زر كثافة العرض (مريح/مضغوط) جنب باقي أيقونات الشريط العلوي */
 (function(){
   var anchor = document.getElementById('contrastToggleBtn') || document.getElementById('themeToggleBtn');
-  if(!anchor || document.getElementById('densityToggleBtn')) return;
+  if(!anchor) return;
   var btn = document.createElement('button');
   btn.className='theme-toggle-btn'; btn.id='densityToggleBtn';
   btn.setAttribute('aria-label','كثافة العرض');
@@ -6482,7 +6533,7 @@ setTimeout(function(){
   updateIcon();
 })();
 
-/* 30) أكورديون صفحة الإعدادات — بطاقات قابلة للطي */
+/* 2) تحويل بطاقات صفحة الإعدادات لأكورديون قابل للطي */
 (function(){
   function accordionizeCard(card){
     if(card.dataset.accordionized) return;
@@ -6511,13 +6562,11 @@ setTimeout(function(){
     document.querySelectorAll('#page-settings > .card').forEach(accordionizeCard);
   }
   processSettingsCards();
-  var settingsPage = document.getElementById('page-settings');
-  if(settingsPage) new MutationObserver(processSettingsCards).observe(settingsPage, {childList:true});
+  new MutationObserver(processSettingsCards).observe(document.getElementById('page-settings'), {childList:true});
 })();
 
-/* 31) ظل الهيدر عند التمرير + زر الرجوع لأعلى الصفحة */
+/* 1) ظل يظهر على الهيدر عند التمرير + زر الرجوع لأعلى الصفحة */
 (function(){
-  if(document.getElementById('scrollTopBtn')) return;
   window.addEventListener('scroll', function(){
     var header = document.querySelector('header.topbar');
     if(header) header.classList.toggle('scrolled', window.scrollY>10);
@@ -6532,7 +6581,7 @@ setTimeout(function(){
   }, {passive:true});
 })();
 
-/* 32) فلاتر سريعة + فرز + تجميع بالحالة + فواصل تاريخ + دليل ألوان لصفحة الطلبات */
+/* 2) فلاتر سريعة + فرز + تجميع بالحالة + فواصل تاريخ + دليل ألوان لصفحة الطلبات */
 (function(){
   var extraFilter='none', sortMode='default', groupByStatus=false;
 
@@ -6591,6 +6640,7 @@ setTimeout(function(){
         if(btn){ var m=btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/); if(m) card.dataset.orderId=m[1]; }
       }
     });
+    var today=todayStr();
     var in3=new Date(); in3.setDate(in3.getDate()+3);
     var in3Str=in3.toISOString().slice(0,10);
 
@@ -6659,7 +6709,7 @@ setTimeout(function(){
   };
 })();
 
-/* 33) تجميع العملاء أبجديًا + شريط حروف جانبي للقفز السريع */
+/* 3) تجميع العملاء أبجديًا + شريط حروف جانبي للقفز السريع */
 (function(){
   function firstLetter(name){ return (name&&name.trim().charAt(0))||'#'; }
 
@@ -6728,7 +6778,7 @@ setTimeout(function(){
   };
 })();
 
-/* 34) نص "قفل" بجوار أيقونة القفل في الشريط العلوي */
+/* شكل زر القفل (أيقونة + نص قابل للإخفاء على الشاشات الضيقة عبر CSS) */
 (function(){
   var lockBtn = document.querySelector('header.topbar .small-link');
   if(lockBtn && !lockBtn.dataset.wrapped){
@@ -6737,12 +6787,13 @@ setTimeout(function(){
   }
 })();
 
-/* 35) إحساس ضغط فوري للوحة الرقم السري + قفل مؤقت أثناء التحقق */
+/* إحساس ضغط فوري للوحة أرقام القفل + قفل مؤقت أثناء التحقق من الرقم */
 (function(){
   function setup(){
     var keypad = document.getElementById('keypad');
     if(!keypad || keypad.dataset.fastTapEnabled) return;
     keypad.dataset.fastTapEnabled='1';
+
     keypad.addEventListener('touchstart', function(e){
       var btn = e.target.closest('button');
       if(btn) btn.classList.add('pressed');
