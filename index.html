@@ -645,6 +645,17 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   @media (min-width:640px){
     .grid-cards{grid-template-columns:repeat(4,1fr);}
   }
+  /* ===== وضع الشاشة الكبيرة (تابلت/عرض في الاستقبال) ===== */
+  html.wide-mode main{ max-width:1360px; }
+  html.wide-mode .grid-cards{ grid-template-columns:repeat(4,1fr); }
+  @media (min-width:860px){
+    html.wide-mode #customersList,
+    html.wide-mode #ordersList,
+    html.wide-mode #expensesList,
+    html.wide-mode #deliveriesList{
+      display:grid; grid-template-columns:repeat(2,1fr); gap:12px; align-items:start;
+    }
+  }
   .toast{
     position:fixed;bottom:30px;right:50%;transform:translateX(50%);
     background:var(--primary-dark);color:#fff;padding:10px 20px;border-radius:30px;font-size:13.5px;
@@ -887,11 +898,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <button class="btn" onclick="saveWorkshopInfo()">💾 حفظ بيانات الورشة</button>
       </div>
       <div class="card">
-        <h3>🔧 تشخيص زر الرجوع</h3>
-        <p class="meta">لو زر الرجوع بيقفل التطبيق بدل ما يلغي المودال/القائمة المفتوحة: فعّل التشخيص، ارجع للصفحة الرئيسية، افتح أي مودال، واضغط زر الرجوع الحقيقي في الموبايل. لو ظهرتلك رسالة بتبدأ بـ 🔧 معناه إن الكود شغال والمشكلة في إعدادات تطبيق التغليف نفسه (WebIntoApp) مش في التصميم. لو معملش أي رسالة تظهر، فمعناه إن تطبيق التغليف بيقفل البرنامج مباشرة قبل ما ضغطة الزر توصل للصفحة أصلاً، وده محتاج يتفعّل من إعدادات WebIntoApp (دور على خيار زي "Back Button" أو "Use WebView History").</p>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" style="width:18px;height:18px;" onchange="toggleBackNavDebug(this.checked)"> تفعيل رسائل تشخيص زر الرجوع مؤقتاً</label>
-      </div>
-      <div class="card">
         <h3>🎨 تخصيص الألوان</h3>
         <p class="meta">غيّر ألوان التطبيق زي ما يريحك. التغيير يطبّق فوراً على كل الصفحات وشاشة القفل.</p>
         <p class="meta" style="margin-top:-4px;">أو اختار شكل جاهز بضغطة واحدة:</p>
@@ -940,6 +946,13 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <p class="meta">رتّب أقسام الشاشة الرئيسية بالسهام، أو أخفِ أي قسم مش محتاجه — التغيير يطبّق فوراً.</p>
         <div id="homeWidgetsSettingsList"></div>
         <button class="btn outline" style="margin-top:12px;" onclick="resetHomeWidgets()">↩️ استعادة الترتيب الافتراضي</button>
+      </div>
+      <div class="card">
+        <h3>🖥️ وضع الشاشة الكبيرة</h3>
+        <p class="meta">مناسب لو التطبيق شغال على تابلت مثبّت في الاستقبال — بيوسّع المحتوى وبيعرض قوائم العملاء والطلبات في عمودين بدل عمود واحد.</p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="wideModeToggleInput" style="width:18px;height:18px;" onchange="toggleWideMode(this.checked)"> تفعيل وضع الشاشة الكبيرة
+        </label>
       </div>
       <div class="card">
         <h3>🔤 تخصيص الخط</h3>
@@ -1167,6 +1180,7 @@ function defaultDB(){
     fontSettings:{family:'default', size:'1'},
     skeletonLoading:false,
     homeWidgets:['alerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
+    wideMode:false,
     customCSS:'',
     customJS:'',
     darkMode:false,
@@ -1284,7 +1298,11 @@ function saveDB(){
   }catch(e){
     console.warn('تعذر حفظ البيانات محليًا (وضع التصفح الخاص أو متصفح مقيّد):', e);
   }
+  // البيانات دايمًا بتتحفظ محليًا فورًا (شغل كامل بدون إنترنت)، والمزامنة السحابية
+  // (لو مفعّلة) بتحصل لما يبقى فيه اتصال — لحد ما تنجح، التغيير فضل "معلّق"
+  if(db.cloudSync && db.cloudSync.enabled) cloudPendingChanges = true;
   scheduleCloudPush();
+  if(typeof window.refreshConnectivityBadge==='function') window.refreshConnectivityBadge();
 }
 
 /* ============================================================
@@ -1303,6 +1321,7 @@ let cloudUnsub = null;
 let cloudPushTimer = null;
 let cloudApplyingRemote = false; // true أثناء ما بنطبق تحديث جاي من السحابة، عشان منعملش لوب (نستقبل ونرجع نبعت)
 let cloudStatus = 'off'; // off | connecting | online | error
+let cloudPendingChanges = false; // true من وقت آخر تعديل لحد ما ينجح الرفع للسحابة
 
 function cloudStatusChanged(){
   const el = document.getElementById('cloudSyncStatusBadge');
@@ -1318,12 +1337,18 @@ function scheduleCloudPush(){
 
 async function pushToCloud(){
   if(!cloudDb || !db.cloudSync || !db.cloudSync.syncId) return;
+  if(!navigator.onLine){
+    // محدش نت دلوقتي — نسيب التغيير معلّق، هيتبعت تلقائي أول ما الاتصال يرجع (حدث 'online')
+    cloudStatusChanged();
+    return;
+  }
   try{
     // Firestore بيرفض قيم undefined كقيمة لحقل (زي qty/unitPrice القديمة اللي بنمسحها عند التعديل)،
     // فبنعمل نسخة "نضيفة" عن طريق JSON round-trip اللي بيشيل أي مفتاح قيمته undefined تلقائيًا
     const safeData = JSON.parse(JSON.stringify(db));
     await cloudDb.collection('workshops').doc(db.cloudSync.syncId).set(safeData);
     cloudStatus='online';
+    cloudPendingChanges = false;
   }catch(e){
     console.warn('فشل رفع البيانات للسحابة:', e);
     cloudStatus='error';
@@ -1359,7 +1384,7 @@ function initCloudSync(){
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
           renderAll();
-          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
+          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
           cloudApplyingRemote = false;
         }
         cloudStatusChanged();
@@ -1461,9 +1486,12 @@ function renderCloudSyncStatusBadge(){
     off: ['⚪','غير مفعّلة','var(--muted)'],
     connecting: ['🟡','جاري الاتصال...','var(--warn, #B8863B)'],
     online: ['🟢','متصلة ومتزامنة','var(--ok)'],
+    pending: ['🟡','في انتظار المزامنة — هيتزامن تلقائي أول ما الاتصال يرجع','var(--warn, #B8863B)'],
     error: ['🔴','خطأ في الاتصال — تحقق من الإنترنت والإعدادات','var(--danger)']
   };
-  const [ic,label,color] = map[cloudStatus]||map.off;
+  let status = cloudStatus;
+  if(db && db.cloudSync && db.cloudSync.enabled && (!navigator.onLine || cloudPendingChanges)) status = 'pending';
+  const [ic,label,color] = map[status]||map.off;
   el.innerHTML = `<span style="color:${color};font-weight:700;">${ic} ${label}</span>`;
 }
 
@@ -1478,6 +1506,7 @@ function renderCloudSyncCard(){
     box.innerHTML = `
       <h3>☁️ المزامنة السحابية بين الأجهزة</h3>
       <p class="meta">الحالة: <span id="cloudSyncStatusBadge"></span></p>
+      <p class="meta">📴 لو النت قطع، التطبيق يفضل شغال عادي وأي تعديل بيتحفظ عندك — وهيتزامن تلقائي أول ما الاتصال يرجع.</p>
       <p class="meta">لربط جهاز جديد (تاني موبايل أو جهاز ويندوز)، انسخ رمز الربط ده والصقه في نفس الصفحة على الجهاز التاني.</p>
       <div class="field"><label>رمز الربط</label><textarea id="pairingCodeOutput" rows="3" readonly style="font-size:11px;direction:ltr;text-align:left;">${pairingCode}</textarea></div>
       <div class="btn-row">
@@ -1491,7 +1520,8 @@ function renderCloudSyncCard(){
   } else {
     box.innerHTML = `
       <h3>☁️ المزامنة السحابية بين الأجهزة</h3>
-      <p class="meta">تخلي بيانات الموبايل والويندوز (أو أي جهاز تاني) تتحدث تلقائيًا مع بعض لحظيًا عن طريق مشروع Firebase مجاني خاص بيك. محتاج إنترنت شغال على الجهازين.</p>
+      <p class="meta">تخلي بيانات الموبايل والويندوز (أو أي جهاز تاني) تتحدث تلقائيًا مع بعض لحظيًا عن طريق مشروع Firebase مجاني خاص بيك.</p>
+      <p class="meta">📴 التطبيق شغال بالكامل حتى من غير إنترنت — أي تعديل بيتحفظ فورًا على جهازك، ولما الاتصال يرجع بيتزامن تلقائي مع باقي الأجهزة من غير ما تعمل حاجة.</p>
       <div class="field-row2" style="margin-top:10px;">
         <button class="btn secondary" onclick="toggleCloudSetupMode('create')">🆕 هذا أول جهاز (إنشاء مساحة مزامنة)</button>
         <button class="btn outline" onclick="toggleCloudSetupMode('connect')">🔗 عندي رمز ربط من جهاز تاني</button>
@@ -1711,6 +1741,7 @@ function initLock(){
   try{ applyWorkshopBranding(); }catch(e){ console.warn(e); }
   try{ applyTheme(); }catch(e){ console.warn(e); }
   try{ applyFontSettings(); }catch(e){ console.warn(e); }
+  try{ applyWideMode(); }catch(e){ console.warn(e); }
   try{ applyDarkMode(); }catch(e){ console.warn(e); }
   try{ applyCustomCSS(); }catch(e){ console.warn(e); }
   const handleKeyTap = (e)=>{
@@ -4130,6 +4161,7 @@ function renderSettings(){
   fillThemeInputs();
   fillFontInputs();
   fillSkeletonInput();
+  fillWideModeInput();
   renderHomeWidgetsSettings();
   document.getElementById('customCSSInput').value = db.customCSS||'';
   document.getElementById('customJSInput').value = db.customJS||'';
@@ -4289,6 +4321,22 @@ function saveButtonRadius(){
   saveDB();
   applyTheme();
   toast('تم حفظ شكل الأزرار ✅');
+}
+
+/* ============================================================
+   وضع الشاشة الكبيرة (تابلت)
+   ============================================================ */
+function applyWideMode(){
+  document.documentElement.classList.toggle('wide-mode', !!(db && db.wideMode));
+}
+function toggleWideMode(on){
+  db.wideMode = !!on;
+  saveDB();
+  applyWideMode();
+}
+function fillWideModeInput(){
+  const el = document.getElementById('wideModeToggleInput');
+  if(el) el.checked = !!(db && db.wideMode);
 }
 
 /* ============================================================
@@ -4829,6 +4877,7 @@ function importBackup(event){
       applyWorkshopBranding();
       applyTheme();
       applyFontSettings();
+      applyWideMode();
       applyDarkMode();
       applyCustomCSS();
       applyHomeWidgetsLayout();
@@ -5099,18 +5148,7 @@ document.addEventListener('keydown', function(e){
   }
 });
 
-// وضع تشخيص مؤقت لزر الرجوع: فعّله من الإعدادات لو عايز تعرف أي مسار
-// من التلاتة (لو حتى وحد منهم) بيشتغل فعليًا جوه الـ APK بعد التغليف.
-// لو ضغطت زر الرجوع ومفيش أي رسالة ظهرت خالص، معناه إن تطبيق التغليف
-// (WebIntoApp أو غيره) بيقفل النشاط مباشرة على مستوى النظام قبل ما
-// الضغطة توصل لصفحة الويب أصلاً — وده حاجة تتظبط من إعدادات التطبيق
-// نفسه (دور على خيار زي "Back Button" أو "Use WebView History")، مش
-// من كود الصفحة، لأن الكود مبيوصلوش الإشعار بالضغطة من الأساس.
 window.BACK_NAV_DEBUG = false;
-function toggleBackNavDebug(on){
-  window.BACK_NAV_DEBUG = !!on;
-  toast(on ? 'تشخيص زر الرجوع مفعّل — دلوقتي جرّب اضغط رجوع' : 'تشخيص زر الرجوع متوقف');
-}
 
 /* ============================================================
    بدء التشغيل
@@ -6102,33 +6140,42 @@ setTimeout(function(){
   };
 })();
 
-/* 25) مؤشر واضح لحالة الاتصال بالإنترنت (أوفلاين/أونلاين) */
+/* 25) مؤشر واضح لحالة الاتصال بالإنترنت (أوفلاين/أونلاين) + تنبيه للتغييرات المعلّقة اللي هتتزامن لاحقًا */
 (function(){
+  function badgeState(){
+    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A'};
+    if(db && db.cloudSync && db.cloudSync.enabled && cloudPendingChanges){
+      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D'};
+    }
+    return {show:false};
+  }
   function updateOfflineBadge(){
-    var offline = !navigator.onLine;
+    var state = badgeState();
     var badge = document.getElementById('offlineBadge');
-    if(offline){
+    if(state.show){
       if(!badge){
         badge = document.createElement('span');
         badge.id = 'offlineBadge';
         badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:0;';
-        badge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:#E0796A;display:inline-block;"></span>أوفلاين';
         var holder = document.querySelector('header.topbar > div:last-child');
         if(holder) holder.insertAdjacentElement('afterbegin', badge);
       }
+      badge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;"></span>'+state.text;
     } else if(badge){
       badge.remove();
     }
   }
+  window.refreshConnectivityBadge = updateOfflineBadge;
 
   window.addEventListener('offline', function(){
     updateOfflineBadge();
-    toast('📴 محدش نت دلوقتي — التغييرات هتتحفظ عندك على الجهاز');
+    toast('📴 محدش نت دلوقتي — التغييرات هتتحفظ عندك على الجهاز وتتزامن تلقائي أول ما الاتصال يرجع');
   });
 
   window.addEventListener('online', function(){
     updateOfflineBadge();
     var syncing = (db && db.cloudSync && db.cloudSync.enabled);
+    if(syncing) scheduleCloudPush(); // نحاول نبعت أي تغييرات معلّقة فورًا
     toast(syncing ? '✅ رجع النت — جاري مزامنة أي تغييرات' : '✅ رجع النت');
   });
 
@@ -6138,6 +6185,13 @@ setTimeout(function(){
     updateOfflineBadge();
   };
 })();
+
+const origCloudStatusChanged = cloudStatusChanged;
+cloudStatusChanged = function(){
+  origCloudStatusChanged();
+  if(typeof window.refreshConnectivityBadge==='function') window.refreshConnectivityBadge();
+};
+
 
 /* 26) وضع صلاحيات محدودة (استقبال) — إضافة حقل تحديد رقم الاستقبال في صفحة الإعدادات فقط */
 (function(){
