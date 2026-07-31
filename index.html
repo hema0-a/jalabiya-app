@@ -1565,11 +1565,23 @@ function initLock(){
   try{ applyTheme(); }catch(e){ console.warn(e); }
   try{ applyDarkMode(); }catch(e){ console.warn(e); }
   try{ applyCustomCSS(); }catch(e){ console.warn(e); }
+  // على معظم متصفحات الموبايل وتطبيقات WebView (زي WebIntoApp)، الضغطة الواحدة
+  // بتطلّع حدثين: touchend ثم click. preventDefault على touchend مش دايماً بيوقف
+  // الحدث التاني، فكل رقم كان بيتسجل مرتين والرقم السري بيتعبأ غلط. الحل: نتجاهل
+  // أي حدث متكرر على نفس الزر خلال 350ms.
+  let lastTapTime = 0, lastTapKey = null;
   const handleKeyTap = (e)=>{
     const btn = e.target.closest('button');
     if(!btn) return;
-    if(e.type==='touchend') e.preventDefault(); // يمنع تكرار الضغطة (touch + click) في بعض تطبيقات الـ WebView
     const k = btn.getAttribute('data-k');
+    const now = Date.now();
+    if(now - lastTapTime < 350 && lastTapKey === k){
+      e.preventDefault();
+      return;
+    }
+    lastTapTime = now;
+    lastTapKey = k;
+    if(e.type==='touchend') e.preventDefault();
     if(k==='clear'){ pin=''; updatePinDots(); return; }
     if(k==='back'){ pin = pin.slice(0,-1); updatePinDots(); return; }
     if(pin.length<4){
