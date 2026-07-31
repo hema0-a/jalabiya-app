@@ -637,6 +637,56 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   .alert-banner .close-x{margin-inline-start:auto;background:none;border:none;color:inherit;font-size:15px;opacity:.7;}
   .small-link{background:none;border:none;color:var(--primary);font-size:13px;font-weight:700;padding:6px;}
   .tag-late-text{color:var(--danger);font-weight:700;}
+/* === معرض الأعمال === */
+#galleryGrid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; }
+#galleryGrid .g-item{ position:relative; aspect-ratio:1/1; border-radius:10px; overflow:hidden; box-shadow:var(--shadow); }
+#galleryGrid .g-item img{ width:100%; height:100%; object-fit:cover; display:block; }
+#galleryGrid .g-empty{ grid-column:1/-1; text-align:center; padding:30px 10px; color:var(--muted); font-size:13px; }
+.gallery-add-btn{
+  width:100%; border:2px dashed var(--stitch); border-radius:12px; padding:14px;
+  background:var(--card-alt); color:var(--muted); font-weight:700; font-size:13.5px;
+}
+/* === كثافة العرض المضغوطة === */
+html.compact-view .card{ padding:10px 12px; }
+html.compact-view .card h3{ font-size:13.5px; margin-bottom:2px; }
+html.compact-view .card .meta{ font-size:11px; margin:1px 0; }
+html.compact-view .card .meta:nth-of-type(n+3){ display:none; }
+html.compact-view .badge{ padding:2px 8px; font-size:10.5px; }
+/* === أكورديون صفحة الإعدادات === */
+#page-settings > .card > h3:active{ opacity:.7; }
+.acc-body{ margin-top:8px; }
+/* === ظل الهيدر عند التمرير + زر الرجوع لأعلى === */
+header.topbar.scrolled{ box-shadow:0 14px 28px -10px rgba(13,42,33,0.55); }
+#scrollTopBtn{
+  position:fixed; bottom:22px; right:18px; z-index:59;
+  width:44px;height:44px;border-radius:50%;
+  background:var(--card); color:var(--primary); border:1px solid var(--border);
+  box-shadow:var(--shadow-lift); display:none; align-items:center; justify-content:center; font-size:18px;
+}
+#scrollTopBtn.show{ display:flex; }
+#alphaStrip button:active{ opacity:.6; }
+header.topbar{ overflow:hidden; gap:8px; }
+.topbar-brand{ min-width:0; flex:1 1 auto; overflow:hidden; }
+.topbar-brand > div:last-child{ min-width:0; overflow:hidden; }
+header.topbar h2{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+header.topbar .date{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+header.topbar > div:last-child{ flex-shrink:0; display:flex; align-items:center; gap:6px; }
+@media (max-width:400px){
+  header.topbar{ padding:16px 12px 20px; }
+  .topbar-brand{ gap:8px; }
+  .menu-btn, .theme-toggle-btn{ width:32px; height:32px; font-size:15px; }
+  .brand-emblem.sm{ width:32px; height:32px; }
+  header.topbar h2{ font-size:16px; }
+  header.topbar .date{ font-size:10px; }
+  header.topbar .small-link{
+    padding:0; width:32px; height:32px; justify-content:center;
+    border-radius:10px; margin-inline-start:0 !important;
+  }
+  header.topbar .small-link::before{ display:none; }
+  header.topbar .small-link .lock-text{ display:none; }
+}
+.keypad button{ transition:background .08s, transform .08s; }
+.keypad button.pressed{ background:var(--accent) !important; border-color:var(--accent) !important; transform:scale(0.93); }
 </style>
 </head>
 <body>
@@ -6228,6 +6278,491 @@ setTimeout(function(){
         phoneEl.insertAdjacentElement('afterend', chip);
       });
     }catch(e){}
+  };
+})();
+
+/* 28) معرض الأعمال — صور قابلة للربط بالعملاء والطلبات */
+(function(){
+  function getGallery(){ try{ return JSON.parse(localStorage.getItem('workGallery')||'[]'); }catch(e){ return []; } }
+  function saveGallery(list){
+    try{ localStorage.setItem('workGallery', JSON.stringify(list)); return true; }
+    catch(e){ toast('⚠️ مساحة التخزين ممتلئة — احذف صور قديمة عشان تضيف جديدة'); return false; }
+  }
+  function resizeImage(file, cb){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var maxW = 900, scale = Math.min(1, maxW/img.width);
+        var canvas = document.createElement('canvas');
+        canvas.width = img.width*scale; canvas.height = img.height*scale;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        cb(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  window.openGalleryModal = function(){
+    var list = getGallery();
+    var grid = list.length===0
+      ? '<div class="g-empty">لسه مفيش صور — ابدأ تضيف أفضل قطعك 👇</div>'
+      : list.map(function(item){
+          return '<div class="g-item" onclick="viewGalleryItem(\''+item.id+'\')"><img src="'+item.img+'" loading="lazy"></div>';
+        }).join('');
+    openModal(
+      '<div class="modal-head"><h3>🖼️ معرض الأعمال</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<button class="gallery-add-btn" onclick="triggerGalleryUpload()">➕ إضافة صورة جديدة</button>'
+      + '<div id="galleryGrid">'+grid+'</div>'
+    );
+    setTimeout(function(){
+      list.forEach(function(item){
+        if(!item.orderId && !item.customerId) return;
+        var el = document.querySelector('.g-item[onclick*="'+item.id+'"]');
+        if(el && !el.querySelector('.g-link-badge')){
+          var b=document.createElement('span'); b.className='g-link-badge';
+          b.style.cssText='position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.55);color:#fff;border-radius:6px;padding:1px 5px;font-size:10px;';
+          b.textContent='🔗';
+          el.appendChild(b);
+        }
+      });
+    }, 30);
+  };
+
+  window.triggerGalleryUpload = function(presetCustomerId, presetOrderId){
+    var input = document.createElement('input');
+    input.type='file'; input.accept='image/*';
+    input.onchange = function(){
+      if(!input.files || !input.files[0]) return;
+      resizeImage(input.files[0], function(dataUrl){
+        window._pendingGalleryImage = dataUrl;
+        openGalleryCaptionStep(presetCustomerId, presetOrderId);
+      });
+    };
+    input.click();
+  };
+
+  window.openGalleryCaptionStep = function(presetCustomerId, presetOrderId){
+    var custOptions = '<option value="">بدون ربط بعميل</option>' + db.customers.map(function(c){
+      return '<option value="'+c.id+'" '+(c.id===presetCustomerId?'selected':'')+'>'+escapeHtml(c.name)+'</option>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>✏️ وصف الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<img src="'+window._pendingGalleryImage+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+      + '<label>وصف مختصر (اختياري)</label>'
+      + '<input id="galleryCaptionInput" placeholder="مثال: جلباب مناسبات - قماش كتان">'
+      + '<label style="margin-top:8px;">ربط بعميل (اختياري)</label>'
+      + '<select id="galleryCustomerSelect" onchange="onGalleryCustomerChange()">'+custOptions+'</select>'
+      + '<div id="galleryOrderSelectWrap"></div>'
+      + '<button class="btn accent" style="width:100%;margin-top:12px;" onclick="saveGalleryItem()">💾 حفظ في المعرض</button>'
+    );
+    if(presetCustomerId){ onGalleryCustomerChange(presetOrderId); }
+  };
+
+  window.onGalleryCustomerChange = function(presetOrderId){
+    var custId = document.getElementById('galleryCustomerSelect').value;
+    var wrap = document.getElementById('galleryOrderSelectWrap');
+    if(!custId){ wrap.innerHTML=''; return; }
+    var orders = db.orders.filter(function(o){ return o.customerId===custId; });
+    if(orders.length===0){ wrap.innerHTML='<p class="meta">مفيش طلبات مسجلة لهذا العميل</p>'; return; }
+    var opts = '<option value="">بدون ربط بطلب معين</option>' + orders.map(function(o){
+      return '<option value="'+o.id+'" '+(o.id===presetOrderId?'selected':'')+'>'+escapeHtml(orderTypeLabel(o))+' - '+fmtDate(o.dateDelivery)+'</option>';
+    }).join('');
+    wrap.innerHTML = '<label style="margin-top:8px;">ربط بطلب معين (اختياري)</label><select id="galleryOrderSelect">'+opts+'</select>';
+  };
+
+  window.saveGalleryItem = function(){
+    var dataUrl = window._pendingGalleryImage;
+    if(!dataUrl) return;
+    var caption = (document.getElementById('galleryCaptionInput')||{}).value || '';
+    var custId = (document.getElementById('galleryCustomerSelect')||{}).value || '';
+    var orderId = (document.getElementById('galleryOrderSelect')||{}).value || '';
+    var list = getGallery();
+    list.unshift({id:'g'+Date.now(), img:dataUrl, caption:caption, date:todayStr(), customerId:custId||null, orderId:orderId||null});
+    if(saveGallery(list)){
+      toast('✅ اتضافت الصورة للمعرض');
+      window._pendingGalleryImage = null;
+      if(orderId){ closeModal(); openOrderModal(orderId); }
+      else{ openGalleryModal(); }
+    }
+  };
+
+  window.viewGalleryItem = function(id){
+    var item = getGallery().find(function(x){ return x.id===id; });
+    if(!item) return;
+    openModal(
+      '<div class="modal-head"><h3>🖼️ تفاصيل الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<img src="'+item.img+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+      + (item.caption ? '<p class="meta">'+escapeHtml(item.caption)+'</p>' : '')
+      + '<p class="meta">'+fmtDate(item.date)+'</p>'
+      + '<button class="btn outline" style="width:100%;margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="deleteGalleryItem(\''+id+'\')">🗑️ حذف الصورة</button>'
+    );
+  };
+
+  window.deleteGalleryItem = function(id){
+    saveGallery(getGallery().filter(function(x){ return x.id!==id; }));
+    toast('🗑️ اتحذفت الصورة');
+    openGalleryModal();
+  };
+
+  window.openGalleryPickerForOrder = function(orderId, customerId){
+    var list = getGallery();
+    var grid = list.length===0 ? '<div class="g-empty">المعرض فاضي</div>' : list.map(function(item){
+      return '<div class="g-item" onclick="linkGalleryItemToOrder(\''+item.id+'\',\''+orderId+'\',\''+customerId+'\')"><img src="'+item.img+'" loading="lazy"></div>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>🖼️ اختر صورة لربطها بالطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div id="galleryGrid">'+grid+'</div>'
+    );
+  };
+
+  window.linkGalleryItemToOrder = function(itemId, orderId, customerId){
+    var list = getGallery();
+    var item = list.find(function(x){ return x.id===itemId; });
+    if(item){ item.orderId=orderId; item.customerId=customerId; saveGallery(list); toast('🔗 اترابطت الصورة بالطلب'); }
+    closeModal();
+    openOrderModal(orderId);
+  };
+
+  var settingsBtn = document.querySelector('.navbtn[data-page="settings"]');
+  if(settingsBtn && !document.getElementById('navGallery')){
+    var galleryBtn = document.createElement('button');
+    galleryBtn.className='navbtn'; galleryBtn.id='navGallery';
+    galleryBtn.innerHTML = '<span class="ic">🖼️</span>معرض الأعمال';
+    galleryBtn.onclick = function(){ closeSideNav(); openGalleryModal(); };
+    settingsBtn.insertAdjacentElement('beforebegin', galleryBtn);
+  }
+
+  var origOOMGallery = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var r = origOOMGallery.apply(this, arguments);
+    if(id){
+      setTimeout(function(){
+        try{
+          var o = db.orders.find(function(x){ return x.id===id; });
+          if(!o) return;
+          var imgs = getGallery().filter(function(g){ return g.orderId===id; });
+          var thumbs = imgs.map(function(g){
+            return '<div style="width:56px;height:56px;border-radius:8px;overflow:hidden;flex-shrink:0;" onclick="viewGalleryItem(\''+g.id+'\')"><img src="'+g.img+'" style="width:100%;height:100%;object-fit:cover;"></div>';
+          }).join('');
+          var section = document.createElement('div');
+          section.style.cssText='margin:14px 0;';
+          section.innerHTML =
+            '<label>📷 صور الطلب</label>'
+            + '<div style="display:flex;gap:8px;overflow-x:auto;margin:6px 0;">'+thumbs+'</div>'
+            + '<div style="display:flex;gap:8px;">'
+            + '<button type="button" class="btn sm outline" onclick="triggerGalleryUpload(\''+o.customerId+'\',\''+id+'\')">➕ صورة جديدة</button>'
+            + '<button type="button" class="btn sm outline" onclick="openGalleryPickerForOrder(\''+id+'\',\''+o.customerId+'\')">🖼️ من المعرض</button>'
+            + '</div>';
+          var saveBtn = document.querySelector('.modal-box button[onclick^="saveOrder("]');
+          if(saveBtn) saveBtn.insertAdjacentElement('beforebegin', section);
+        }catch(e){}
+      }, 60);
+    }
+    return r;
+  };
+})();
+
+/* 29) زر كثافة العرض (مريح/مضغوط) */
+(function(){
+  var anchor = document.getElementById('contrastToggleBtn') || document.getElementById('themeToggleBtn');
+  if(!anchor || document.getElementById('densityToggleBtn')) return;
+  var btn = document.createElement('button');
+  btn.className='theme-toggle-btn'; btn.id='densityToggleBtn';
+  btn.setAttribute('aria-label','كثافة العرض');
+  function updateIcon(){ btn.textContent = document.documentElement.classList.contains('compact-view') ? '▤' : '☰'; }
+  btn.onclick = function(){
+    document.documentElement.classList.toggle('compact-view');
+    localStorage.setItem('compactView', document.documentElement.classList.contains('compact-view')?'1':'0');
+    updateIcon();
+  };
+  anchor.insertAdjacentElement('afterend', btn);
+  if(localStorage.getItem('compactView')==='1') document.documentElement.classList.add('compact-view');
+  updateIcon();
+})();
+
+/* 30) أكورديون صفحة الإعدادات — بطاقات قابلة للطي */
+(function(){
+  function accordionizeCard(card){
+    if(card.dataset.accordionized) return;
+    var heading = card.firstElementChild;
+    if(!heading || heading.tagName!=='H3') return;
+    var rest = Array.prototype.slice.call(card.children, 1);
+    if(rest.length===0) return;
+    card.dataset.accordionized='1';
+    var body = document.createElement('div');
+    body.className='acc-body';
+    body.style.display='none';
+    rest.forEach(function(el){ body.appendChild(el); });
+    card.appendChild(body);
+    var chevron = document.createElement('span');
+    chevron.textContent='▾';
+    chevron.style.cssText='margin-inline-start:auto;transition:transform .2s;font-size:13px;color:var(--muted);';
+    heading.style.cssText='display:flex;align-items:center;cursor:pointer;margin:0;';
+    heading.appendChild(chevron);
+    heading.addEventListener('click', function(){
+      var open = body.style.display!=='none';
+      body.style.display = open ? 'none' : 'block';
+      chevron.style.transform = open ? '' : 'rotate(180deg)';
+    });
+  }
+  function processSettingsCards(){
+    document.querySelectorAll('#page-settings > .card').forEach(accordionizeCard);
+  }
+  processSettingsCards();
+  var settingsPage = document.getElementById('page-settings');
+  if(settingsPage) new MutationObserver(processSettingsCards).observe(settingsPage, {childList:true});
+})();
+
+/* 31) ظل الهيدر عند التمرير + زر الرجوع لأعلى الصفحة */
+(function(){
+  if(document.getElementById('scrollTopBtn')) return;
+  window.addEventListener('scroll', function(){
+    var header = document.querySelector('header.topbar');
+    if(header) header.classList.toggle('scrolled', window.scrollY>10);
+  }, {passive:true});
+
+  var btn = document.createElement('button');
+  btn.id='scrollTopBtn'; btn.textContent='⬆️';
+  btn.onclick = function(){ window.scrollTo({top:0, behavior:'smooth'}); };
+  document.getElementById('app').appendChild(btn);
+  window.addEventListener('scroll', function(){
+    btn.classList.toggle('show', window.scrollY>400);
+  }, {passive:true});
+})();
+
+/* 32) فلاتر سريعة + فرز + تجميع بالحالة + فواصل تاريخ + دليل ألوان لصفحة الطلبات */
+(function(){
+  var extraFilter='none', sortMode='default', groupByStatus=false;
+
+  function ensureControls(){
+    if(document.getElementById('ordersExtraControls')) return;
+    var list = document.getElementById('ordersList');
+    if(!list) return;
+    var wrap = document.createElement('div');
+    wrap.id='ordersExtraControls'; wrap.style.cssText='margin-bottom:10px;';
+    wrap.innerHTML =
+      '<div class="btn-row" style="flex-wrap:wrap;margin-bottom:8px;" id="ordersChipsRow">'
+      + '<button class="btn sm outline" data-chip="urgent">🔥 مستعجل</button>'
+      + '<button class="btn sm outline" data-chip="soon">⏳ قريب الموعد</button>'
+      + '<button class="btn sm outline" data-chip="nodeposit">💰 بدون عربون</button>'
+      + '<button class="btn sm outline" data-chip="group">🗂️ تجميع بالحالة</button>'
+      + '<button class="btn sm outline" id="legendToggleBtn">🎨 دليل الألوان</button>'
+      + '</div>'
+      + '<div class="field" style="margin-bottom:8px;"><label>ترتيب حسب</label>'
+      + '<select id="ordersSortSelect">'
+      + '<option value="default">📥 الأحدث إضافة</option>'
+      + '<option value="nearest">⏳ الأقرب تسليمًا</option>'
+      + '<option value="highest">💰 الأعلى قيمة</option>'
+      + '</select></div>'
+      + '<div id="legendBox" style="display:none;padding:10px;background:var(--card-alt);border-radius:10px;font-size:12px;margin-bottom:8px;">'
+      + '🟢 قيد العمل &nbsp; 🟡 جاهز للتسليم &nbsp; ⚪ تم التسليم &nbsp; 🔴 متأخر / مستعجل'
+      + '</div>';
+    list.insertAdjacentElement('beforebegin', wrap);
+
+    wrap.querySelectorAll('[data-chip]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var chip=b.dataset.chip;
+        if(chip==='group'){ groupByStatus=!groupByStatus; b.classList.toggle('accent',groupByStatus); }
+        else{
+          extraFilter=(extraFilter===chip)?'none':chip;
+          wrap.querySelectorAll('[data-chip]').forEach(function(x){ if(x.dataset.chip!=='group') x.classList.remove('accent'); });
+          if(extraFilter!=='none') b.classList.add('accent');
+        }
+        applyEnhancements();
+      });
+    });
+    document.getElementById('ordersSortSelect').addEventListener('change', function(){ sortMode=this.value; applyEnhancements(); });
+    document.getElementById('legendToggleBtn').addEventListener('click', function(){
+      var box=document.getElementById('legendBox');
+      box.style.display = box.style.display==='none' ? 'block':'none';
+    });
+  }
+
+  function applyEnhancements(){
+    var container=document.getElementById('ordersList');
+    if(!container) return;
+    container.querySelectorAll('.order-group-title').forEach(function(el){ el.remove(); });
+    var cards=Array.prototype.slice.call(container.querySelectorAll('.card'));
+    cards.forEach(function(card){
+      if(!card.dataset.orderId){
+        var btn=card.querySelector('[onclick^="openOrderModal("]');
+        if(btn){ var m=btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/); if(m) card.dataset.orderId=m[1]; }
+      }
+    });
+    var in3=new Date(); in3.setDate(in3.getDate()+3);
+    var in3Str=in3.toISOString().slice(0,10);
+
+    cards.forEach(function(card){
+      var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+      var show=true;
+      if(o){
+        if(extraFilter==='urgent') show=!!o.urgent;
+        else if(extraFilter==='soon') show=o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery<=in3Str;
+        else if(extraFilter==='nodeposit') show=o.status!=='تم التسليم' && !Number(o.paid);
+      }
+      card.style.display=show?'':'none';
+    });
+
+    var visible=cards.filter(function(c){ return c.style.display!=='none'; });
+    if(sortMode!=='default'){
+      visible.sort(function(a,b){
+        var oa=db.orders.find(function(x){ return x.id===a.dataset.orderId; });
+        var ob=db.orders.find(function(x){ return x.id===b.dataset.orderId; });
+        if(!oa||!ob) return 0;
+        if(sortMode==='nearest') return (oa.dateDelivery||'9999').localeCompare(ob.dateDelivery||'9999');
+        if(sortMode==='highest') return orderTotal(ob)-orderTotal(oa);
+        return 0;
+      });
+      visible.forEach(function(card){ container.appendChild(card); });
+    }
+
+    if(groupByStatus){
+      var order=['قيد العمل','جاهز للتسليم','تم التسليم'];
+      var groups={};
+      visible.forEach(function(card){
+        var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+        var st=o?o.status:'أخرى';
+        (groups[st]=groups[st]||[]).push(card);
+      });
+      order.forEach(function(st){
+        if(!groups[st]||!groups[st].length) return;
+        var title=document.createElement('div');
+        title.className='section-title order-group-title';
+        title.textContent=st+' ('+groups[st].length+')';
+        container.appendChild(title);
+        groups[st].forEach(function(card){ container.appendChild(card); });
+      });
+    } else if(sortMode==='nearest'){
+      var lastDate=null;
+      visible.forEach(function(card){
+        var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+        var d=o?(o.dateDelivery||'بدون تاريخ'):null;
+        if(d && d!==lastDate){
+          var sep=document.createElement('div');
+          sep.className='order-group-title';
+          sep.style.cssText='font-size:11.5px;color:var(--muted);margin:10px 2px 4px;font-weight:700;';
+          sep.textContent='📅 '+(d==='بدون تاريخ'?d:fmtDate(d));
+          container.insertBefore(sep, card);
+          lastDate=d;
+        }
+      });
+    }
+  }
+
+  var origRO=renderOrders;
+  renderOrders=function(){
+    origRO.apply(this, arguments);
+    ensureControls();
+    setTimeout(applyEnhancements, 20);
+  };
+})();
+
+/* 33) تجميع العملاء أبجديًا + شريط حروف جانبي للقفز السريع */
+(function(){
+  function firstLetter(name){ return (name&&name.trim().charAt(0))||'#'; }
+
+  function applyAlphaGroup(){
+    var container=document.getElementById('customersList');
+    if(!container) return;
+    container.querySelectorAll('.cust-group-title').forEach(function(el){ el.remove(); });
+    var cards=Array.prototype.slice.call(container.querySelectorAll('.card'));
+    if(cards.length<6){ var s=document.getElementById('alphaStrip'); if(s) s.style.display='none'; return; }
+    var items=cards.map(function(card){
+      var phoneEl=Array.prototype.find.call(card.querySelectorAll('.meta'), function(m){ return m.textContent.trim().indexOf('📞')===0; });
+      var digits=phoneEl?phoneEl.textContent.replace(/[^0-9]/g,''):'';
+      var c=db.customers.find(function(x){ return (x.phone||'').replace(/[^0-9]/g,'')===digits; });
+      return {card:card, name:c?c.name:''};
+    }).filter(function(it){ return it.name; });
+    items.sort(function(a,b){ return a.name.localeCompare(b.name,'ar'); });
+    var lastLetter=null, letters=[];
+    items.forEach(function(it){
+      var letter=firstLetter(it.name);
+      if(letter!==lastLetter){
+        var title=document.createElement('div');
+        title.className='section-title cust-group-title';
+        title.id='cust-letter-'+letter.charCodeAt(0);
+        title.textContent=letter;
+        container.appendChild(title);
+        lastLetter=letter; letters.push(letter);
+      }
+      container.appendChild(it.card);
+    });
+    buildLetterStrip(letters);
+  }
+
+  function buildLetterStrip(letters){
+    var strip=document.getElementById('alphaStrip');
+    if(!strip){
+      strip=document.createElement('div'); strip.id='alphaStrip';
+      strip.style.cssText='position:fixed;top:50%;left:4px;transform:translateY(-50%);display:flex;flex-direction:column;gap:2px;z-index:55;background:var(--card);border-radius:10px;padding:4px 3px;box-shadow:var(--shadow);';
+      document.getElementById('app').appendChild(strip);
+    }
+    strip.innerHTML='';
+    strip.style.display = letters.length>3 ? 'flex' : 'none';
+    letters.forEach(function(letter){
+      var b=document.createElement('button');
+      b.textContent=letter;
+      b.style.cssText='background:none;border:none;font-size:10.5px;color:var(--primary);font-weight:800;padding:1px 3px;';
+      b.onclick=function(){
+        var el=document.getElementById('cust-letter-'+letter.charCodeAt(0));
+        if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+      };
+      strip.appendChild(b);
+    });
+  }
+
+  var origRC3=renderCustomers;
+  renderCustomers=function(){
+    origRC3.apply(this, arguments);
+    setTimeout(applyAlphaGroup, 40);
+  };
+
+  var origShowPage3=showPage;
+  showPage=function(name){
+    var r=origShowPage3.apply(this, arguments);
+    var strip=document.getElementById('alphaStrip');
+    if(strip && name!=='customers') strip.style.display='none';
+    return r;
+  };
+})();
+
+/* 34) نص "قفل" بجوار أيقونة القفل في الشريط العلوي */
+(function(){
+  var lockBtn = document.querySelector('header.topbar .small-link');
+  if(lockBtn && !lockBtn.dataset.wrapped){
+    lockBtn.dataset.wrapped='1';
+    lockBtn.innerHTML = '🔒<span class="lock-text"> قفل</span>';
+  }
+})();
+
+/* 35) إحساس ضغط فوري للوحة الرقم السري + قفل مؤقت أثناء التحقق */
+(function(){
+  function setup(){
+    var keypad = document.getElementById('keypad');
+    if(!keypad || keypad.dataset.fastTapEnabled) return;
+    keypad.dataset.fastTapEnabled='1';
+    keypad.addEventListener('touchstart', function(e){
+      var btn = e.target.closest('button');
+      if(btn) btn.classList.add('pressed');
+    }, {passive:true});
+    ['touchend','touchcancel'].forEach(function(ev){
+      keypad.addEventListener(ev, function(e){
+        var btn = e.target.closest('button');
+        if(btn) btn.classList.remove('pressed');
+        else keypad.querySelectorAll('.pressed').forEach(function(b){ b.classList.remove('pressed'); });
+      }, {passive:true});
+    });
+  }
+  setup();
+
+  var origCheckPin = checkPin;
+  checkPin = function(){
+    var keypad = document.getElementById('keypad');
+    if(keypad) keypad.style.pointerEvents='none';
+    origCheckPin();
+    setTimeout(function(){ if(keypad) keypad.style.pointerEvents=''; }, 450);
   };
 })();
 
