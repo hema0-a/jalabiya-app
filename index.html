@@ -15,6 +15,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=El+Messiri:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=El+Messiri:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap"></noscript>
+<!-- خطوط إضافية لميزة "تخصيص الخط" -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Cairo:wght@400;500;600;700&family=Almarai:wght@400;700;800&family=Noto+Kufi+Arabic:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&family=Cairo:wght@400;500;600;700&family=Almarai:wght@400;700;800&family=Noto+Kufi+Arabic:wght@400;500;600;700&display=swap"></noscript>
 <style>
 
 /* ===== إضافات ورقّعات CSS (مدمجة) ===== */
@@ -324,6 +327,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     --shadow-lift: 0 16px 40px rgba(18,60,47,0.18);
     --font-display:"El Messiri","Tajawal",sans-serif;
     --font-body:"IBM Plex Sans Arabic","Tajawal","Segoe UI",Tahoma,Arial,sans-serif;
+    --font-scale:1;
   }
 
   /* ===== الوضع الليلي ===== */
@@ -361,6 +365,28 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     background:rgba(255,255,255,0.15);border:none;color:#fff;width:36px;height:36px;
     border-radius:10px;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
     margin-inline-start:6px;
+  }
+
+  /* ===== تأثير التحميل الهيكلي (Skeleton Loading) ===== */
+  .skeleton-overlay{
+    display:none; position:absolute; inset:0; z-index:5; background:var(--bg);
+    padding:14px 16px 90px; overflow:hidden;
+  }
+  .skeleton-overlay.show{ display:block; }
+  .skel-block, .skel-line, .skel-card{
+    border-radius:var(--radius-sm);
+    background:linear-gradient(90deg, var(--card-alt) 25%, var(--border) 37%, var(--card-alt) 63%);
+    background-size:400% 100%;
+    animation:skel-shimmer 1.4s ease infinite;
+  }
+  .skel-block{ height:72px; margin-bottom:16px; }
+  .skel-line{ height:14px; margin-bottom:10px; }
+  .skel-line.w70{ width:70%; }
+  .skel-line.w40{ width:40%; margin-bottom:18px; }
+  .skel-card{ height:66px; margin-bottom:12px; }
+  @keyframes skel-shimmer{
+    0%{ background-position:100% 50%; }
+    100%{ background-position:0 50%; }
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -730,6 +756,14 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   </header>
 
   <main>
+    <div class="skeleton-overlay" id="skeletonOverlay" aria-hidden="true">
+      <div class="skel-block"></div>
+      <div class="skel-line w70"></div>
+      <div class="skel-line w40"></div>
+      <div class="skel-card"></div>
+      <div class="skel-card"></div>
+      <div class="skel-card"></div>
+    </div>
     <!-- ---------- الرئيسية ---------- -->
     <section class="page active" id="page-home">
       <div class="search-box"><input id="globalSearch" placeholder="🔍 بحث شامل بالاسم، الهاتف، أو نوع الجلابية..." oninput="renderGlobalSearch()"></div>
@@ -884,6 +918,40 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           </select>
         </div>
         <button class="btn" onclick="saveButtonRadius()">💾 حفظ شكل الأزرار</button>
+      </div>
+      <div class="card">
+        <h3>🔤 تخصيص الخط</h3>
+        <p class="meta">اختار نوع وحجم الخط اللي يريحك — التغيير يطبّق فوراً على كل الصفحات وشاشة القفل.</p>
+        <div class="field">
+          <label>نوع الخط</label>
+          <select id="fontFamilyInput">
+            <option value="default">افتراضي (IBM Plex Sans Arabic)</option>
+            <option value="tajawal">تجوال (Tajawal)</option>
+            <option value="cairo">القاهرة (Cairo)</option>
+            <option value="almarai">الماري (Almarai)</option>
+            <option value="notokufi">نوتو كوفي (Noto Kufi Arabic)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>حجم الخط</label>
+          <select id="fontSizeInput">
+            <option value="0.9">صغير</option>
+            <option value="1">متوسط (الافتراضي)</option>
+            <option value="1.12">كبير</option>
+            <option value="1.25">كبير جداً</option>
+          </select>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="saveFontSettings()">💾 حفظ إعدادات الخط</button>
+          <button class="btn outline" onclick="resetFontSettings()">↩️ استعادة الافتراضي</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>💀 تأثير التحميل (Skeleton Loading)</h3>
+        <p class="meta">لما تفعّل الخيار ده، هيظهر تأثير تحميل هيكلي بسيط لحظة الانتقال بين الصفحات بدل ما المحتوى يظهر فجأة — بيدي إحساس أكتر سلاسة أثناء الاستخدام.</p>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="skeletonToggleInput" style="width:18px;height:18px;" onchange="toggleSkeletonLoading(this.checked)"> تفعيل تأثير التحميل عند تنقل الصفحات
+        </label>
       </div>
       <div class="card">
         <h3>🧑‍💻 تعديل متقدم على كود الصفحة</h3>
@@ -1074,6 +1142,8 @@ function defaultDB(){
     workshopLogo:null,
     theme:{primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'},
     btnRadius:12,
+    fontSettings:{family:'default', size:'1'},
+    skeletonLoading:false,
     customCSS:'',
     customJS:'',
     darkMode:false,
@@ -1266,7 +1336,7 @@ function initCloudSync(){
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
           renderAll();
-          try{ applyWorkshopBranding(); applyTheme(); applyDarkMode(); applyCustomCSS(); }catch(e){}
+          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyDarkMode(); applyCustomCSS(); }catch(e){}
           cloudApplyingRemote = false;
         }
         cloudStatusChanged();
@@ -1617,6 +1687,7 @@ function initLock(){
   try{ initCloudSync(); }catch(e){ console.warn('cloud sync init failed', e); }
   try{ applyWorkshopBranding(); }catch(e){ console.warn(e); }
   try{ applyTheme(); }catch(e){ console.warn(e); }
+  try{ applyFontSettings(); }catch(e){ console.warn(e); }
   try{ applyDarkMode(); }catch(e){ console.warn(e); }
   try{ applyCustomCSS(); }catch(e){ console.warn(e); }
   const handleKeyTap = (e)=>{
@@ -1715,7 +1786,14 @@ function showPage(name){
   document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.getAttribute('data-page')===name));
   document.getElementById('pageTitle').textContent = pageTitles[name];
   document.getElementById('fabAdd').style.display = fabPages[name] ? 'flex':'none';
-  renderAll();
+  if(db && db.skeletonLoading){
+    showSkeleton();
+    renderAll();
+    clearTimeout(window._skelTm);
+    window._skelTm = setTimeout(hideSkeleton, 280);
+  } else {
+    renderAll();
+  }
   syncNavState();
 }
 
@@ -4002,6 +4080,8 @@ function renderSettings(){
   document.getElementById('ownerPhoneInput').value = db.ownerPhone||'';
   document.getElementById('workshopAddressInput').value = db.workshopAddress||'';
   fillThemeInputs();
+  fillFontInputs();
+  fillSkeletonInput();
   document.getElementById('customCSSInput').value = db.customCSS||'';
   document.getElementById('customJSInput').value = db.customJS||'';
   document.getElementById('dailyCapacityInput').value = db.dailyCapacity;
@@ -4160,6 +4240,78 @@ function saveButtonRadius(){
   saveDB();
   applyTheme();
   toast('تم حفظ شكل الأزرار ✅');
+}
+
+/* ============================================================
+   تخصيص الخط
+   ============================================================ */
+const FONT_FAMILIES = {
+  default:  '"IBM Plex Sans Arabic","Tajawal","Segoe UI",Tahoma,Arial,sans-serif',
+  tajawal:  '"Tajawal","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif',
+  cairo:    '"Cairo","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif',
+  almarai:  '"Almarai","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif',
+  notokufi: '"Noto Kufi Arabic","IBM Plex Sans Arabic","Segoe UI",Tahoma,Arial,sans-serif'
+};
+const DEFAULT_FONT = {family:'default', size:'1'};
+
+function applyFontSettings(){
+  const f = (db && db.fontSettings) ? db.fontSettings : DEFAULT_FONT;
+  const fam = FONT_FAMILIES[f.family] || FONT_FAMILIES.default;
+  document.documentElement.style.setProperty('--font-body', fam);
+  const scale = Number(f.size) || 1;
+  document.documentElement.style.setProperty('--font-scale', String(scale));
+  // "zoom" بيكبّر/يصغّر كل حاجة (نص، مسافات، أيقونات) بشكل متناسق - مدعوم في متصفحات كروميوم وتطبيقات الـ WebView
+  const appEl = document.getElementById('app');
+  const lockEl = document.getElementById('lockScreen');
+  if(appEl) appEl.style.zoom = String(scale);
+  if(lockEl) lockEl.style.zoom = String(scale);
+}
+
+function fillFontInputs(){
+  const f = (db && db.fontSettings) ? db.fontSettings : DEFAULT_FONT;
+  const elF = document.getElementById('fontFamilyInput');
+  const elS = document.getElementById('fontSizeInput');
+  if(elF) elF.value = f.family || DEFAULT_FONT.family;
+  if(elS) elS.value = String(f.size || DEFAULT_FONT.size);
+}
+
+function saveFontSettings(){
+  db.fontSettings = {
+    family: document.getElementById('fontFamilyInput').value,
+    size: document.getElementById('fontSizeInput').value
+  };
+  saveDB();
+  applyFontSettings();
+  toast('تم حفظ إعدادات الخط ✅');
+}
+
+function resetFontSettings(){
+  db.fontSettings = {...DEFAULT_FONT};
+  saveDB();
+  applyFontSettings();
+  fillFontInputs();
+  toast('تم استعادة الخط الافتراضي ✅');
+}
+
+/* ============================================================
+   تأثير التحميل الهيكلي (Skeleton Loading)
+   ============================================================ */
+function showSkeleton(){
+  const el = document.getElementById('skeletonOverlay');
+  if(el) el.classList.add('show');
+}
+function hideSkeleton(){
+  const el = document.getElementById('skeletonOverlay');
+  if(el) el.classList.remove('show');
+}
+function toggleSkeletonLoading(on){
+  db.skeletonLoading = !!on;
+  saveDB();
+  toast(on ? 'تم تفعيل تأثير التحميل ✅' : 'تم إيقاف تأثير التحميل');
+}
+function fillSkeletonInput(){
+  const el = document.getElementById('skeletonToggleInput');
+  if(el) el.checked = !!(db && db.skeletonLoading);
 }
 
 /* ===== الوضع الليلي ===== */
@@ -4547,6 +4699,7 @@ function importBackup(event){
       renderAll();
       applyWorkshopBranding();
       applyTheme();
+      applyFontSettings();
       applyDarkMode();
       applyCustomCSS();
       toast('تم استيراد النسخة الاحتياطية بنجاح ✅');
@@ -6819,297 +6972,6 @@ setTimeout(function(){
 
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
-</script>// ============================================================
-// 1) تخصيص الخط (Font Customization)
-// ============================================================
-
-const FontManager = {
-  fonts: {
-    'display': 'El Messiri',
-    'body': 'IBM Plex Sans Arabic',
-    'mono': 'IBM Plex Mono'
-  },
-  
-  savedFonts: {},
-
-  // تحميل الخطوط المحفوظة من localStorage
-  loadSavedFonts() {
-    const saved = localStorage.getItem('customFonts');
-    if (saved) {
-      this.savedFonts = JSON.parse(saved);
-      this.applyFonts(this.savedFonts);
-    }
-  },
-
-  // تطبيق الخطوط على المتغيرات
-  applyFonts(fonts) {
-    const root = document.documentElement;
-    root.style.setProperty('--font-display', fonts.display || this.fonts.display);
-    root.style.setProperty('--font-body', fonts.body || this.fonts.body);
-    root.style.setProperty('--font-num', fonts.mono || this.fonts.mono);
-  },
-
-  // حفظ الخطوط في localStorage
-  saveFonts(fonts) {
-    this.savedFonts = fonts;
-    localStorage.setItem('customFonts', JSON.stringify(fonts));
-    this.applyFonts(fonts);
-    showToast('✅ تم حفظ الخطوط');
-  },
-
-  // إعادة تعيين الخطوط الافتراضية
-  resetFonts() {
-    this.savedFonts = {};
-    localStorage.removeItem('customFonts');
-    this.applyFonts(this.fonts);
-    showToast('↩️ تم استعادة الخطوط الافتراضية');
-  }
-};
-
-// ============================================================
-// 2) Skeleton Loading (تحميل هيكل عظمي)
-// ============================================================
-
-class SkeletonLoader {
-  static createSkeletonCard(lines = 3) {
-    const skeleton = document.createElement('div');
-    skeleton.className = 'skeleton-card';
-    skeleton.innerHTML = `
-      <div class="skeleton-header">
-        <div class="skeleton-avatar"></div>
-        <div class="skeleton-title"></div>
-      </div>
-      ${Array(lines).fill(0).map(() => '<div class="skeleton-line"></div>').join('')}
-      <div class="skeleton-line skeleton-short"></div>
-    `;
-    return skeleton;
-  }
-
-  static createSkeletonGrid(count = 4) {
-    const grid = document.createElement('div');
-    grid.className = 'skeleton-grid';
-    for (let i = 0; i < count; i++) {
-      grid.appendChild(this.createSkeletonCard(2));
-    }
-    return grid;
-  }
-
-  static createSkeletonList(count = 5) {
-    const list = document.createElement('div');
-    list.className = 'skeleton-list';
-    for (let i = 0; i < count; i++) {
-      list.appendChild(this.createSkeletonCard(2));
-    }
-    return list;
-  }
-
-  static createSkeletonTable(rows = 5, cols = 3) {
-    const table = document.createElement('div');
-    table.className = 'skeleton-table';
-    for (let i = 0; i < rows; i++) {
-      const row = document.createElement('div');
-      row.className = 'skeleton-row';
-      for (let j = 0; j < cols; j++) {
-        row.appendChild(this.createSkeletonLine());
-      }
-      table.appendChild(row);
-    }
-    return table;
-  }
-
-  static createSkeletonLine() {
-    const line = document.createElement('div');
-    line.className = 'skeleton-line';
-    return line;
-  }
-
-  // عرض skeleton وإزالته عند اكتمال التحميل
-  static async loadWithSkeleton(containerId, loadFunction, skeletonType = 'list', options = {}) {
-    const container = document.getElementById(containerId);
-    if (!container) return;
-
-    // عرض skeleton
-    container.innerHTML = '';
-    let skeleton;
-    switch (skeletonType) {
-      case 'grid':
-        skeleton = this.createSkeletonGrid(options.count || 4);
-        break;
-      case 'table':
-        skeleton = this.createSkeletonTable(options.rows || 5, options.cols || 3);
-        break;
-      case 'card':
-        skeleton = this.createSkeletonCard(options.lines || 3);
-        break;
-      default:
-        skeleton = this.createSkeletonList(options.count || 5);
-    }
-    container.appendChild(skeleton);
-
-    try {
-      // تنفيذ دالة التحميل
-      await loadFunction();
-      // إزالة skeleton تلقائياً بعد اكتمال التحميل
-      container.querySelectorAll('.skeleton-card, .skeleton-grid, .skeleton-list, .skeleton-table').forEach(el => el.remove());
-    } catch (error) {
-      console.error('خطأ في التحميل:', error);
-      container.innerHTML = `<div class="alert-banner danger"><b>خطأ في التحميل</b><p>${error.message}</p></div>`;
-    }
-  }
-}
-
-// تهيئة Skeleton Loader عند بدء التطبيق
-document.addEventListener('DOMContentLoaded', () => {
-  FontManager.loadSavedFonts();
-});
-</body>/* ============================================================
-   Skeleton Loading Styles
-   ============================================================ */
-
-.skeleton-card, .skeleton-grid, .skeleton-list {
-  background: var(--card);
-  border-radius: var(--radius);
-  padding: 16px;
-  box-shadow: var(--shadow);
-  margin-bottom: 12px;
-}
-
-.skeleton-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.skeleton-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: linear-gradient(90deg, var(--border), var(--card-alt), var(--border));
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-  flex-shrink: 0;
-}
-
-.skeleton-title {
-  flex: 1;
-  height: 18px;
-  border-radius: 8px;
-  background: linear-gradient(90deg, var(--border), var(--card-alt), var(--border));
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-}
-
-.skeleton-line {
-  height: 14px;
-  border-radius: 6px;
-  background: linear-gradient(90deg, var(--border), var(--card-alt), var(--border));
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-  margin-bottom: 10px;
-}
-
-.skeleton-line.skeleton-short {
-  width: 60%;
-  margin-bottom: 0;
-}
-
-/* شبكة skeleton */
-.skeleton-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-  padding: 0;
-}
-
-.skeleton-grid .skeleton-card {
-  padding: 12px;
-  margin-bottom: 0;
-}
-
-/* قائمة skeleton */
-.skeleton-list .skeleton-card {
-  padding: 12px;
-  margin-bottom: 8px;
-}
-
-/* جدول skeleton */
-.skeleton-table {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.skeleton-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  padding: 10px;
-  background: var(--card);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-}
-
-/* تأثير التحميل المتحرك */
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* وضع الليل */
-html[data-theme="dark"] .skeleton-line,
-html[data-theme="dark"] .skeleton-avatar,
-html[data-theme="dark"] .skeleton-title {
-  background: linear-gradient(90deg, var(--border), var(--card-alt), var(--border));
-}
-</html><div class="card">
-  <h3>✏️ تخصيص الخطوط</h3>
-  <p class="meta">اختار الخط المفضل لك للعناوين والنصوص العادية والأرقام.</p>
-  
-  <div class="field">
-    <label>خط العناوين (Display Font)</label>
-    <select id="fontDisplaySelect" onchange="updateFontPreview('display', this.value)">
-      <option value="El Messiri">El Messiri (افتراضي)</option>
-      <option value="Tajawal">Tajawal</option>
-      <option value="Cairo">Cairo</option>
-      <option value="Almarai">Almarai</option>
-      <option value="Mada">Mada</option>
-    </select>
-  </div>
-
-  <div class="field">
-    <label>خط النصوص (Body Font)</label>
-    <select id="fontBodySelect" onchange="updateFontPreview('body', this.value)">
-      <option value="IBM Plex Sans Arabic">IBM Plex Sans Arabic (افتراضي)</option>
-      <option value="Tajawal">Tajawal</option>
-      <option value="Cairo">Cairo</option>
-      <option value="Droid Arabic Kufi">Droid Arabic Kufi</option>
-      <option value="Simplified Arabic">Simplified Arabic</option>
-    </select>
-  </div>
-
-  <div class="field">
-    <label>خط الأرقام (Mono Font)</label>
-    <select id="fontMonoSelect" onchange="updateFontPreview('mono', this.value)">
-      <option value="IBM Plex Mono">IBM Plex Mono (افتراضي)</option>
-      <option value="Roboto Mono">Roboto Mono</option>
-      <option value="JetBrains Mono">JetBrains Mono</option>
-    </select>
-  </div>
-
-  <div class="card" style="background: var(--card-alt); margin-top: 12px; padding: 14px;">
-    <p style="margin: 0; font-weight: 600;">👁️ معاينة الخط الحالي:</p>
-    <p id="fontPreview" style="margin-top: 8px; font-size: 16px; line-height: 1.6;">
-      هذه معاينة لكيفية ظهور الخط في التطبيق
-    </p>
-  </div>
-
-  <div class="btn-row" style="margin-top: 12px;">
-    <button class="btn" onclick="saveFontSettings()">💾 حفظ الخطوط</button>
-    <button class="btn outline" onclick="resetFontSettings()">↩️ استعادة الافتراضي</button>
-  </div>
-</div>
+</script>
+</body>
+</html>
