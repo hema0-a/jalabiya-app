@@ -147,28 +147,92 @@ nav.sidenav .navbtn .ic{
 }
 html[data-theme="dark"] .alert-banner .ic{ background:rgba(255,255,255,0.08); }
 
-/* 26) وضع صلاحيات محدودة (استقبال) — إخفاء الصفحات والعناصر المالية الحساسة */
-html.restricted-mode .navbtn[data-page="finance"],
-html.restricted-mode .navbtn[data-page="expenses"],
-html.restricted-mode .navbtn[data-page="settings"],
-html.restricted-mode #navAuditDay,
-html.restricted-mode button[onclick="showWeeklySummary()"],
-html.restricted-mode .btn.danger{
+/* 26) صلاحيات بمستويات (مالك / مدير / استقبال) + قفل مستقل لصفحة المالية */
+
+/* مستوى الاستقبال: زي الوضع القديم بالظبط — بدون مالية/مصروفات/إعدادات وبدون حذف */
+html.role-receptionist .navbtn[data-page="finance"],
+html.role-receptionist .navbtn[data-page="expenses"],
+html.role-receptionist .navbtn[data-page="settings"],
+html.role-receptionist #navAuditDay,
+html.role-receptionist button[onclick="showWeeklySummary()"],
+html.role-receptionist .btn.danger{
   display:none !important;
 }
-html.restricted-mode #homeStats .stat-card:nth-child(3),
-html.restricted-mode #homeStats .stat-card:nth-child(4){
+html.role-receptionist #homeStats .stat-card:nth-child(3),
+html.role-receptionist #homeStats .stat-card:nth-child(4){
   display:none !important;
 }
-html.restricted-mode .field:has(#f_materialCost){
+html.role-receptionist .field:has(#f_materialCost){
   display:none !important;
 }
-html.restricted-mode #app::before{
+html.role-receptionist #app::before{
   content:"🧑‍💼 وضع الاستقبال";
   display:block; text-align:center; font-size:12px; font-weight:800;
   color:var(--accent-dark); background:var(--accent-light);
   padding:6px; border-radius:0 0 10px 10px; margin:-14px -14px 10px;
 }
+
+/* مستوى المدير: كل الصفحات ما عدا الإعدادات (المالية متاحة لكن ممكن تتطلب رقم المالية المنفصل) */
+html.role-manager .navbtn[data-page="settings"]{
+  display:none !important;
+}
+html.role-manager #app::before{
+  content:"🗂️ وضع المدير";
+  display:block; text-align:center; font-size:12px; font-weight:800;
+  color:var(--accent-dark); background:var(--accent-light);
+  padding:6px; border-radius:0 0 10px 10px; margin:-14px -14px 10px;
+}
+
+/* قفل مستقل لصفحة المالية — برقم سري تاني غير رقم قفل التطبيق العام،
+   بيخفي أرقام الأرباح/الإيراد من الرئيسية وحقل تكلفة المواد لحد ما يتدخل الرقم صح */
+html.finance-locked #homeStats .stat-card:nth-child(3),
+html.finance-locked #homeStats .stat-card:nth-child(4){
+  display:none !important;
+}
+html.finance-locked .field:has(#f_materialCost){
+  display:none !important;
+}
+
+/* 28) لوحة كانبان لصفحة الطلبات */
+#ordersViewListBtn.active, #ordersViewKanbanBtn.active{
+  background:var(--primary); color:#fff; border-color:var(--primary);
+}
+.kanban-wrap{
+  display:flex; gap:12px; overflow-x:auto; padding-bottom:10px; -webkit-overflow-scrolling:touch;
+}
+.kanban-col{
+  flex:0 0 84%; max-width:340px; background:var(--card-alt); border:1px solid var(--border);
+  border-radius:14px; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:120px;
+}
+@media (min-width:760px){ .kanban-col{ flex:1 1 0; max-width:none; } }
+.kanban-col.drag-over{ outline:2px dashed var(--accent); outline-offset:-4px; }
+.kanban-col-head{
+  display:flex; align-items:center; justify-content:space-between;
+  font-weight:800; font-size:13.5px; padding:2px 4px 6px; border-bottom:1px solid var(--border);
+}
+.kanban-col-head .cnt{
+  background:var(--card); border-radius:20px; padding:2px 9px; font-size:12px; color:var(--muted);
+}
+.kanban-card{
+  background:var(--card); border:1px solid var(--border); border-radius:10px; padding:10px;
+  font-size:12.5px; box-shadow:var(--shadow); cursor:grab;
+}
+.kanban-card.dragging{ opacity:.4; }
+.kanban-card .name-row{ font-size:13.5px; margin-bottom:2px; }
+.kanban-card .meta{ font-size:11.5px; margin:2px 0; }
+.kanban-card .btn-row{ margin-top:8px; gap:6px; }
+.kanban-empty-col{ text-align:center; color:var(--muted); font-size:12px; padding:14px 4px; }
+
+/* 29) تابات صفحة الإعدادات */
+.settings-tabs{
+  display:flex; gap:8px; overflow-x:auto; padding-bottom:10px; margin-bottom:6px; -webkit-overflow-scrolling:touch;
+}
+.settings-tab-btn{
+  flex-shrink:0; padding:7px 14px; border-radius:20px; border:1px solid var(--border);
+  background:var(--card-alt); font-size:12.5px; font-weight:700; color:var(--text);
+  cursor:pointer; font-family:inherit; white-space:nowrap;
+}
+.settings-tab-btn.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
 
 /* 27) تمييز بصري للطلبات عالية القيمة والقريبة من موعد التسليم */
 .card.high-value-alert{
@@ -830,7 +894,11 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <!-- ---------- الطلبات ---------- -->
     <section class="page" id="page-orders">
       <div class="search-box"><input id="orderSearch" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." oninput="renderOrders()"></div>
-      <div class="btn-row" style="margin-bottom:12px;">
+      <div class="btn-row" style="margin-bottom:8px;">
+        <button class="btn sm outline" id="ordersViewListBtn" onclick="setOrdersView('list')">☰ قائمة</button>
+        <button class="btn sm outline" id="ordersViewKanbanBtn" onclick="setOrdersView('kanban')">🗂️ كانبان</button>
+      </div>
+      <div class="btn-row" style="margin-bottom:12px;" id="orderStatusFilters">
         <button class="btn sm outline" onclick="setOrderFilter('all')" id="filt-all">الكل</button>
         <button class="btn sm outline" onclick="setOrderFilter('قيد العمل')" id="filt-قيد العمل">قيد العمل</button>
         <button class="btn sm outline" onclick="setOrderFilter('جاهز للتسليم')" id="filt-جاهز للتسليم">جاهز</button>
@@ -845,6 +913,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <div class="meta" id="orderDateFilterSummary" style="margin-top:6px;"></div>
       </div>
       <div id="ordersList"></div>
+      <div id="ordersKanban" style="display:none;"></div>
     </section>
 
     <!-- ---------- المواعيد ---------- -->
@@ -1734,8 +1803,12 @@ function toast(msg){
    شاشة القفل
    ============================================================ */
 let pin = '';
+window.userRole = null;       // 'owner' | 'manager' | 'receptionist' — بيتحدد بعد نجاح فتح القفل
+window.financeUnlocked = false; // هل اتفتح رقم صفحة المالية المنفصل في الجلسة الحالية
 
 function initLock(){
+  window.userRole = null;
+  window.financeUnlocked = false;
   try{ loadDB(); }catch(e){ console.warn('loadDB failed, using defaults', e); db = defaultDB(); }
   try{ initCloudSync(); }catch(e){ console.warn('cloud sync init failed', e); }
   try{ applyWorkshopBranding(); }catch(e){ console.warn(e); }
@@ -1774,13 +1847,19 @@ function updatePinDots(){
 
 function checkPin(){
   const realPass = (db && db.password) ? db.password : '0000';
+  const managerPass = db && db.managerPassword;
   const receptionPass = db && db.receptionPassword;
-  if(pin === realPass || (receptionPass && pin === receptionPass)){
-    window.restrictedMode = (pin !== realPass);
+  let matchedRole = null;
+  if(pin === realPass) matchedRole = 'owner';
+  else if(managerPass && pin === managerPass) matchedRole = 'manager';
+  else if(receptionPass && pin === receptionPass) matchedRole = 'receptionist';
+  if(matchedRole){
+    window.userRole = matchedRole;
+    window.financeUnlocked = false; // كل دخول جديد للتطبيق بيتطلب رقم المالية من تاني لو مفعّل
     document.getElementById('lockScreen').style.display='none';
     document.getElementById('app').style.display='block';
     pin='';
-    document.documentElement.classList.toggle('restricted-mode', !!window.restrictedMode);
+    applyRoleUI();
     boot();
     resetIdleTimer();
   } else {
@@ -1795,12 +1874,64 @@ function checkPin(){
   }
 }
 
+/* ---- تطبيق شكل الواجهة حسب مستوى الصلاحية (مالك/مدير/استقبال) ---- */
+function applyRoleUI(){
+  const html = document.documentElement;
+  html.classList.toggle('role-receptionist', window.userRole==='receptionist');
+  html.classList.toggle('role-manager', window.userRole==='manager');
+  updateFinanceLockUI();
+}
+
+/* ---- قفل مستقل لصفحة المالية (رقم سري تاني غير رقم قفل التطبيق) ---- */
+function updateFinanceLockUI(){
+  const locked = !!(db && db.financePassword) && !window.financeUnlocked;
+  document.documentElement.classList.toggle('finance-locked', locked);
+}
+
+let financeGatePin = '';
+function openFinanceGate(){
+  financeGatePin = '';
+  openModal(`
+    <div class="modal-head"><h3>💰 صفحة المالية محمية</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div style="padding:4px 2px 14px;font-size:14px;line-height:1.7;">الصفحة دي محمية برقم سري منفصل عن رقم قفل التطبيق. اكتب الرقم عشان تكمل.</div>
+    <div class="field"><label>رقم سري المالية</label>
+      <input type="tel" maxlength="4" id="financeGateInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
+    </div>
+    <div id="financeGateError" style="color:var(--danger);font-size:12.5px;min-height:16px;"></div>
+    <div class="btn-row">
+      <button class="btn outline" id="financeGateCancel">إلغاء</button>
+      <button class="btn" id="financeGateOk">دخول</button>
+    </div>
+  `);
+  const input = document.getElementById('financeGateInput');
+  const tryEnter = ()=>{
+    const val = (input.value||'').trim();
+    if(db && val === db.financePassword){
+      window.financeUnlocked = true;
+      updateFinanceLockUI();
+      closeModal();
+      showPage('finance');
+    } else {
+      const err = document.getElementById('financeGateError');
+      if(err) err.textContent = 'الرقم السري غير صحيح، حاول تاني';
+      input.value='';
+    }
+  };
+  document.getElementById('financeGateOk').onclick = tryEnter;
+  document.getElementById('financeGateCancel').onclick = ()=>closeModal();
+  input.addEventListener('keydown', (e)=>{ if(e.key==='Enter') tryEnter(); });
+  setTimeout(()=>{ if(input) input.focus(); }, 50);
+}
+
 function lockNow(){
   document.getElementById('app').style.display='none';
   document.getElementById('lockScreen').style.display='flex';
   pin='';
   updatePinDots();
   clearTimeout(idleTimer);
+  window.userRole = null;
+  window.financeUnlocked = false;
+  document.documentElement.classList.remove('role-receptionist','role-manager','finance-locked');
 }
 
 /* ---- القفل التلقائي بعد فترة خمول ---- */
@@ -1830,9 +1961,15 @@ const pageTitles = {
 const fabPages = {home:false, customers:true, orders:true, deliveries:false, finance:false, expenses:true, settings:false};
 
 function showPage(name){
-  if(window.restrictedMode && (name==='finance' || name==='expenses' || name==='settings')){
+  if(window.userRole==='receptionist' && (name==='finance' || name==='expenses' || name==='settings')){
     toast('🔒 الصفحة دي مش متاحة في وضع الاستقبال');
     name = 'home';
+  } else if(window.userRole==='manager' && name==='settings'){
+    toast('🔒 صفحة الإعدادات متاحة للمالك بس');
+    name = 'home';
+  } else if(name==='finance' && db && db.financePassword && !window.financeUnlocked){
+    openFinanceGate();
+    return;
   }
   currentPage = name;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -6193,7 +6330,7 @@ cloudStatusChanged = function(){
 };
 
 
-/* 26) وضع صلاحيات محدودة (استقبال) — إضافة حقل تحديد رقم الاستقبال في صفحة الإعدادات فقط */
+/* 26) صلاحيات بمستويات (مالك / مدير / استقبال) + رقم سري منفصل لصفحة المالية — حقول الإعدادات */
 (function(){
   try{
     var cards = document.querySelectorAll('#page-settings .card');
@@ -6202,23 +6339,79 @@ cloudStatusChanged = function(){
       var h3 = c.querySelector('h3');
       if(h3 && h3.textContent.indexOf('تغيير الرقم السري')!==-1) anchorCard = c;
     });
-    if(anchorCard && !document.getElementById('receptionPinCard')){
+    if(!anchorCard) return;
+
+    var lastInserted = anchorCard;
+
+    // --- بطاقة رقم المدير (صلاحيات كاملة ما عدا الإعدادات) ---
+    if(!document.getElementById('managerPinCard')){
+      var mCard = document.createElement('div');
+      mCard.className='card'; mCard.id='managerPinCard';
+      mCard.innerHTML =
+        '<h3>🗂️ رقم سري لوضع المدير (اختياري)</h3>'
+        + '<p class="meta">رقم سري تالت مختلف عن رقمك الأساسي وعن رقم الاستقبال — لو حد دخل بيه هيقدر يشتغل بكل الصفحات (الطلبات، العملاء، المواعيد، المصروفات، المالية) ما عدا صفحة الإعدادات. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<div class="field"><label>رقم سري المدير (4 أرقام)</label><input type="tel" maxlength="4" id="managerPinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+        + '<button class="btn" id="saveManagerPinBtn">💾 حفظ</button>';
+      lastInserted.insertAdjacentElement('afterend', mCard);
+      lastInserted = mCard;
+      document.getElementById('saveManagerPinBtn').onclick = function(){
+        var val = (document.getElementById('managerPinInput').value||'').trim();
+        if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
+        if(val && val===db.password){ toast('لازم يكون مختلف عن رقمك الأساسي'); return; }
+        if(val && db.receptionPassword && val===db.receptionPassword){ toast('لازم يكون مختلف عن رقم الاستقبال'); return; }
+        db.managerPassword = val || null;
+        saveDB();
+        document.getElementById('managerPinInput').value='';
+        toast(val ? '✅ تم حفظ رقم وضع المدير' : '✅ تم إلغاء وضع المدير');
+      };
+    } else {
+      lastInserted = document.getElementById('managerPinCard');
+    }
+
+    // --- بطاقة رقم الاستقبال (صلاحيات محدودة) ---
+    if(!document.getElementById('receptionPinCard')){
       var card = document.createElement('div');
       card.className='card'; card.id='receptionPinCard';
       card.innerHTML =
         '<h3>🧑‍💼 رقم سري لوضع الاستقبال (اختياري)</h3>'
-        + '<p class="meta">رقم سري تاني مختلف عن رقمك الأساسي — لو حد دخل بيه هيفتح نسخة محدودة، بدون صفحات المالية/المصروفات/الإعدادات وبدون إمكانية حذف. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<p class="meta">رقم سري تاني مختلف عن رقمك الأساسي وعن رقم المدير — لو حد دخل بيه هيفتح نسخة محدودة، بدون صفحات المالية/المصروفات/الإعدادات وبدون إمكانية حذف. سيبه فاضي لإلغاء الميزة.</p>'
         + '<div class="field"><label>رقم سري الاستقبال (4 أرقام)</label><input type="tel" maxlength="4" id="receptionPinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
         + '<button class="btn" id="saveReceptionPinBtn">💾 حفظ</button>';
-      anchorCard.insertAdjacentElement('afterend', card);
+      lastInserted.insertAdjacentElement('afterend', card);
+      lastInserted = card;
       document.getElementById('saveReceptionPinBtn').onclick = function(){
         var val = (document.getElementById('receptionPinInput').value||'').trim();
         if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
         if(val && val===db.password){ toast('لازم يكون مختلف عن رقمك الأساسي'); return; }
+        if(val && db.managerPassword && val===db.managerPassword){ toast('لازم يكون مختلف عن رقم المدير'); return; }
         db.receptionPassword = val || null;
         saveDB();
         document.getElementById('receptionPinInput').value='';
         toast(val ? '✅ تم حفظ رقم وضع الاستقبال' : '✅ تم إلغاء وضع الاستقبال');
+      };
+    } else {
+      lastInserted = document.getElementById('receptionPinCard');
+    }
+
+    // --- بطاقة رقم صفحة المالية (منفصل تمامًا عن رقم قفل التطبيق، بيتطلب مع أي مستوى) ---
+    if(!document.getElementById('financePinCard')){
+      var fCard = document.createElement('div');
+      fCard.className='card'; fCard.id='financePinCard';
+      fCard.innerHTML =
+        '<h3>💰 رقم سري منفصل لصفحة المالية (اختياري)</h3>'
+        + '<p class="meta">رقم سري إضافي مختلف عن رقم قفل التطبيق العام — لازم يتكتب عشان تفتح صفحة "المالية" فقط (مش باقي الصفحات). كده تقدر تدّي حد يشتغل بالتطبيق عادي (طلبات، عملاء، مواعيد...) من غير ما يشوف أرباحك، حتى لو بيستخدم رقمك الأساسي. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<div class="field"><label>رقم سري المالية (4 أرقام)</label><input type="tel" maxlength="4" id="financePinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+        + '<button class="btn" id="saveFinancePinBtn">💾 حفظ</button>';
+      lastInserted.insertAdjacentElement('afterend', fCard);
+      document.getElementById('saveFinancePinBtn').onclick = function(){
+        var val = (document.getElementById('financePinInput').value||'').trim();
+        if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
+        db.financePassword = val || null;
+        saveDB();
+        window.financeUnlocked = false;
+        if(typeof updateFinanceLockUI==='function') updateFinanceLockUI();
+        document.getElementById('financePinInput').value='';
+        toast(val ? '✅ تم حفظ رقم صفحة المالية' : '✅ تم إلغاء قفل صفحة المالية');
       };
     }
   }catch(e){}
@@ -7152,6 +7345,240 @@ cloudStatusChanged = function(){
     origCheckPin();
     setTimeout(function(){ if(keypad) keypad.style.pointerEvents=''; }, 450);
   };
+})();
+
+/* 28) لوحة كانبان لصفحة الطلبات */
+(function(){
+  window.ordersView = 'list';
+  var KANBAN_STATUSES = [
+    {key:'قيد العمل', label:'🧵 قيد العمل', icon:'🧵'},
+    {key:'جاهز للتسليم', label:'📦 جاهز للتسليم', icon:'📦'},
+    {key:'تم التسليم', label:'✅ تم التسليم', icon:'✅'}
+  ];
+  var DELIVERED_LIMIT = 20; // نعرض آخر عدد محدود من الطلبات المُسلَّمة بس عشان الأداء ووضوح اللوحة
+
+  window.setOrdersView = function(v){
+    window.ordersView = v;
+    var listBox = document.getElementById('ordersList');
+    var kanbanBox = document.getElementById('ordersKanban');
+    var statusFilters = document.getElementById('orderStatusFilters');
+    var extraControls = document.getElementById('ordersExtraControls');
+    var listBtn = document.getElementById('ordersViewListBtn');
+    var kanbanBtn = document.getElementById('ordersViewKanbanBtn');
+    if(v==='kanban'){
+      if(listBox) listBox.style.display='none';
+      if(kanbanBox) kanbanBox.style.display='';
+      if(statusFilters) statusFilters.style.display='none';
+      if(extraControls) extraControls.style.display='none';
+      if(listBtn) listBtn.classList.remove('active');
+      if(kanbanBtn) kanbanBtn.classList.add('active');
+      renderOrdersKanban();
+    } else {
+      if(listBox) listBox.style.display='';
+      if(kanbanBox) kanbanBox.style.display='none';
+      if(statusFilters) statusFilters.style.display='';
+      if(extraControls) extraControls.style.display='';
+      if(listBtn) listBtn.classList.add('active');
+      if(kanbanBtn) kanbanBtn.classList.remove('active');
+      renderOrders();
+    }
+  };
+
+  // نفس منطق البحث والفلترة بالتاريخ المستخدم في renderOrders، لكن من غير فلتر الحالة (لأن الحالة هنا أعمدة)
+  function filteredOrdersForKanban(){
+    var qEl = document.getElementById('orderSearch');
+    var fromEl = document.getElementById('orderDateFrom');
+    var toEl = document.getElementById('orderDateTo');
+    var q = qEl ? (qEl.value||'').trim() : '';
+    var dateFrom = fromEl ? fromEl.value : '';
+    var dateTo = toEl ? toEl.value : '';
+    var list = db.orders.slice().sort(function(a,b){ return (b.dateReceived||'').localeCompare(a.dateReceived||''); });
+    if(q){
+      list = list.filter(function(o){
+        var c = customerById(o.customerId);
+        return (c && c.name.includes(q)) || orderTypeLabel(o).includes(q);
+      });
+    }
+    if(dateFrom) list = list.filter(function(o){ return o.dateReceived && o.dateReceived>=dateFrom; });
+    if(dateTo) list = list.filter(function(o){ return o.dateReceived && o.dateReceived<=dateTo; });
+    return list;
+  }
+
+  function kanbanCardHtml(o){
+    var c = customerById(o.customerId);
+    var idx = KANBAN_STATUSES.findIndex(function(s){ return s.key===o.status; });
+    var moveButtons = '';
+    if(idx>0){
+      var prev = KANBAN_STATUSES[idx-1];
+      moveButtons += '<button class="btn sm outline" onclick="moveOrderToStatus(\''+o.id+'\',\''+prev.key.replace(/'/g,"\\'")+'\')">◀ '+escapeHtml(prev.label.replace(/^\S+\s/,''))+'</button>';
+    }
+    if(idx>=0 && idx<KANBAN_STATUSES.length-1){
+      var next = KANBAN_STATUSES[idx+1];
+      moveButtons += '<button class="btn sm accent" onclick="moveOrderToStatus(\''+o.id+'\',\''+next.key.replace(/'/g,"\\'")+'\')">'+escapeHtml(next.label.replace(/^\S+\s/,''))+' ▶</button>';
+    }
+    return '<div class="kanban-card" draggable="true" data-order-id="'+o.id+'">'
+      + '<div class="row"><h3 class="name-row">'+avatarChip(c?c.name:'؟')+(c?escapeHtml(c.name):'عميل محذوف')+'</h3></div>'
+      + '<div class="meta">👗 '+escapeHtml(orderTypeLabel(o))+'</div>'
+      + '<div class="meta">📅 التسليم: '+fmtDate(o.dateDelivery)+'</div>'
+      + '<div class="meta">💰 المتبقي: <b style="color:'+(orderRemaining(o)>0?'var(--danger)':'var(--ok)')+'">'+orderRemaining(o).toLocaleString('ar-EG')+'</b></div>'
+      + '<div class="btn-row">'
+      +   '<button class="btn sm outline" onclick="openOrderModal(\''+o.id+'\')">✏️</button>'
+      +   moveButtons
+      + '</div>'
+      + '</div>';
+  }
+
+  window.renderOrdersKanban = function(){
+    var box = document.getElementById('ordersKanban');
+    if(!box) return;
+    var all = filteredOrdersForKanban();
+    var html = '<div class="kanban-wrap" id="kanbanWrap">';
+    KANBAN_STATUSES.forEach(function(st){
+      var items = all.filter(function(o){ return o.status===st.key; });
+      var note = '';
+      if(st.key==='تم التسليم' && items.length>DELIVERED_LIMIT){
+        note = '<div class="meta" style="text-align:center;">عرض آخر '+DELIVERED_LIMIT+' من '+items.length+'</div>';
+        items = items.slice(0, DELIVERED_LIMIT);
+      }
+      var cardsHtml = items.length
+        ? items.map(kanbanCardHtml).join('')
+        : '<div class="kanban-empty-col">لا يوجد طلبات هنا</div>';
+      html += '<div class="kanban-col" data-status="'+escapeHtml(st.key)+'">'
+        + '<div class="kanban-col-head"><span>'+st.label+'</span><span class="cnt">'+items.length+'</span></div>'
+        + cardsHtml + note
+        + '</div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+    wireKanbanDragDrop();
+  };
+
+  function wireKanbanDragDrop(){
+    var wrap = document.getElementById('kanbanWrap');
+    if(!wrap) return;
+    wrap.querySelectorAll('.kanban-card').forEach(function(card){
+      card.addEventListener('dragstart', function(e){
+        card.classList.add('dragging');
+        try{ e.dataTransfer.setData('text/plain', card.dataset.orderId); }catch(err){}
+      });
+      card.addEventListener('dragend', function(){ card.classList.remove('dragging'); });
+    });
+    wrap.querySelectorAll('.kanban-col').forEach(function(col){
+      col.addEventListener('dragover', function(e){ e.preventDefault(); col.classList.add('drag-over'); });
+      col.addEventListener('dragleave', function(){ col.classList.remove('drag-over'); });
+      col.addEventListener('drop', function(e){
+        e.preventDefault();
+        col.classList.remove('drag-over');
+        var id = '';
+        try{ id = e.dataTransfer.getData('text/plain'); }catch(err){}
+        var newStatus = col.getAttribute('data-status');
+        if(id && newStatus) moveOrderToStatus(id, newStatus);
+      });
+    });
+  }
+
+  // تحديث حالة الطلب من اللوحة (سواء بالسحب أو بالأزرار) — بيعيد استخدام markOrderDelivered
+  // عشان يحافظ على كل التأثيرات الجانبية الحالية (تسجيل وقت التسليم، سجل النشاط، التراجع...)
+  window.moveOrderToStatus = function(orderId, newStatus){
+    var o = db.orders.find(function(x){ return x.id===orderId; });
+    if(!o || o.status===newStatus) return;
+    if(newStatus==='تم التسليم'){
+      markOrderDelivered(orderId);
+      renderOrdersKanban();
+      return;
+    }
+    var before = {status:o.status, deliveredDate:o.deliveredDate};
+    var wasDelivered = (before.status==='تم التسليم');
+    o.status = newStatus;
+    if(wasDelivered) o.deliveredDate = null;
+    var c = customerById(o.customerId);
+    logActivity('🔄 تغيير حالة طلب '+(c?c.name:'')+' إلى "'+newStatus+'"');
+    setUndo('تغيير حالة الطلب', function(){
+      o.status = before.status;
+      o.deliveredDate = before.deliveredDate;
+      saveDB();
+      renderHome();
+      renderOrders();
+      renderOrdersKanban();
+    });
+    saveDB();
+    renderHome();
+    renderOrders();
+    renderOrdersKanban();
+    toast('تم تحديث حالة الطلب ✅');
+  };
+
+  // كل مرة renderOrders() بيتنفذ (بعد أي إضافة/تعديل/حذف/بحث)، نحدّث الكانبان معاه لو هو الوضع الحالي
+  var origRenderOrdersForKanban = renderOrders;
+  renderOrders = function(){
+    origRenderOrdersForKanban.apply(this, arguments);
+    if(window.ordersView==='kanban') renderOrdersKanban();
+  };
+
+  // الوضع الافتراضي: قائمة (نفس السلوك القديم)
+  var listBtnInit = document.getElementById('ordersViewListBtn');
+  if(listBtnInit) listBtnInit.classList.add('active');
+})();
+
+/* 29) تقسيم صفحة الإعدادات لأقسام (تابات) بدل قائمة طويلة واحدة */
+(function(){
+  var section = document.getElementById('page-settings');
+  if(!section || document.getElementById('settingsTabs')) return;
+
+  var GROUPS = [
+    {id:'general', label:'🏷️ عام', keywords:['بيانات الورشة','عن التطبيق']},
+    {id:'appearance', label:'🎨 المظهر', keywords:['تخصيص الألوان','شكل الأزرار','تخصيص الشاشة الرئيسية','وضع الشاشة الكبيرة','تخصيص الخط','تأثير التحميل']},
+    {id:'operations', label:'⚙️ التشغيل', keywords:['الطاقة الاستيعابية','يوم الإجازة الأسبوعية','مواعيد الأعياد','أنواع التفصيل','عملاء VIP','تنبيه المديونية','رقم الفاتورة والضريبة']},
+    {id:'security', label:'🔒 الأمان والصلاحيات', keywords:['تغيير الرقم السري','القفل التلقائي','وضع المدير','وضع الاستقبال','صفحة المالية']},
+    {id:'data', label:'💾 البيانات', keywords:['نسخة احتياطية','سلة المحذوفات','سجل النشاط','تصدير تقارير Excel']},
+    {id:'advanced', label:'🧑‍💻 متقدم', keywords:['تعديل متقدم','تنزيل كود التطبيق']}
+  ];
+  var GROUP_BY_ID = {cloudSyncCardWrap:'data', pushNotifyCardWrap:'data'};
+
+  function categorize(){
+    var cards = section.querySelectorAll(':scope > .card');
+    cards.forEach(function(c){
+      if(c.dataset.settingsGroup) return;
+      if(GROUP_BY_ID[c.id]){ c.dataset.settingsGroup = GROUP_BY_ID[c.id]; return; }
+      var h3 = c.querySelector('h3');
+      var text = h3 ? h3.textContent : '';
+      var found = 'general';
+      for(var i=0;i<GROUPS.length;i++){
+        if(GROUPS[i].keywords.some(function(k){ return text.indexOf(k)!==-1; })){ found=GROUPS[i].id; break; }
+      }
+      c.dataset.settingsGroup = found;
+    });
+  }
+
+  var currentSettingsTab = 'all';
+  function applyFilter(group){
+    currentSettingsTab = group;
+    section.querySelectorAll(':scope > .card[data-settings-group]').forEach(function(c){
+      c.style.display = (group==='all' || c.dataset.settingsGroup===group) ? '' : 'none';
+    });
+  }
+
+  categorize();
+
+  var bar = document.createElement('div');
+  bar.className='settings-tabs'; bar.id='settingsTabs';
+  var html = '<button class="settings-tab-btn active" data-group="all">📁 الكل</button>';
+  GROUPS.forEach(function(g){ html += '<button class="settings-tab-btn" data-group="'+g.id+'">'+g.label+'</button>'; });
+  bar.innerHTML = html;
+  section.insertBefore(bar, section.firstChild);
+  bar.addEventListener('click', function(e){
+    var btn = e.target.closest('.settings-tab-btn');
+    if(!btn) return;
+    bar.querySelectorAll('.settings-tab-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+    applyFilter(btn.getAttribute('data-group'));
+  });
+
+  // أي بطاقات جديدة تتضاف بعد كده (زي بطاقات صلاحيات المدير/الاستقبال/المالية) لازم تتصنّف وتتفلتر برضه
+  var obs = new MutationObserver(function(){
+    categorize();
+    applyFilter(currentSettingsTab);
+  });
+  obs.observe(section, {childList:true});
 })();
 
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
