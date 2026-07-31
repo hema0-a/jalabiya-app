@@ -1,0 +1,2281 @@
+
+/* ============================================================
+   [تم الإصلاح] الكود كله دلوقتي ملفوف جوه IIFE واحدة
+   عشان الـ return في أول سطر يبقى شغال وميكسرش تحليل السكربت بالكامل
+   ============================================================ */
+(function(){
+
+/* 0) حارس تنفيذ لمرة واحدة فقط لكل جلسة فتح للتطبيق */
+if(window.__workshopPatchesLoaded) { return; }
+window.__workshopPatchesLoaded = true;
+
+/* 1) زر اتصال + واتساب جنب أي رقم هاتف يظهر بالتطبيق */
+(function(){
+  function enhancePhones(){
+    document.querySelectorAll('.meta').forEach(function(el){
+      if(el.dataset.rcPhone) return;
+      var txt = el.textContent||'';
+      if(txt.trim().indexOf('📞')===0){
+        var digits = txt.replace(/[^0-9]/g,'');
+        if(digits.length>=9){
+          el.dataset.rcPhone='1';
+          var waNum = digits.replace(/^0/,'2'); // افتراض رقم مصري — غيّرها لو بلدك مختلف
+          var span=document.createElement('span');
+          span.style.cssText='display:inline-flex;gap:6px;margin-inline-start:10px;';
+          span.innerHTML =
+            '<a href="tel:'+digits+'" style="text-decoration:none;background:var(--ok-light);color:var(--ok);border-radius:8px;padding:2px 9px;font-size:12px;font-weight:700;">📞</a>'+
+            '<a href="https://wa.me/'+waNum+'" target="_blank" style="text-decoration:none;background:var(--ok-light);color:var(--ok);border-radius:8px;padding:2px 9px;font-size:12px;font-weight:700;">💬</a>';
+          el.appendChild(span);
+        }
+      }
+    });
+  }
+  new MutationObserver(enhancePhones).observe(document.getElementById('app'), {childList:true, subtree:true});
+  enhancePhones();
+})();
+
+/* 2) ضغطة مطوّلة على شعار التطبيق تفتح البحث الشامل فورًا */
+(function(){
+  var brand = document.querySelector('.topbar-brand');
+  if(!brand) return;
+  var pressTimer;
+  brand.addEventListener('touchstart', function(){
+    pressTimer = setTimeout(function(){
+      showPage('home');
+      setTimeout(function(){ var i=document.getElementById('globalSearch'); if(i) i.focus(); }, 150);
+      if(navigator.vibrate) navigator.vibrate(30);
+    }, 550);
+  });
+  ['touchend','touchmove','touchcancel'].forEach(function(ev){
+    brand.addEventListener(ev, function(){ clearTimeout(pressTimer); });
+  });
+})();
+
+/* 3) شريط آخر 3 عملاء تم فتحهم أعلى صفحة العملاء */
+(function(){
+  function getRecent(){ try{ return JSON.parse(localStorage.getItem('recentCustomers')||'[]'); }catch(e){ return []; } }
+  function pushRecent(id){
+    var list = getRecent().filter(function(x){ return x!==id; });
+    list.unshift(id);
+    localStorage.setItem('recentCustomers', JSON.stringify(list.slice(0,3)));
+  }
+  var origHistory = openCustomerHistory;
+  openCustomerHistory = function(id){ pushRecent(id); return origHistory.apply(this, arguments); };
+  var origCustModal = openCustomerModal;
+  openCustomerModal = function(id){ if(id) pushRecent(id); return origCustModal.apply(this, arguments); };
+
+  var origRenderCustomers = renderCustomers;
+  renderCustomers = function(){
+    origRenderCustomers.apply(this, arguments);
+    try{
+      var pageBox = document.getElementById('page-customers');
+      var searchBox = pageBox.querySelector('.search-box');
+      var strip = document.getElementById('recentCustomersStrip');
+      var list = getRecent().map(function(id){ return customerById(id); }).filter(Boolean);
+      if(list.length===0){ if(strip) strip.remove(); return; }
+      if(!strip){ strip=document.createElement('div'); strip.id='recentCustomersStrip'; searchBox.insertAdjacentElement('afterend', strip); }
+      strip.innerHTML = list.map(function(c){
+        return '<span class="rc-chip" onclick="openCustomerHistory(\''+c.id+'\')">🕘 '+escapeHtml(c.name)+'</span>';
+      }).join('');
+    }catch(e){}
+  };
+})();
+
+/* 4) عداد الطلبات المتأخرة على زر "الطلبات" بالقائمة الجانبية */
+(function(){
+  function updateOrdersBadge(){
+    try{
+      var btn = document.querySelector('.navbtn[data-page="orders"]');
+      if(!btn) return;
+      var count = db.orders.filter(isOverdue).length;
+      var badge = btn.querySelector('.overdue-badge');
+      if(count>0){
+        if(!badge){ badge=document.createElement('span'); badge.className='overdue-badge';
+          badge.style.cssText='background:var(--danger);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:900;margin-inline-start:auto;';
+          btn.appendChild(badge); }
+        badge.textContent=count;
+      } else if(badge){ badge.remove(); }
+    }catch(e){}
+  }
+  var origOpenSideNav = openSideNav;
+  openSideNav = function(){ updateOrdersBadge(); return origOpenSideNav.apply(this, arguments); };
+  var origCloseModal = closeModal;
+  closeModal = function(){ var r = origCloseModal.apply(this, arguments); updateOrdersBadge(); return r; };
+  setTimeout(updateOrdersBadge, 800);
+})();
+
+/* 5) حفظ آخر نوع وسعر تفصيل استُخدم لكل عميل، وتعبئته تلقائيًا في طلب جديد لنفس العميل */
+(function(){
+  var origSaveOrder = saveOrder;
+  saveOrder = function(id){
+    try{
+      var custSel = document.getElementById('f_customer');
+      var firstRow = document.querySelector('#itemsContainer .item-row');
+      if(custSel && firstRow){
+        var typeSel = firstRow.querySelector('.it-type');
+        var priceInp = firstRow.querySelector('.it-price');
+        if(custSel.value && typeSel && typeSel.value && typeSel.value!=='__custom__' && priceInp && priceInp.value){
+          localStorage.setItem('lastOrder_'+custSel.value, JSON.stringify({typeId:typeSel.value, price:priceInp.value}));
+        }
+      }
+    }catch(e){}
+    return origSaveOrder.apply(this, arguments);
+  };
+
+  var origOpenOrderModal = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var result = origOpenOrderModal.apply(this, arguments);
+    if(!id){
+      setTimeout(function(){
+        try{
+          var custId = presetCustomerId || (document.getElementById('f_customer')?document.getElementById('f_customer').value:'');
+          if(!custId) return;
+          var saved = localStorage.getItem('lastOrder_'+custId);
+          if(!saved) return;
+          var data = JSON.parse(saved);
+          var firstRow = document.querySelector('#itemsContainer .item-row');
+          if(!firstRow) return;
+          var typeSel = firstRow.querySelector('.it-type');
+          var priceInp = firstRow.querySelector('.it-price');
+          var hasOption = Array.prototype.some.call(typeSel.options, function(o){ return o.value===data.typeId; });
+          if(typeSel && hasOption){
+            typeSel.value = data.typeId;
+            priceInp.value = data.price;
+            recalcItemsTotal();
+            toast('📌 تم تعبئة آخر نوع وسعر لهذا العميل');
+          }
+        }catch(e){}
+      }, 50);
+    }
+    return result;
+  };
+})();
+
+/* 6) نظام نقاط ولاء بسيط: كل 5 طلبات تم تسليمها = خصم 10% تلقائي على الطلب التالي */
+(function(){
+  function customerLoyaltyInfo(c){
+    var delivered = db.orders.filter(function(o){ return o.customerId===c.id && o.status==='تم التسليم'; }).length;
+    var lastRedeemedAt = Number(localStorage.getItem('loyaltyRedeemed_'+c.id))||0;
+    var progress = delivered - lastRedeemedAt;
+    var threshold = 5;
+    return {delivered:delivered, progress:progress, threshold:threshold, eligible: progress>=threshold};
+  }
+
+  var origRC = renderCustomers;
+  renderCustomers = function(){
+    origRC.apply(this, arguments);
+    try{
+      document.querySelectorAll('#customersList .card').forEach(function(card){
+        if(card.dataset.loyaltyAdded) return;
+        var metas = card.querySelectorAll('.meta');
+        var phoneEl = null;
+        metas.forEach(function(m){ if(!phoneEl && m.textContent.trim().indexOf('📞')===0) phoneEl = m; });
+        if(!phoneEl) return;
+        var digits = phoneEl.textContent.replace(/[^0-9]/g,'');
+        var c = db.customers.find(function(x){ return (x.phone||'').replace(/[^0-9]/g,'')===digits; });
+        if(!c) return;
+        card.dataset.loyaltyAdded='1';
+        var info = customerLoyaltyInfo(c);
+        var chip = document.createElement('div');
+        chip.className='meta'; chip.style.marginTop='4px';
+        chip.innerHTML = info.eligible
+          ? '<span style="background:var(--accent-light);color:var(--accent-dark);border-radius:8px;padding:3px 9px;font-size:12px;font-weight:800;">🎁 مؤهل لخصم ولاء 10% بالطلب القادم</span>'
+          : '🎁 نقاط الولاء: '+info.progress+'/'+info.threshold+' طلبات للخصم القادم';
+        phoneEl.insertAdjacentElement('afterend', chip);
+      });
+    }catch(e){}
+  };
+
+  var pendingLoyalty = null;
+  var origOOM = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var r = origOOM.apply(this, arguments);
+    if(!id){
+      setTimeout(function(){
+        try{
+          var custId = presetCustomerId || (document.getElementById('f_customer')?document.getElementById('f_customer').value:'');
+          var c = custId ? customerById(custId) : null;
+          if(!c) return;
+          var info = customerLoyaltyInfo(c);
+          if(info.eligible){
+            var dType = document.getElementById('f_discountType');
+            var dVal = document.getElementById('f_discountValue');
+            if(dType && dVal && dType.value==='none'){
+              dType.value='percent'; dVal.value='10';
+              onDiscountTypeChange();
+              pendingLoyalty = {customerId:c.id, offeredAtDelivered:info.delivered};
+              toast('🎁 العميل مؤهل لخصم ولاء، تم تطبيق 10% تلقائيًا');
+            }
+          }
+        }catch(e){}
+      }, 60);
+    }
+    return r;
+  };
+
+  var origSOLoyalty = saveOrder;
+  saveOrder = function(id){
+    var beforeCount = db.orders.length;
+    var custIdBefore = document.getElementById('f_customer') ? document.getElementById('f_customer').value : null;
+    var r = origSOLoyalty.apply(this, arguments);
+    try{
+      if(!id && pendingLoyalty && pendingLoyalty.customerId===custIdBefore && db.orders.length>beforeCount){
+        localStorage.setItem('loyaltyRedeemed_'+pendingLoyalty.customerId, pendingLoyalty.offeredAtDelivered);
+        pendingLoyalty = null;
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
+/* 7) رسالة جاهزة لإشعار العميل عبر واتساب لما الطلب يبقى "جاهز للتسليم" */
+(function(){
+  function buildReadyMessage(o, c){
+    var shopName = db.workshopName || 'ورشة تفصيل الجلابيب';
+    return 'مرحبًا '+c.name+'، طلبك ('+orderTypeLabel(o)+') بقى جاهز للاستلام من '+shopName+'. تقدر تمر تستلمه في أقرب وقت يناسبك 🙏';
+  }
+  var origSOReady = saveOrder;
+  saveOrder = function(id){
+    var oldStatus = null;
+    if(id){ var existing = db.orders.find(function(x){ return x.id===id; }); if(existing) oldStatus = existing.status; }
+    var r = origSOReady.apply(this, arguments);
+    try{
+      if(id){
+        var o = db.orders.find(function(x){ return x.id===id; });
+        if(o && o.status==='جاهز للتسليم' && oldStatus!=='جاهز للتسليم'){
+          var c = customerById(o.customerId);
+          if(c && c.phone){
+            var digits = c.phone.replace(/[^0-9]/g,'');
+            var waNum = digits.replace(/^0/,'2'); // افتراض رقم مصري
+            var msg = buildReadyMessage(o, c);
+            setTimeout(function(){
+              openModal(
+                '<div class="modal-head"><h3>📲 إشعار العميل بجاهزية الطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+                + '<p class="meta">تقدر ترسل رسالة جاهزة للعميل:</p>'
+                + '<div class="card" style="padding:10px;font-size:13.5px;white-space:pre-wrap;">'+escapeHtml(msg)+'</div>'
+                + '<a class="btn accent" style="display:block;text-align:center;margin-top:10px;text-decoration:none;" target="_blank" href="https://wa.me/'+waNum+'?text='+encodeURIComponent(msg)+'">💬 إرسال عبر واتساب</a>'
+              );
+            }, 300);
+          }
+        }
+      }
+    }catch(e){}
+    return r;
+  };
+})();
+
+/* 8) مستحقات مالية متوقعة خلال أسبوع في صفحة المالية */
+(function(){
+  var origRF = renderFinance;
+  renderFinance = function(){
+    origRF.apply(this, arguments);
+    try{
+      var today = todayStr();
+      var in7 = new Date(); in7.setDate(in7.getDate()+7);
+      var in7Str = in7.toISOString().slice(0,10);
+      var upcoming = db.orders.filter(function(o){
+        return o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery>=today && o.dateDelivery<=in7Str;
+      });
+      var expectedTotal = upcoming.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+      var box = document.getElementById('expectedCashflowBox');
+      if(!box){
+        box = document.createElement('div');
+        box.id='expectedCashflowBox';
+        document.getElementById('financeStats').insertAdjacentElement('afterend', box);
+      }
+      box.innerHTML =
+        '<div class="section-title">📥 مستحقات متوقعة (الأسبوع القادم)</div>'
+        + '<div class="card"><div class="row"><h3>إجمالي المتوقع تحصيله</h3>'
+        + '<b style="color:var(--ok);font-size:17px;">'+expectedTotal.toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="meta">من '+upcoming.length+' طلب مجدول للتسليم خلال 7 أيام</div></div>';
+    }catch(e){}
+  };
+})();
+
+/* 9) خطة اليوم — تظهر تلقائيًا عند فتح التطبيق (مرة باليوم) */
+setTimeout(function(){
+  try{
+    if(typeof computeTodayQueue!=='function') return;
+    var today = todayStr();
+    if(localStorage.getItem('dailyPlanShownDate')===today) return;
+    if(isDayOff(new Date())){ localStorage.setItem('dailyPlanShownDate', today); return; }
+    var q = computeTodayQueue();
+    var queue = q.queue||[], mustFinish = q.mustFinish||[];
+    if(queue.length===0){ localStorage.setItem('dailyPlanShownDate', today); return; }
+    var items = queue.slice(0,5).map(function(o,i){
+      var c = customerById(o.customerId);
+      return '<div class="row" style="padding:6px 0;border-bottom:1px solid var(--border);"><span>'+(i+1)+'. '+(c?escapeHtml(c.name):'عميل محذوف')+' - '+escapeHtml(orderTypeLabel(o))+'</span></div>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>☀️ خطة شغل النهاردة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<p class="meta">عندك '+queue.length+' طلب في الدور، منهم '+mustFinish.length+' لازم يخلص النهاردة.</p>'
+      + items
+      + (queue.length>5 ? '<p class="meta" style="margin-top:6px;">+ '+(queue.length-5)+' طلب تاني</p>' : '')
+      + '<button class="btn" style="margin-top:12px;" onclick="closeModal();showPage(\'home\')">📋 فتح خطة اليوم كاملة</button>'
+    );
+    localStorage.setItem('dailyPlanShownDate', today);
+  }catch(e){}
+}, 900);
+
+/* 10) عداد الأيام المتبقية على كل بطاقة طلب في صفحة الطلبات وخطة اليوم */
+(function(){
+  function tagOrderCards(container){
+    if(!container) return;
+    container.querySelectorAll('.card').forEach(function(card){
+      if(card.dataset.orderId) return;
+      var btn = card.querySelector('[onclick*="openOrderModal("]') || card.querySelector('[onclick*="markOrderDelivered("]');
+      if(btn){
+        var m = btn.getAttribute('onclick').match(/(?:openOrderModal|markOrderDelivered)\('([^']+)'/);
+        if(m) card.dataset.orderId = m[1];
+      }
+    });
+  }
+  function addDaysBadges(container){
+    if(!container) return;
+    tagOrderCards(container);
+    container.querySelectorAll('.card[data-order-id]').forEach(function(card){
+      if(card.dataset.daysBadgeAdded) return;
+      var o = db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+      if(!o || !o.dateDelivery || o.status==='تم التسليم') return;
+      var diff = Math.round((new Date(o.dateDelivery) - new Date(todayStr()))/86400000);
+      var label, color;
+      if(diff<0){ label='متأخر '+Math.abs(diff)+' يوم'; color='var(--danger)'; }
+      else if(diff===0){ label='التسليم النهاردة'; color='var(--warn)'; }
+      else { label='باقي '+diff+' يوم'; color='var(--info)'; }
+      var metaLine = Array.prototype.find.call(card.querySelectorAll('.meta'), function(m){ return m.textContent.indexOf('التسليم')!==-1; });
+      if(metaLine){
+        card.dataset.daysBadgeAdded='1';
+        var badge=document.createElement('span');
+        badge.style.cssText='display:inline-block;margin-inline-start:8px;font-size:11.5px;font-weight:800;color:'+color+';';
+        badge.textContent='⏳ '+label;
+        metaLine.appendChild(badge);
+      }
+    });
+  }
+  new MutationObserver(function(){
+    addDaysBadges(document.getElementById('ordersList'));
+    addDaysBadges(document.getElementById('todayPlan'));
+  }).observe(document.getElementById('app'), {childList:true, subtree:true});
+})();
+
+/* 11) وضع التباين العالي — زر جنب زر الوضع الليلي */
+(function(){
+  if(document.getElementById('contrastToggleBtn')) return; // امنع التكرار لو الكود اشتغل أكتر من مرة
+  var themeBtn = document.getElementById('themeToggleBtn');
+  if(!themeBtn) return;
+  var btn = document.createElement('button');
+  btn.className='theme-toggle-btn'; btn.id='contrastToggleBtn';
+  btn.setAttribute('aria-label','تباين عالٍ'); btn.textContent='◐';
+  btn.onclick = function(){
+    document.documentElement.classList.toggle('high-contrast');
+    localStorage.setItem('highContrast', document.documentElement.classList.contains('high-contrast') ? '1':'0');
+  };
+  themeBtn.insertAdjacentElement('afterend', btn);
+  if(localStorage.getItem('highContrast')==='1') document.documentElement.classList.add('high-contrast');
+})();
+
+/* 12) سحب بطاقة الطلب: يمين = تم الإنجاز، يسار = فتح التعديل
+   [تم الإصلاح] إضافة معالجة touchcancel عشان الكارت يرجع لوضعه الطبيعي
+   لو النظام قاطع اللمسة (إشعار داخل أو تنبيه فجأة مثلاً) */
+(function(){
+  var startX=0, startY=0, activeCard=null;
+
+  function resetCard(){
+    if(activeCard){
+      activeCard.style.transform='';
+      activeCard.style.opacity='';
+    }
+    activeCard=null;
+  }
+
+  document.addEventListener('touchstart', function(e){
+    var card = e.target.closest('#ordersList .card');
+    if(!card) return;
+    var btn = card.querySelector('[onclick*="openOrderModal("]');
+    if(btn){
+      var m = btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/);
+      if(m) card.dataset.orderId = m[1];
+    }
+    activeCard = card;
+    startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+  }, {passive:true});
+  document.addEventListener('touchmove', function(e){
+    if(!activeCard) return;
+    var dx = e.touches[0].clientX-startX, dy = e.touches[0].clientY-startY;
+    if(Math.abs(dx)>Math.abs(dy)){
+      activeCard.style.transform='translateX('+dx+'px)';
+      activeCard.style.opacity = Math.max(0.4, 1-Math.abs(dx)/250);
+    }
+  }, {passive:true});
+  document.addEventListener('touchend', function(e){
+    if(!activeCard) return;
+    var dx = e.changedTouches[0].clientX-startX;
+    var id = activeCard.dataset.orderId;
+    var cardRef = activeCard;
+    resetCard();
+    if(Math.abs(dx)>90 && id){
+      var o = db.orders.find(function(x){ return x.id===id; });
+      if(dx>0 && o && o.status!=='تم التسليم'){
+        if(navigator.vibrate) navigator.vibrate(30);
+        markOrderDelivered(id);
+      } else if(dx<0){
+        if(navigator.vibrate) navigator.vibrate(20);
+        openOrderModal(id);
+      }
+    }
+  });
+  document.addEventListener('touchcancel', function(){
+    resetCard();
+  });
+})();
+
+/* 13) أفضل أيام الأسبوع من ناحية التحصيل في صفحة المالية */
+(function(){
+  var origRFDays = renderFinance;
+  renderFinance = function(){
+    origRFDays.apply(this, arguments);
+    try{
+      var dayNames = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+      var totals = [0,0,0,0,0,0,0];
+      db.payments.forEach(function(p){
+        var d = new Date(p.date);
+        if(isNaN(d.getTime())) return;
+        totals[d.getDay()] += Number(p.amount)||0;
+      });
+      var maxIdx = 0;
+      for(var i=1;i<7;i++) if(totals[i]>totals[maxIdx]) maxIdx=i;
+      var hasData = totals.some(function(t){ return t>0; });
+      var rows = dayNames.map(function(name,i){
+        var pct = totals[maxIdx]>0 ? Math.round(totals[i]/totals[maxIdx]*100) : 0;
+        return '<div class="row" style="padding:4px 0;">'
+          +'<span>'+name+'</span>'
+          +'<div style="flex:1;margin:0 10px;background:var(--border);border-radius:6px;height:8px;overflow:hidden;">'
+          +'<div style="width:'+pct+'%;height:100%;background:'+(i===maxIdx?'var(--accent)':'var(--primary)')+';"></div></div>'
+          +'<b style="font-size:12px;">'+totals[i].toLocaleString('ar-EG')+'</b>'
+          +'</div>';
+      }).join('');
+      var box = document.getElementById('bestDayBox');
+      if(!box){
+        box = document.createElement('div');
+        box.id='bestDayBox';
+        var anchor = document.getElementById('advancedAnalytics');
+        anchor.parentElement.insertBefore(box, anchor.nextSibling);
+      }
+      box.innerHTML = '<div class="section-title">📆 أفضل أيام الأسبوع (حسب التحصيل)</div>'
+        + '<div class="card">' + (hasData
+            ? rows + '<p class="meta" style="margin-top:8px;">🏆 يوم '+dayNames[maxIdx]+' هو الأعلى تحصيلاً — فكّر تزود الطاقة أو تركّز المتابعة حواليه</p>'
+            : '<div class="empty-msg">لسه مفيش بيانات كفاية</div>') + '</div>';
+    }catch(e){}
+  };
+})();
+
+/* 14) تنبيه المناسبات الموسمية القادمة */
+setTimeout(function(){
+  try{
+    var today = todayStr();
+    var alertWindow = 21; // يبدأ التنبيه قبل المناسبة بكام يوم
+    (db.holidays||[]).forEach(function(h){
+      if(!h.date) return;
+      var diff = Math.round((new Date(h.date) - new Date(today))/86400000);
+      if(diff>=0 && diff<=alertWindow){
+        var key = 'seasonalAlertShown_'+h.id;
+        var lastDiff = localStorage.getItem(key);
+        var shouldShow = !lastDiff || (Number(lastDiff)-diff)>=7 || diff===0;
+        if(shouldShow){
+          toast('📆 باقي '+diff+' يوم على "'+h.name+'" — فكّر تجهز الطاقة الاستيعابية وتبلغ عملائك بمواعيد التسليم بدري');
+          localStorage.setItem(key, diff);
+        }
+      }
+    });
+  }catch(e){}
+}, 1300);
+
+/* 15) عرض قياسات العميل المحفوظة كمرجع سريع عند فتح طلب جديد */
+(function(){
+  function measurementsHtml(c){
+    if(!c) return '';
+    var rows = [
+      ['📏 الطول', c.length],
+      ['📏 الصدر', c.chest],
+      ['📏 الخزنة', c.waist],
+      ['📏 طول الكم', c.sleeve],
+      ['📏 وسع الكم', c.shoulder]
+    ].filter(function(r){ return r[1]!==undefined && r[1]!==null && r[1]!==''; });
+    if(rows.length===0 && !c.notes) return '';
+    var rowsHtml = rows.map(function(r){
+      return '<div class="row" style="padding:3px 0;"><span class="meta">'+r[0]+'</span><b>'+escapeHtml(String(r[1]))+' سم</b></div>';
+    }).join('');
+    var notesHtml = c.notes ? '<div class="meta" style="margin-top:6px;">📝 '+escapeHtml(c.notes)+'</div>' : '';
+    return '<div class="card" id="customerMeasureBox" style="margin:-6px 0 14px;padding:10px 12px;background:var(--card-alt);">'
+      + '<div class="section-title" style="font-size:13px;margin-bottom:4px;">📏 قياسات العميل المحفوظة</div>'
+      + rowsHtml + notesHtml
+      + '</div>';
+  }
+
+  function renderBox(){
+    try{
+      var sel = document.getElementById('f_customer');
+      if(!sel) return;
+      var old = document.getElementById('customerMeasureBox');
+      if(old) old.remove();
+      var c = sel.value ? customerById(sel.value) : null;
+      var html = measurementsHtml(c);
+      if(html){
+        sel.closest('.field').insertAdjacentHTML('afterend', html);
+      }
+    }catch(e){}
+  }
+
+  var origOpenOrderModal = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var r = origOpenOrderModal.apply(this, arguments);
+    setTimeout(function(){
+      renderBox();
+      var sel = document.getElementById('f_customer');
+      if(sel && !sel.dataset.measureBound){
+        sel.dataset.measureBound='1';
+        sel.addEventListener('change', renderBox);
+      }
+    }, 30);
+    return r;
+  };
+})();
+
+/* 16) وضع "يوم الجرد" — تقرير شامل يجمع المتأخرات والمستحقات في شاشة واحدة */
+(function(){
+  function buildAuditReport(){
+    var today = todayStr();
+    var active = db.orders.filter(function(o){ return o.status!=='تم التسليم'; });
+    var overdue = active.filter(isOverdue);
+    var dueToday = active.filter(function(o){ return o.dateDelivery===today; });
+    var totalOutstanding = active.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+    var debtors = (typeof debtorCustomers==='function') ? debtorCustomers() : [];
+
+    var overdueRows = overdue.slice(0,10).map(function(o){
+      var c = customerById(o.customerId);
+      return '<div class="row" style="padding:5px 0;border-bottom:1px solid var(--border);"><span>'+(c?escapeHtml(c.name):'عميل محذوف')+' - '+escapeHtml(orderTypeLabel(o))+'</span></div>';
+    }).join('') || '<div class="empty-msg">لا يوجد طلبات متأخرة 🎉</div>';
+
+    var debtorRows = debtors.slice(0,10).map(function(d){
+      return '<div class="row" style="padding:5px 0;border-bottom:1px solid var(--border);"><span>'+escapeHtml(d.customer.name)+'</span><b style="color:var(--danger);">'+d.amount.toLocaleString('ar-EG')+' ج.م</b></div>';
+    }).join('') || '<div class="empty-msg">لا يوجد عملاء متجاوزين حد المديونية</div>';
+
+    return '<div class="modal-head"><h3>🗓️ يوم الجرد</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div class="card" style="padding:10px 12px;margin-bottom:10px;background:var(--card-alt);">'
+        + '<div class="row"><span class="meta">طلبات متأخرة</span><b style="color:var(--danger);">'+overdue.length+'</b></div>'
+        + '<div class="row"><span class="meta">طلبات مستحقة اليوم</span><b style="color:var(--warn);">'+dueToday.length+'</b></div>'
+        + '<div class="row"><span class="meta">إجمالي المستحقات (كل الطلبات الجارية)</span><b>'+totalOutstanding.toLocaleString('ar-EG')+' ج.م</b></div>'
+      + '</div>'
+      + '<div class="section-title">⏰ الطلبات المتأخرة</div>'
+      + '<div style="margin-bottom:14px;">'+overdueRows+(overdue.length>10?'<p class="meta" style="margin-top:6px;">+ '+(overdue.length-10)+' طلب تاني</p>':'')+'</div>'
+      + '<div class="section-title">🧾 عملاء متجاوزين حد المديونية</div>'
+      + '<div>'+debtorRows+(debtors.length>10?'<p class="meta" style="margin-top:6px;">+ '+(debtors.length-10)+' عميل تاني</p>':'')+'</div>';
+  }
+
+  window.openAuditDayMode = function(){
+    try{ openModal(buildAuditReport()); }catch(e){ toast('تعذر فتح يوم الجرد'); }
+  };
+
+  var nav = document.getElementById('sideNav');
+  if(nav && !document.getElementById('navAuditDay')){
+    var btn = document.createElement('button');
+    btn.className='navbtn'; btn.id='navAuditDay';
+    btn.innerHTML = '<span class="ic">🗓️</span>يوم الجرد';
+    btn.onclick = function(){ closeSideNav(); openAuditDayMode(); };
+    var settingsBtn = nav.querySelector('.navbtn[data-page="settings"]');
+    if(settingsBtn) settingsBtn.insertAdjacentElement('beforebegin', btn);
+    else nav.appendChild(btn);
+  }
+})();
+
+/* 17) اختصار صوتي بسيط لملء حقل الملاحظات بالصوت (لو المتصفح بيدعم التعرف على الصوت) */
+(function(){
+  function attachMic(textareaId){
+    var ta = document.getElementById(textareaId);
+    if(!ta || ta.dataset.micAdded) return;
+    ta.dataset.micAdded='1';
+    var Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var btn = document.createElement('button');
+    btn.type='button'; btn.className='btn sm secondary'; btn.style.marginTop='6px';
+    btn.textContent='🎤 إدخال بالصوت';
+    if(!Recognition){
+      btn.disabled = true;
+      btn.title = 'التعرف على الصوت مش مدعوم في هذا المتصفح';
+      btn.style.opacity='0.5';
+    } else {
+      btn.onclick = function(){
+        try{
+          var rec = new Recognition();
+          rec.lang = 'ar-EG';
+          rec.interimResults = false;
+          btn.textContent = '🎙️ ...جارِ الاستماع';
+          btn.disabled = true;
+          rec.onresult = function(e){
+            var text = e.results[0][0].transcript;
+            ta.value = (ta.value ? ta.value.trim()+' ' : '') + text;
+            toast('✅ تم إضافة النص بالصوت');
+          };
+          rec.onerror = function(){ toast('⚠️ تعذر التعرف على الصوت'); };
+          rec.onend = function(){ btn.textContent='🎤 إدخال بالصوت'; btn.disabled=false; };
+          rec.start();
+        }catch(e){ toast('⚠️ خاصية الصوت مش متاحة'); btn.disabled=false; btn.textContent='🎤 إدخال بالصوت'; }
+      };
+    }
+    ta.insertAdjacentElement('afterend', btn);
+  }
+
+  var origOpenCustomerModal = openCustomerModal;
+  openCustomerModal = function(id){
+    var r = origOpenCustomerModal.apply(this, arguments);
+    setTimeout(function(){ attachMic('f_notes'); }, 30);
+    return r;
+  };
+})();
+
+/* 18) هدف شهري للإيرادات مع شريط تقدم في صفحة المالية */
+(function(){
+  function monthRevenue(){
+    var prefix = todayStr().slice(0,7);
+    return db.payments.filter(function(p){ return p.date && p.date.slice(0,7)===prefix; })
+      .reduce(function(s,p){ return s+(Number(p.amount)||0); }, 0);
+  }
+
+  window.saveMonthlyGoal = function(){
+    var val = Number(document.getElementById('f_monthlyGoal').value)||0;
+    db.monthlyRevenueGoal = val;
+    saveDB();
+    closeModal();
+    toast('✅ تم حفظ الهدف الشهري');
+    renderFinance();
+  };
+
+  window.editMonthlyGoalModal = function(){
+    openModal(
+      '<div class="modal-head"><h3>🎯 تحديد الهدف الشهري</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div class="field"><label>الهدف الشهري (ج.م)</label><input id="f_monthlyGoal" type="number" value="'+(db.monthlyRevenueGoal||0)+'"></div>'
+      + '<button class="btn" onclick="saveMonthlyGoal()">💾 حفظ</button>'
+    );
+  };
+
+  var origRFGoal = renderFinance;
+  renderFinance = function(){
+    origRFGoal.apply(this, arguments);
+    try{
+      var goal = Number(db.monthlyRevenueGoal)||0;
+      var revenue = monthRevenue();
+      var pct = goal>0 ? Math.min(100, Math.round(revenue/goal*100)) : 0;
+      var box = document.getElementById('monthlyGoalBox');
+      if(!box){
+        box = document.createElement('div');
+        box.id='monthlyGoalBox';
+        var anchor = document.getElementById('expectedCashflowBox') || document.getElementById('financeStats');
+        anchor.insertAdjacentElement('afterend', box);
+      }
+      box.innerHTML = '<div class="section-title">🎯 الهدف الشهري للإيرادات</div>'
+        + '<div class="card" style="padding:10px 12px;">'
+        + (goal>0
+          ? '<div class="row"><span class="meta">المحصّل هذا الشهر</span><b>'+revenue.toLocaleString('ar-EG')+' / '+goal.toLocaleString('ar-EG')+' ج.م</b></div>'
+            + '<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;margin-top:8px;">'
+            + '<div style="width:'+pct+'%;height:100%;background:var(--accent);"></div></div>'
+            + '<div class="meta" style="margin-top:6px;">'+pct+'% من الهدف</div>'
+          : '<div class="empty-msg">لسه معملتش هدف شهري</div>')
+        + '<button class="btn sm secondary" style="margin-top:10px;" onclick="editMonthlyGoalModal()">'+(goal>0?'✏️ تعديل الهدف':'🎯 تحديد الهدف')+'</button>'
+        + '</div>';
+    }catch(e){}
+  };
+})();
+
+/* 19) قراءة خطة اليوم بصوت عالٍ (Text-to-Speech) */
+(function(){
+  var speaking = false;
+
+  function updateBtn(btn){
+    btn.textContent = speaking ? '⏹️ إيقاف القراءة' : '🔊 اقرأ خطة اليوم بصوت عالٍ';
+  }
+
+  function buildPlanSpeech(){
+    var q = computeTodayQueue();
+    var queue = q.queue||[], mustFinish = q.mustFinish||[];
+    if(queue.length===0) return 'مفيش طلبات مستعجلة النهاردة';
+    var parts = ['عندك '+queue.length+' طلب في الدور، منهم '+mustFinish.length+' لازم يخلص النهاردة.'];
+    queue.slice(0,8).forEach(function(o,i){
+      var c = customerById(o.customerId);
+      parts.push('رقم '+(i+1)+': '+(c?c.name:'عميل محذوف')+'، '+orderTypeLabel(o));
+    });
+    if(queue.length>8) parts.push('وباقي '+(queue.length-8)+' طلب تاني في الدور');
+    return parts.join('. ');
+  }
+
+  function speakPlan(btn){
+    if(!('speechSynthesis' in window)){ toast('⚠️ المتصفح ده مش بيدعم القراءة الصوتية'); return; }
+    if(speaking){
+      window.speechSynthesis.cancel();
+      speaking = false; updateBtn(btn);
+      return;
+    }
+    try{
+      var text = buildPlanSpeech();
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ar-SA'; u.rate = 0.95;
+      u.onend = function(){ speaking=false; updateBtn(btn); };
+      u.onerror = function(){ speaking=false; updateBtn(btn); };
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      speaking = true; updateBtn(btn);
+    }catch(e){ toast('⚠️ تعذرت القراءة الصوتية'); }
+  }
+
+  var origRTP = renderTodayPlan;
+  renderTodayPlan = function(){
+    origRTP.apply(this, arguments);
+    try{
+      var box = document.getElementById('todayPlan');
+      if(!box || isDayOff(new Date())) return;
+      speaking = false;
+      var btn = document.createElement('button');
+      btn.id='speakPlanBtn'; btn.className='btn sm secondary';
+      btn.style.cssText='margin-bottom:10px;display:block;width:100%;';
+      updateBtn(btn);
+      btn.onclick = function(){ speakPlan(btn); };
+      box.insertAdjacentElement('afterbegin', btn);
+    }catch(e){}
+  };
+})();
+
+/* 20) كشف حساب لعميل معين (طباعة + مشاركة واتساب) */
+(function(){
+  function statementRows(orders){
+    return orders.map(function(o){
+      return '- '+fmtDate(o.dateReceived)+' | '+orderTypeLabel(o)+' | الإجمالي: '+orderTotal(o).toLocaleString('ar-EG')+' | مدفوع: '+(Number(o.paid)||0).toLocaleString('ar-EG')+' | متبقي: '+orderRemaining(o).toLocaleString('ar-EG')+' ج.م';
+    }).join('\n');
+  }
+
+  window.printCustomerStatement = function(id){
+    var c = customerById(id);
+    if(!c) return;
+    var orders = db.orders.filter(function(o){ return o.customerId===id; }).sort(function(a,b){ return (a.dateReceived||'').localeCompare(b.dateReceived||''); });
+    var totalPaid = orders.reduce(function(s,o){ return s+(Number(o.paid)||0); }, 0);
+    var totalRemaining = orders.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+    var rowsHtml = orders.length ? orders.map(function(o){
+      return '<tr><td>'+fmtDate(o.dateReceived)+'</td><td>'+escapeHtml(orderTypeLabel(o))+'</td><td>'+orderTotal(o).toLocaleString('ar-EG')+'</td><td>'+(Number(o.paid)||0).toLocaleString('ar-EG')+'</td><td>'+orderRemaining(o).toLocaleString('ar-EG')+'</td></tr>';
+    }).join('') : '<tr><td colspan="5" style="text-align:center;color:#888;">لا توجد طلبات</td></tr>';
+    var html =
+      '<html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>كشف حساب - '+escapeHtml(c.name)+'</title>'
+      + '<style>'
+      + 'body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}'
+      + 'h1{font-size:19px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}'
+      + 'table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px;}'
+      + 'th,td{padding:8px 6px;border-bottom:1px solid #ddd;text-align:center;}'
+      + 'th{background:#f5f3ef;}'
+      + '.totals{margin-top:16px;display:flex;gap:14px;justify-content:flex-end;font-size:14px;}'
+      + '.totals b{color:#1F6D57;}'
+      + '</style></head><body>'
+      + printBrandHeaderHtml()
+      + '<h1>🧾 كشف حساب - '+escapeHtml(c.name)+'</h1>'
+      + '<p style="font-size:13px;color:#666;">📞 '+escapeHtml(c.phone||'-')+' — تاريخ الكشف: '+fmtDate(todayStr())+'</p>'
+      + '<table><tr><th>تاريخ الاستلام</th><th>الصنف</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th></tr>'+rowsHtml+'</table>'
+      + '<div class="totals"><div>إجمالي المدفوع: <b>'+totalPaid.toLocaleString('ar-EG')+' ج.م</b></div><div>إجمالي المتبقي: <b>'+totalRemaining.toLocaleString('ar-EG')+' ج.م</b></div></div>'
+      + '</body></html>';
+    openPrintWindow(html, 'كشف_حساب_'+c.name);
+  };
+
+  window.shareCustomerStatement = function(id){
+    var c = customerById(id);
+    if(!c) return;
+    var orders = db.orders.filter(function(o){ return o.customerId===id; }).sort(function(a,b){ return (a.dateReceived||'').localeCompare(b.dateReceived||''); });
+    var totalPaid = orders.reduce(function(s,o){ return s+(Number(o.paid)||0); }, 0);
+    var totalRemaining = orders.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+    var msg = '🧾 كشف حساب - '+c.name+'\n'+(db.workshopName||'ورشة تفصيل الجلابيب')+'\nتاريخ: '+fmtDate(todayStr())+'\n\n'+statementRows(orders)+'\n\nإجمالي المدفوع: '+totalPaid.toLocaleString('ar-EG')+' ج.م\nإجمالي المتبقي: '+totalRemaining.toLocaleString('ar-EG')+' ج.م';
+    if(navigator.share){ navigator.share({title:'كشف حساب '+c.name, text:msg}).catch(function(){}); return; }
+    var phone = (c.phone||'').replace(/[^0-9]/g,'');
+    if(phone){ if(phone.indexOf('0')===0) phone='2'+phone; openExternalLink('https://wa.me/'+phone+'?text='+encodeURIComponent(msg)); }
+    else openExternalLink('https://wa.me/?text='+encodeURIComponent(msg));
+  };
+
+  var origOCH = openCustomerHistory;
+  openCustomerHistory = function(id){
+    var r = origOCH.apply(this, arguments);
+    setTimeout(function(){
+      try{
+        var box = document.getElementById('modalBox');
+        var gridCards = box.querySelector('.grid-cards');
+        if(!gridCards) return;
+        var existingRow = document.getElementById('statementBtnRow');
+        if(existingRow) existingRow.remove();
+        var row = document.createElement('div');
+        row.id='statementBtnRow'; row.className='btn-row'; row.style.margin='10px 0 4px';
+        row.innerHTML =
+          '<button class="btn sm secondary" onclick="printCustomerStatement(\''+id+'\')">🖨️ طباعة كشف حساب</button>'
+          + '<button class="btn sm accent" onclick="shareCustomerStatement(\''+id+'\')">📲 مشاركة واتساب</button>';
+        gridCards.insertAdjacentElement('afterend', row);
+      }catch(e){}
+    }, 30);
+    return r;
+  };
+})();
+
+/* 21) متوسط وقت التفصيل الفعلي لكل نوع (يعتمد على أزرار بدء/إيقاف التوقيت المسجّلة على الطلبات) */
+(function(){
+  function computeAvgWorkTimes(){
+    var stats = {};
+    db.orders.forEach(function(o){
+      if(!o.actualMinutes || o.actualMinutes<=0) return;
+      var entries = [];
+      if(Array.isArray(o.items) && o.items.length===1){
+        entries = [{type:o.items[0].type, qty:o.items[0].qty||1}];
+      } else if(!Array.isArray(o.items) && o.type){
+        entries = [{type:o.type, qty:o.qty||1}];
+      }
+      entries.forEach(function(e){
+        var perPiece = o.actualMinutes/Math.max(1, e.qty);
+        if(!stats[e.type]) stats[e.type] = {total:0, count:0};
+        stats[e.type].total += perPiece;
+        stats[e.type].count += 1;
+      });
+    });
+    return Object.keys(stats).map(function(type){
+      return {type:type, avg:Math.round(stats[type].total/stats[type].count), count:stats[type].count};
+    }).sort(function(a,b){ return b.count-a.count; });
+  }
+
+  var origRF = renderFinance;
+  renderFinance = function(){
+    origRF.apply(this, arguments);
+    try{
+      var rows = computeAvgWorkTimes();
+      var box = document.getElementById('avgWorkTimeBox');
+      if(!box){
+        box = document.createElement('div');
+        box.id='avgWorkTimeBox';
+        var anchor = document.getElementById('bestDayBox') || document.getElementById('expectedCashflowBox') || document.getElementById('financeStats');
+        anchor.insertAdjacentElement('afterend', box);
+      }
+      var rowsHtml = rows.length ? rows.map(function(r){
+        return '<div class="row" style="padding:5px 0;border-bottom:1px solid var(--border);"><span>'+escapeHtml(r.type)+'</span><b>'+formatMinutesLabel(r.avg)+' <span class="meta" style="font-size:11px;">('+r.count+' قطعة)</span></b></div>';
+      }).join('') : '<div class="empty-msg">لسه مفيش وقت شغل مسجّل كفاية — استخدم زر "بدء/إيقاف التوقيت" على الطلبات عشان تتجمع بيانات كافية</div>';
+      box.innerHTML = '<div class="section-title">⏱️ متوسط وقت التفصيل الفعلي لكل نوع</div><div class="card">'+rowsHtml+'</div>';
+    }catch(e){}
+  };
+})();
+
+/* 22) كشف تكرار أرقام الهواتف بين أكتر من عميل */
+(function(){
+  function findDuplicatePhones(){
+    var groups = {};
+    db.customers.forEach(function(c){
+      var digits = (c.phone||'').replace(/[^0-9]/g,'');
+      if(digits.length<8) return;
+      if(!groups[digits]) groups[digits]=[];
+      groups[digits].push(c);
+    });
+    return Object.keys(groups).map(function(k){ return groups[k]; }).filter(function(g){ return g.length>1; });
+  }
+
+  var origRC = renderCustomers;
+  renderCustomers = function(){
+    origRC.apply(this, arguments);
+    try{
+      var list = document.getElementById('customersList');
+      var old = document.getElementById('dupPhoneAlert');
+      if(old) old.remove();
+      var dups = findDuplicatePhones();
+      if(dups.length===0) return;
+      var names = dups.map(function(g){ return g.map(function(c){ return c.name; }).join(' / '); }).join('، ');
+      var box = document.createElement('div');
+      box.id='dupPhoneAlert';
+      box.className='alert-banner warn';
+      box.style.marginBottom='10px';
+      box.innerHTML = '<span class="ic">⚠️</span><div><b>فيه '+dups.length+' رقم هاتف مكرر بين أكتر من عميل</b>'+escapeHtml(names)+' — راجعهم علشان مايتلخبطش حساب الولاء وحد المديونية.</div>';
+      list.insertAdjacentElement('beforebegin', box);
+    }catch(e){}
+  };
+})();
+
+/* 24) تصنيف المصروفات بفئات */
+(function(){
+  var DEFAULT_CATS = ['خامات وأقمشة','إيجار','فواتير','صيانة وأدوات','مواصلات','رواتب وعمالة','أخرى'];
+  function expenseCats(){
+    return (db.expenseCategories && db.expenseCategories.length) ? db.expenseCategories : DEFAULT_CATS;
+  }
+  var expenseCatFilter = 'all';
+
+  openExpenseModal = function(){
+    var cats = expenseCats();
+    var html =
+      '<div class="modal-head"><h3>➕ مصروف جديد</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div class="field"><label>وصف المصروف</label><input id="f_expDesc" placeholder="مثال: خيوط، أزرار، سوست..."></div>'
+      + '<div class="field"><label>الفئة</label><select id="f_expCat">'+cats.map(function(c){ return '<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>'; }).join('')+'</select></div>'
+      + '<div class="field"><label>المبلغ (ج.م)</label><input id="f_expAmount" type="number" placeholder="0"></div>'
+      + '<div class="field"><label>التاريخ</label><input id="f_expDate" type="date" value="'+todayStr()+'"></div>'
+      + '<button class="btn" onclick="saveExpense()">💾 حفظ</button>';
+    openModal(html);
+  };
+
+  saveExpense = function(){
+    var desc = document.getElementById('f_expDesc').value.trim();
+    var catEl = document.getElementById('f_expCat');
+    var cat = catEl ? catEl.value : 'أخرى';
+    var amount = Number(document.getElementById('f_expAmount').value)||0;
+    var date = document.getElementById('f_expDate').value || todayStr();
+    if(!desc){ toast('أدخل وصف المصروف'); return; }
+    if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
+    var record = {id:uid(), desc:desc, amount:amount, date:date, cat:cat};
+    db.expenses.push(record);
+    logActivity('🧵 مصروف جديد: '+desc+' ('+amount.toLocaleString('ar-EG')+' ج.م)');
+    setUndo('إضافة المصروف', function(){
+      db.expenses = db.expenses.filter(function(e){ return e.id!==record.id; });
+      saveDB();
+      renderExpenses();
+    });
+    saveDB();
+    closeModal();
+    renderExpenses();
+    toast('تم إضافة المصروف ✅');
+  };
+
+  window.setExpenseCatFilter = function(cat){
+    expenseCatFilter = cat;
+    renderExpenses();
+  };
+
+  renderExpenses = function(){
+    var all = db.expenses;
+    var filtered = expenseCatFilter==='all' ? all : all.filter(function(e){ return (e.cat||'أخرى')===expenseCatFilter; });
+    var total = filtered.reduce(function(s,e){ return s+Number(e.amount||0); }, 0);
+    document.getElementById('totalExpensesTxt').textContent = total.toLocaleString('ar-EG')+' ج.م';
+
+    var cats = expenseCats();
+    var catTotals = {};
+    all.forEach(function(e){ var c=e.cat||'أخرى'; catTotals[c]=(catTotals[c]||0)+Number(e.amount||0); });
+
+    var chipsHtml = '<span class="rc-chip" style="'+(expenseCatFilter==='all'?'background:var(--accent);color:#fff;':'')+'" onclick="setExpenseCatFilter(\'all\')">الكل</span>'
+      + cats.filter(function(c){ return catTotals[c]; }).map(function(c){
+          return '<span class="rc-chip" style="'+(expenseCatFilter===c?'background:var(--accent);color:#fff;':'')+'" onclick="setExpenseCatFilter(\''+c.replace(/'/g,"\\'")+'\')">'+escapeHtml(c)+' ('+catTotals[c].toLocaleString('ar-EG')+')</span>';
+        }).join('');
+
+    var chipsBox = document.getElementById('expenseCatChips');
+    if(!chipsBox){
+      chipsBox = document.createElement('div');
+      chipsBox.id='expenseCatChips';
+      chipsBox.style.cssText='display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:10px;';
+      var addBtn = document.querySelector('#page-expenses .btn[onclick="openExpenseModal()"]');
+      if(addBtn) addBtn.insertAdjacentElement('afterend', chipsBox);
+    }
+    chipsBox.innerHTML = chipsHtml;
+
+    var list = filtered.slice().sort(function(a,b){ return b.date.localeCompare(a.date); });
+    document.getElementById('expensesList').innerHTML = list.length ? list.map(function(e){
+      return '<div class="card">'
+        + '<div class="row"><h3>'+escapeHtml(e.desc)+'</h3><b style="color:var(--danger)">'+Number(e.amount).toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="meta">📅 '+fmtDate(e.date)+' — <span class="badge">'+escapeHtml(e.cat||'أخرى')+'</span></div>'
+        + '<div class="btn-row"><button class="btn sm danger" onclick="deleteExpense(\''+e.id+'\')">🗑️ حذف</button></div>'
+        + '</div>';
+    }).join('') : '<div class="empty-msg">لا توجد مصروفات '+(expenseCatFilter==='all'?'مسجلة':'في هذه الفئة')+'</div>';
+  };
+})();
+
+/* 25) مؤشر واضح لحالة الاتصال بالإنترنت (أوفلاين/أونلاين) + تنبيه للتغييرات المعلّقة اللي هتتزامن لاحقًا */
+(function(){
+  function badgeState(){
+    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A'};
+    if(db && db.cloudSync && db.cloudSync.enabled && cloudPendingChanges){
+      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D'};
+    }
+    return {show:false};
+  }
+  function updateOfflineBadge(){
+    var state = badgeState();
+    var badge = document.getElementById('offlineBadge');
+    if(state.show){
+      if(!badge){
+        badge = document.createElement('span');
+        badge.id = 'offlineBadge';
+        badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:0;';
+        var holder = document.querySelector('header.topbar > div:last-child');
+        if(holder) holder.insertAdjacentElement('afterbegin', badge);
+      }
+      badge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;"></span>'+state.text;
+    } else if(badge){
+      badge.remove();
+    }
+  }
+  window.refreshConnectivityBadge = updateOfflineBadge;
+
+  window.addEventListener('offline', function(){
+    updateOfflineBadge();
+    toast('📴 محدش نت دلوقتي — التغييرات هتتحفظ عندك على الجهاز وتتزامن تلقائي أول ما الاتصال يرجع');
+  });
+
+  window.addEventListener('online', function(){
+    updateOfflineBadge();
+    var syncing = (db && db.cloudSync && db.cloudSync.enabled);
+    if(syncing) scheduleCloudPush(); // نحاول نبعت أي تغييرات معلّقة فورًا
+    toast(syncing ? '✅ رجع النت — جاري مزامنة أي تغييرات' : '✅ رجع النت');
+  });
+
+  var origBoot = boot;
+  boot = function(){
+    origBoot.apply(this, arguments);
+    updateOfflineBadge();
+  };
+})();
+
+const origCloudStatusChanged = cloudStatusChanged;
+cloudStatusChanged = function(){
+  origCloudStatusChanged();
+  if(typeof window.refreshConnectivityBadge==='function') window.refreshConnectivityBadge();
+};
+
+
+/* 26) صلاحيات بمستويات (مالك / مدير / استقبال) + رقم سري منفصل لصفحة المالية — حقول الإعدادات */
+(function(){
+  try{
+    var cards = document.querySelectorAll('#page-settings .card');
+    var anchorCard = null;
+    cards.forEach(function(c){
+      var h3 = c.querySelector('h3');
+      if(h3 && h3.textContent.indexOf('تغيير الرقم السري')!==-1) anchorCard = c;
+    });
+    if(!anchorCard) return;
+
+    var lastInserted = anchorCard;
+
+    // --- بطاقة رقم المدير (صلاحيات كاملة ما عدا الإعدادات) ---
+    if(!document.getElementById('managerPinCard')){
+      var mCard = document.createElement('div');
+      mCard.className='card'; mCard.id='managerPinCard';
+      mCard.innerHTML =
+        '<h3>🗂️ رقم سري لوضع المدير (اختياري)</h3>'
+        + '<p class="meta">رقم سري تالت مختلف عن رقمك الأساسي وعن رقم الاستقبال — لو حد دخل بيه هيقدر يشتغل بكل الصفحات (الطلبات، العملاء، المواعيد، المصروفات، المالية) ما عدا صفحة الإعدادات. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<div class="field"><label>رقم سري المدير (4 أرقام)</label><input type="tel" maxlength="4" id="managerPinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+        + '<button class="btn" id="saveManagerPinBtn">💾 حفظ</button>';
+      lastInserted.insertAdjacentElement('afterend', mCard);
+      lastInserted = mCard;
+      document.getElementById('saveManagerPinBtn').onclick = function(){
+        var val = (document.getElementById('managerPinInput').value||'').trim();
+        if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
+        if(val && val===db.password){ toast('لازم يكون مختلف عن رقمك الأساسي'); return; }
+        if(val && db.receptionPassword && val===db.receptionPassword){ toast('لازم يكون مختلف عن رقم الاستقبال'); return; }
+        db.managerPassword = val || null;
+        saveDB();
+        document.getElementById('managerPinInput').value='';
+        toast(val ? '✅ تم حفظ رقم وضع المدير' : '✅ تم إلغاء وضع المدير');
+      };
+    } else {
+      lastInserted = document.getElementById('managerPinCard');
+    }
+
+    // --- بطاقة رقم الاستقبال (صلاحيات محدودة) ---
+    if(!document.getElementById('receptionPinCard')){
+      var card = document.createElement('div');
+      card.className='card'; card.id='receptionPinCard';
+      card.innerHTML =
+        '<h3>🧑‍💼 رقم سري لوضع الاستقبال (اختياري)</h3>'
+        + '<p class="meta">رقم سري تاني مختلف عن رقمك الأساسي وعن رقم المدير — لو حد دخل بيه هيفتح نسخة محدودة، بدون صفحات المالية/المصروفات/الإعدادات وبدون إمكانية حذف. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<div class="field"><label>رقم سري الاستقبال (4 أرقام)</label><input type="tel" maxlength="4" id="receptionPinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+        + '<button class="btn" id="saveReceptionPinBtn">💾 حفظ</button>';
+      lastInserted.insertAdjacentElement('afterend', card);
+      lastInserted = card;
+      document.getElementById('saveReceptionPinBtn').onclick = function(){
+        var val = (document.getElementById('receptionPinInput').value||'').trim();
+        if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
+        if(val && val===db.password){ toast('لازم يكون مختلف عن رقمك الأساسي'); return; }
+        if(val && db.managerPassword && val===db.managerPassword){ toast('لازم يكون مختلف عن رقم المدير'); return; }
+        db.receptionPassword = val || null;
+        saveDB();
+        document.getElementById('receptionPinInput').value='';
+        toast(val ? '✅ تم حفظ رقم وضع الاستقبال' : '✅ تم إلغاء وضع الاستقبال');
+      };
+    } else {
+      lastInserted = document.getElementById('receptionPinCard');
+    }
+
+    // --- بطاقة رقم صفحة المالية (منفصل تمامًا عن رقم قفل التطبيق، بيتطلب مع أي مستوى) ---
+    if(!document.getElementById('financePinCard')){
+      var fCard = document.createElement('div');
+      fCard.className='card'; fCard.id='financePinCard';
+      fCard.innerHTML =
+        '<h3>💰 رقم سري منفصل لصفحة المالية (اختياري)</h3>'
+        + '<p class="meta">رقم سري إضافي مختلف عن رقم قفل التطبيق العام — لازم يتكتب عشان تفتح صفحة "المالية" فقط (مش باقي الصفحات). كده تقدر تدّي حد يشتغل بالتطبيق عادي (طلبات، عملاء، مواعيد...) من غير ما يشوف أرباحك، حتى لو بيستخدم رقمك الأساسي. سيبه فاضي لإلغاء الميزة.</p>'
+        + '<div class="field"><label>رقم سري المالية (4 أرقام)</label><input type="tel" maxlength="4" id="financePinInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+        + '<button class="btn" id="saveFinancePinBtn">💾 حفظ</button>';
+      lastInserted.insertAdjacentElement('afterend', fCard);
+      document.getElementById('saveFinancePinBtn').onclick = function(){
+        var val = (document.getElementById('financePinInput').value||'').trim();
+        if(val && val.length!==4){ toast('لازم يكون 4 أرقام بالظبط، أو سيبه فاضي لإلغاء الميزة'); return; }
+        db.financePassword = val || null;
+        saveDB();
+        window.financeUnlocked = false;
+        if(typeof updateFinanceLockUI==='function') updateFinanceLockUI();
+        document.getElementById('financePinInput').value='';
+        toast(val ? '✅ تم حفظ رقم صفحة المالية' : '✅ تم إلغاء قفل صفحة المالية');
+      };
+    }
+  }catch(e){}
+})();
+
+/* 27) تمييز الطلبات عالية القيمة والقريبة من موعد التسليم */
+(function(){
+  function isHighValueUrgent(o){
+    if(!o || o.status==='تم التسليم' || !o.dateDelivery) return false;
+    var diffDays = Math.round((new Date(o.dateDelivery) - new Date(todayStr()))/86400000);
+    if(diffDays>2) return false;
+    var active = db.orders.filter(function(x){ return x.status!=='تم التسليم'; });
+    if(active.length<3) return false;
+    var avg = active.reduce(function(s,x){ return s+orderTotal(x); }, 0)/active.length;
+    return orderTotal(o) >= avg*1.5;
+  }
+
+  function tagHighValueCards(container){
+    if(!container) return;
+    container.querySelectorAll('.card').forEach(function(card){
+      var btn = card.querySelector('[onclick*="openOrderModal("]') || card.querySelector('[onclick*="markOrderDelivered("]');
+      if(!btn) return;
+      var m = btn.getAttribute('onclick').match(/(?:openOrderModal|markOrderDelivered)\('([^']+)'/);
+      if(!m) return;
+      var o = db.orders.find(function(x){ return x.id===m[1]; });
+      var badge = card.querySelector('.high-value-badge');
+      if(isHighValueUrgent(o)){
+        card.classList.add('high-value-alert');
+        if(!badge){
+          badge = document.createElement('span');
+          badge.className='high-value-badge';
+          badge.style.cssText='display:inline-block;margin-inline-start:8px;background:var(--accent);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:900;';
+          badge.textContent='💎 قيمة عالية وقربت';
+          var row = card.querySelector('.row');
+          if(row) row.appendChild(badge);
+        }
+      } else {
+        card.classList.remove('high-value-alert');
+        if(badge) badge.remove();
+      }
+    });
+  }
+
+  new MutationObserver(function(){
+    tagHighValueCards(document.getElementById('ordersList'));
+    tagHighValueCards(document.getElementById('todayPlan'));
+  }).observe(document.getElementById('app'), {childList:true, subtree:true});
+})();
+
+/* تنبيه موسم الذروة القادم — مقارنة بنفس الفترة من السنة اللي فاتت + مناسبات موسمية */
+(function(){
+  function ordersInRange(startStr, endStr){
+    return db.orders.filter(function(o){
+      return o.dateReceived && o.dateReceived>=startStr && o.dateReceived<=endStr;
+    });
+  }
+
+  function checkPeakSeason(){
+    try{
+      var today = new Date(todayStr());
+      var alerts = [];
+
+      var thisMonthStart = todayStr().slice(0,8)+'01';
+      var thisMonthOrders = ordersInRange(thisMonthStart, todayStr());
+
+      var lastYear = new Date(today); lastYear.setFullYear(lastYear.getFullYear()-1);
+      var lyMonthPrefix = lastYear.toISOString().slice(0,7);
+      var lyMonthOrders = db.orders.filter(function(o){
+        return o.dateReceived && o.dateReceived.slice(0,7)===lyMonthPrefix;
+      });
+
+      if(lyMonthOrders.length>=5 && thisMonthOrders.length>0){
+        var dayOfMonth = today.getDate();
+        var lyOrdersUpToSameDay = lyMonthOrders.filter(function(o){
+          return Number(o.dateReceived.slice(8,10))<=dayOfMonth;
+        });
+        if(lyOrdersUpToSameDay.length>0){
+          var pctChange = Math.round((thisMonthOrders.length-lyOrdersUpToSameDay.length)/lyOrdersUpToSameDay.length*100);
+          if(pctChange>=20){
+            alerts.push('📈 الطلبات الشهر ده زادت '+pctChange+'% عن نفس الفترة السنة اللي فاتت — استعد بخامات وتنظيم مواعيد إضافي');
+          }
+        }
+      }
+
+      (db.holidays||[]).forEach(function(h){
+        if(!h.date) return;
+        var diff = Math.round((new Date(h.date) - today)/86400000);
+        if(diff<0 || diff>28) return;
+
+        var key = 'peakSeasonAlertShown_'+h.id+'_'+today.getFullYear();
+        if(localStorage.getItem(key)) return;
+
+        var hDate = new Date(h.date);
+        var beforeStart = new Date(hDate); beforeStart.setDate(beforeStart.getDate()-21);
+        var beforeStartStr = beforeStart.toISOString().slice(0,10);
+        var beforeEndStr = h.date;
+
+        var lyHolidayDate = new Date(hDate); lyHolidayDate.setFullYear(lyHolidayDate.getFullYear()-1);
+        var lyBeforeStart = new Date(lyHolidayDate); lyBeforeStart.setDate(lyBeforeStart.getDate()-21);
+        var lyOrdersBeforeHoliday = ordersInRange(lyBeforeStart.toISOString().slice(0,10), lyHolidayDate.toISOString().slice(0,10));
+
+        var avgOrdersPerWeek = db.orders.length / 10;
+        if(lyOrdersBeforeHoliday.length > avgOrdersPerWeek*2){
+          alerts.push('🎉 باقي '+diff+' يوم على "'+h.name+'" — السنة اللي فاتت زادت الطلبات قبلها بشكل ملحوظ، جهّز خامات ونظّم مواعيد التسليم بدري');
+          localStorage.setItem(key, '1');
+        }
+      });
+
+      if(alerts.length>0){
+        setTimeout(function(){
+          openModal(
+            '<div class="modal-head"><h3>📊 تنبيه موسم الذروة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+            + alerts.map(function(a){ return '<div class="card" style="margin-bottom:8px;padding:10px 12px;">'+a+'</div>'; }).join('')
+          );
+        }, 1500);
+      }
+    }catch(e){}
+  }
+
+  var todayKey = 'peakSeasonCheckedDate';
+  if(localStorage.getItem(todayKey)!==todayStr()){
+    localStorage.setItem(todayKey, todayStr());
+    setTimeout(checkPeakSeason, 1600);
+  }
+})();
+
+/* وضع "عرض للعميل" — تمويه مؤقت لأرقام وأسعار العملاء التانيين */
+(function(){
+  var active = false;
+
+  function toggleDisplayMode(){
+    active = !active;
+    document.documentElement.classList.toggle('display-mode', active);
+    var btn = document.getElementById('displayModeBtn');
+    if(btn) btn.classList.toggle('active-display-mode', active);
+    toast(active ? '🙈 وضع العرض مفعّل — الأرقام والأسعار متخفية مؤقتًا' : '✅ تم إلغاء وضع العرض');
+    maskSensitiveElements();
+  }
+
+  function maskSensitiveElements(){
+    document.querySelectorAll('.meta').forEach(function(el){
+      if(el.dataset.rcPhone || el.textContent.trim().indexOf('📞')===0){
+        if(active){
+          if(!el.dataset.origText) el.dataset.origText = el.innerHTML;
+          var phoneLinks = el.querySelector('a[href^="tel:"], a[href^="https://wa.me"]');
+          el.innerHTML = '📞 •••••••••'+(phoneLinks ? '' : '');
+        } else if(el.dataset.origText){
+          el.innerHTML = el.dataset.origText;
+          delete el.dataset.origText;
+        }
+      }
+    });
+  }
+
+  new MutationObserver(function(){
+    if(active) maskSensitiveElements();
+  }).observe(document.getElementById('app'), {childList:true, subtree:true});
+
+  var themeBtn = document.getElementById('themeToggleBtn');
+  if(themeBtn && !document.getElementById('displayModeBtn')){
+    var btn = document.createElement('button');
+    btn.className='theme-toggle-btn'; btn.id='displayModeBtn';
+    btn.setAttribute('aria-label','وضع عرض للعميل'); btn.textContent='👁️';
+    btn.onclick = toggleDisplayMode;
+    themeBtn.insertAdjacentElement('afterend', btn);
+  }
+})();
+
+/* تسليم جزئي للطلب — لما الطلب فيه أكتر من صنف/قطعة */
+(function(){
+  function getDeliveredQty(order){
+    return order.partialDeliveries || {};
+  }
+
+  function isFullyDelivered(order){
+    if(!Array.isArray(order.items)) return false;
+    var delivered = getDeliveredQty(order);
+    return order.items.every(function(it, idx){
+      return (delivered[idx]||0) >= (it.qty||1);
+    });
+  }
+
+  window.openPartialDeliveryModal = function(orderId){
+    var o = db.orders.find(function(x){ return x.id===orderId; });
+    if(!o || !Array.isArray(o.items) || o.items.length===0){
+      toast('التسليم الجزئي متاح فقط للطلبات اللي فيها أكتر من صنف');
+      return;
+    }
+    var delivered = getDeliveredQty(o);
+    var rows = o.items.map(function(it, idx){
+      var already = delivered[idx]||0;
+      var total = it.qty||1;
+      return '<div class="field">'
+        + '<label>'+escapeHtml(orderTypeLabel({items:[it]}))+' (الإجمالي: '+total+')</label>'
+        + '<input type="number" id="pd_item_'+idx+'" min="0" max="'+total+'" value="'+already+'" style="width:100%;">'
+        + '</div>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>📦 تسليم جزئي</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<p class="meta">حدّد كام قطعة اتسلمت من كل صنف:</p>'
+      + rows
+      + '<button class="btn" onclick="savePartialDelivery(\''+orderId+'\')">💾 حفظ التسليم الجزئي</button>'
+    );
+  };
+
+  window.savePartialDelivery = function(orderId){
+    var o = db.orders.find(function(x){ return x.id===orderId; });
+    if(!o) return;
+    if(!o.partialDeliveries) o.partialDeliveries = {};
+    var anyInvalid = false;
+    o.items.forEach(function(it, idx){
+      var input = document.getElementById('pd_item_'+idx);
+      var val = Number(input.value)||0;
+      var max = it.qty||1;
+      if(val<0 || val>max){ anyInvalid = true; return; }
+      o.partialDeliveries[idx] = val;
+    });
+    if(anyInvalid){ toast('⚠️ فيه قيمة أكبر من الكمية المطلوبة'); return; }
+
+    logActivity('📦 تسليم جزئي لطلب '+(customerById(o.customerId)?customerById(o.customerId).name:''));
+    saveDB();
+    closeModal();
+
+    if(isFullyDelivered(o)){
+      toast('✅ كل القطع اتسلمت — هل تحب تعلّم الطلب "تم التسليم" بالكامل؟');
+      setTimeout(function(){
+        openModal(
+          '<div class="modal-head"><h3>✅ اكتمل التسليم</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+          + '<p class="meta">كل قطع الطلب اتسلمت، تحب تقفل الطلب كـ"تم التسليم"؟</p>'
+          + '<button class="btn" onclick="closeModal();markOrderDelivered(\''+orderId+'\')">نعم، قفّل الطلب</button>'
+        );
+      }, 400);
+    } else {
+      toast('✅ تم حفظ التسليم الجزئي');
+      renderOrders();
+    }
+  };
+
+  var origOpenOrderModal = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var r = origOpenOrderModal.apply(this, arguments);
+    if(id){
+      setTimeout(function(){
+        try{
+          var o = db.orders.find(function(x){ return x.id===id; });
+          if(!o || !Array.isArray(o.items) || o.items.length<2 || o.status==='تم التسليم') return;
+          var box = document.getElementById('modalBox');
+          var btnRow = box.querySelector('.btn-row');
+          if(btnRow && !document.getElementById('partialDeliveryBtn')){
+            var btn = document.createElement('button');
+            btn.id='partialDeliveryBtn'; btn.className='btn sm secondary';
+            btn.textContent='📦 تسليم جزئي';
+            btn.onclick = function(){ openPartialDeliveryModal(id); };
+            btnRow.insertAdjacentElement('afterbegin', btn);
+          }
+        }catch(e){}
+      }, 40);
+    }
+    return r;
+  };
+
+  function tagPartialBadges(container){
+    if(!container) return;
+    container.querySelectorAll('.card').forEach(function(card){
+      var btn = card.querySelector('[onclick*="openOrderModal("]');
+      if(!btn) return;
+      var m = btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/);
+      if(!m) return;
+      var o = db.orders.find(function(x){ return x.id===m[1]; });
+      if(!o || !Array.isArray(o.items) || o.items.length<2) return;
+      var delivered = getDeliveredQty(o);
+      var totalQty = o.items.reduce(function(s,it){ return s+(it.qty||1); }, 0);
+      var deliveredQty = o.items.reduce(function(s,it,idx){ return s+Math.min(delivered[idx]||0, it.qty||1); }, 0);
+      var existingBadge = card.querySelector('.partial-delivery-badge');
+      if(deliveredQty>0 && deliveredQty<totalQty && o.status!=='تم التسليم'){
+        if(!existingBadge){
+          var row = card.querySelector('.row');
+          if(row){
+            var badge = document.createElement('span');
+            badge.className='partial-delivery-badge';
+            badge.style.cssText='display:inline-block;margin-inline-start:8px;background:var(--info);color:#fff;border-radius:8px;padding:2px 8px;font-size:11px;font-weight:800;';
+            badge.textContent='📦 اتسلم '+deliveredQty+'/'+totalQty;
+            row.appendChild(badge);
+          }
+        } else {
+          existingBadge.textContent='📦 اتسلم '+deliveredQty+'/'+totalQty;
+        }
+      } else if(existingBadge){
+        existingBadge.remove();
+      }
+    });
+  }
+
+  new MutationObserver(function(){
+    tagPartialBadges(document.getElementById('ordersList'));
+    tagPartialBadges(document.getElementById('todayPlan'));
+  }).observe(document.getElementById('app'), {childList:true, subtree:true});
+})();
+
+/* ربط طلبات العائلة الواحدة — يستخدم حقل "family" الموجود بالفعل في بيانات العميل */
+(function(){
+  function familyMembers(familyName){
+    return db.customers.filter(function(c){ return c.family===familyName; });
+  }
+
+  function familyOrdersData(familyName){
+    var members = familyMembers(familyName);
+    var rows = [];
+    members.forEach(function(m){
+      db.orders.filter(function(o){ return o.customerId===m.id; }).forEach(function(o){
+        rows.push({order:o, customer:m});
+      });
+    });
+    rows.sort(function(a,b){ return (a.order.dateReceived||'').localeCompare(b.order.dateReceived||''); });
+    return {members:members, rows:rows};
+  }
+
+  window.viewFamilyGroup = function(familyName){
+    var data = familyOrdersData(familyName);
+    var totalPaid = data.rows.reduce(function(s,x){ return s+(Number(x.order.paid)||0); }, 0);
+    var totalRemaining = data.rows.reduce(function(s,x){ return s+orderRemaining(x.order); }, 0);
+    var rowsHtml = data.rows.map(function(x){
+      return '<div class="card"><div class="row"><h3>'+escapeHtml(x.customer.name)+' - '+escapeHtml(orderTypeLabel(x.order))+'</h3>'
+        + '<b>'+orderTotal(x.order).toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="meta">📅 '+fmtDate(x.order.dateReceived)+' — متبقي: '+orderRemaining(x.order).toLocaleString('ar-EG')+' ج.م</div></div>';
+    }).join('') || '<div class="empty-msg">لا توجد طلبات مسجلة لهذه العائلة</div>';
+
+    openModal(
+      '<div class="modal-head"><h3>👪 '+escapeHtml(familyName)+'</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<p class="meta">'+data.members.length+' أفراد — '+data.rows.length+' طلب إجمالاً</p>'
+      + '<div class="card" style="padding:10px 12px;margin-bottom:12px;background:var(--card-alt);">'
+        + '<div class="row"><span class="meta">إجمالي المدفوع</span><b style="color:var(--ok);">'+totalPaid.toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="row"><span class="meta">إجمالي المتبقي</span><b style="color:var(--danger);">'+totalRemaining.toLocaleString('ar-EG')+' ج.م</b></div>'
+      + '</div>'
+      + rowsHtml
+      + '<button class="btn sm secondary" style="margin-top:10px;" onclick="printFamilyStatement(\''+familyName.replace(/'/g,"\\'")+'\')">🖨️ طباعة كشف حساب العائلة</button>'
+    );
+  };
+
+  window.printFamilyStatement = function(familyName){
+    var data = familyOrdersData(familyName);
+    var totalPaid = data.rows.reduce(function(s,x){ return s+(Number(x.order.paid)||0); }, 0);
+    var totalRemaining = data.rows.reduce(function(s,x){ return s+orderRemaining(x.order); }, 0);
+    var rowsHtml = data.rows.length ? data.rows.map(function(x){
+      return '<tr><td>'+escapeHtml(x.customer.name)+'</td><td>'+fmtDate(x.order.dateReceived)+'</td><td>'+escapeHtml(orderTypeLabel(x.order))+'</td>'
+        + '<td>'+orderTotal(x.order).toLocaleString('ar-EG')+'</td><td>'+(Number(x.order.paid)||0).toLocaleString('ar-EG')+'</td>'
+        + '<td>'+orderRemaining(x.order).toLocaleString('ar-EG')+'</td></tr>';
+    }).join('') : '<tr><td colspan="6" style="text-align:center;color:#888;">لا توجد طلبات</td></tr>';
+
+    var html = '<html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>كشف حساب عائلة - '+escapeHtml(familyName)+'</title>'
+      + '<style>body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;} h1{font-size:19px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}'
+      + ' table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px;} th,td{padding:8px 6px;border-bottom:1px solid #ddd;text-align:center;}'
+      + ' th{background:#f5f3ef;} .totals{margin-top:16px;display:flex;gap:14px;justify-content:flex-end;font-size:14px;} .totals b{color:#1F6D57;}</style></head><body>'
+      + printBrandHeaderHtml()
+      + '<h1>🧾 كشف حساب عائلة - '+escapeHtml(familyName)+'</h1>'
+      + '<p style="font-size:13px;color:#666;">عدد الأفراد: '+data.members.length+' — تاريخ الكشف: '+fmtDate(todayStr())+'</p>'
+      + '<table><tr><th>الاسم</th><th>تاريخ الاستلام</th><th>الصنف</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th></tr>'+rowsHtml+'</table>'
+      + '<div class="totals"><div>إجمالي المدفوع: <b>'+totalPaid.toLocaleString('ar-EG')+' ج.م</b></div>'
+      + '<div>إجمالي المتبقي: <b>'+totalRemaining.toLocaleString('ar-EG')+' ج.م</b></div></div>'
+      + '</body></html>';
+    openPrintWindow(html, 'كشف_حساب_عائلة_'+familyName);
+  };
+
+  var origRC = renderCustomers;
+  renderCustomers = function(){
+    origRC.apply(this, arguments);
+    try{
+      document.querySelectorAll('#customersList .card').forEach(function(card){
+        if(card.dataset.familyBadgeAdded) return;
+        var phoneEl = null;
+        card.querySelectorAll('.meta').forEach(function(m){
+          if(!phoneEl && m.textContent.trim().indexOf('📞')===0) phoneEl = m;
+        });
+        if(!phoneEl) return;
+        var digits = phoneEl.textContent.replace(/[^0-9]/g,'');
+        var c = db.customers.find(function(x){ return (x.phone||'').replace(/[^0-9]/g,'')===digits; });
+        if(!c || !c.family) return;
+        var siblingsCount = familyMembers(c.family).length;
+        if(siblingsCount<2) return;
+        card.dataset.familyBadgeAdded='1';
+        var chip = document.createElement('div');
+        chip.className='meta'; chip.style.cssText='margin-top:4px;';
+        chip.innerHTML = '<span style="background:var(--info-light);color:var(--info);border-radius:8px;padding:3px 9px;font-size:11.5px;font-weight:700;cursor:pointer;">👪 '+escapeHtml(c.family)+' ('+siblingsCount+' أفراد)</span>';
+        chip.querySelector('span').onclick = function(){ viewFamilyGroup(c.family); };
+        phoneEl.insertAdjacentElement('afterend', chip);
+      });
+    }catch(e){}
+  };
+})();
+
+/* ===== معرض الأعمال (نسخة أساسية) ===== */
+(function(){
+  function getGallery(){ try{ return JSON.parse(localStorage.getItem('workGallery')||'[]'); }catch(e){ return []; } }
+  function saveGallery(list){
+    try{ localStorage.setItem('workGallery', JSON.stringify(list)); return true; }
+    catch(e){ toast('⚠️ مساحة التخزين ممتلئة — احذف صور قديمة عشان تضيف جديدة'); return false; }
+  }
+  function resizeImage(file, cb){
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var maxW = 900;
+        var scale = Math.min(1, maxW/img.width);
+        var canvas = document.createElement('canvas');
+        canvas.width = img.width*scale; canvas.height = img.height*scale;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        cb(canvas.toDataURL('image/jpeg', 0.72));
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  window.openGalleryModal = function(){
+    var list = getGallery();
+    var grid = list.length===0
+      ? '<div class="g-empty">لسه مفيش صور — ابدأ تضيف أفضل قطعك 👇</div>'
+      : list.map(function(item){
+          return '<div class="g-item" onclick="viewGalleryItem(\''+item.id+'\')"><img src="'+item.img+'" loading="lazy"></div>';
+        }).join('');
+    openModal(
+      '<div class="modal-head"><h3>🖼️ معرض الأعمال</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<button class="gallery-add-btn" onclick="triggerGalleryUpload()">➕ إضافة صورة جديدة</button>'
+      + '<div id="galleryGrid">'+grid+'</div>'
+    );
+  };
+
+  window.viewGalleryItem = function(id){
+    var item = getGallery().find(function(x){ return x.id===id; });
+    if(!item) return;
+    openModal(
+      '<div class="modal-head"><h3>🖼️ تفاصيل الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<img src="'+item.img+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+      + (item.caption ? '<p class="meta">'+escapeHtml(item.caption)+'</p>' : '')
+      + '<p class="meta">'+fmtDate(item.date)+'</p>'
+      + '<button class="btn outline" style="width:100%;margin-top:10px;color:var(--danger);border-color:var(--danger);" onclick="deleteGalleryItem(\''+id+'\')">🗑️ حذف الصورة</button>'
+    );
+  };
+
+  window.deleteGalleryItem = function(id){
+    saveGallery(getGallery().filter(function(x){ return x.id!==id; }));
+    toast('🗑️ اتحذفت الصورة');
+    openGalleryModal();
+  };
+
+  // زر الوصول للمعرض في القائمة الجانبية
+  var settingsBtn = document.querySelector('.navbtn[data-page="settings"]');
+  if(settingsBtn){
+    var galleryBtn = document.createElement('button');
+    galleryBtn.className='navbtn';
+    galleryBtn.innerHTML = '<span class="ic">🖼️</span>معرض الأعمال';
+    galleryBtn.onclick = function(){ closeSideNav(); openGalleryModal(); };
+    settingsBtn.insertAdjacentElement('beforebegin', galleryBtn);
+  }
+
+  // يُستبدلان لاحقًا بالنسخة المطوّرة (ربط بعميل/طلب) بالأسفل — موجودان هنا فقط لأخذ نفس الشكل الأساسي عند عدم توفر db
+  window.triggerGalleryUpload = window.triggerGalleryUpload || function(){
+    var input = document.createElement('input');
+    input.type='file'; input.accept='image/*';
+    input.onchange = function(){
+      if(!input.files || !input.files[0]) return;
+      resizeImage(input.files[0], function(dataUrl){
+        window._pendingGalleryImage = dataUrl;
+        openModal(
+          '<div class="modal-head"><h3>✏️ وصف الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+          + '<img src="'+dataUrl+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+          + '<label>وصف مختصر (اختياري)</label>'
+          + '<input id="galleryCaptionInput" placeholder="مثال: جلباب مناسبات - قماش كتان">'
+          + '<button class="btn accent" style="width:100%;margin-top:12px;" onclick="saveGalleryItem()">💾 حفظ في المعرض</button>'
+        );
+      });
+    };
+    input.click();
+  };
+
+  window.saveGalleryItem = window.saveGalleryItem || function(){
+    var dataUrl = window._pendingGalleryImage;
+    if(!dataUrl) return;
+    var caption = (document.getElementById('galleryCaptionInput')||{}).value || '';
+    var list = getGallery();
+    list.unshift({id:'g'+Date.now(), img:dataUrl, caption:caption, date:todayStr()});
+    if(saveGallery(list)){
+      toast('✅ اتضافت الصورة للمعرض');
+      window._pendingGalleryImage = null;
+      openGalleryModal();
+    }
+  };
+})();
+
+/* ===== معرض الأعمال (نسخة مطوّرة): ربط اختياري بعميل/طلب، شارة روابط، قسم "صور الطلب" داخل فورم الطلب ===== */
+(function(){
+  function getGallery(){ try{ return JSON.parse(localStorage.getItem('workGallery')||'[]'); }catch(e){ return []; } }
+  function saveGallery(list){ try{ localStorage.setItem('workGallery', JSON.stringify(list)); return true; }catch(e){ toast('⚠️ مساحة التخزين ممتلئة'); return false; } }
+
+  /* استبدال دالة الرفع عشان تقبل ربط اختياري بعميل/طلب من البداية */
+  window.triggerGalleryUpload = function(presetCustomerId, presetOrderId){
+    var input = document.createElement('input');
+    input.type='file'; input.accept='image/*';
+    input.onchange = function(){
+      if(!input.files || !input.files[0]) return;
+      var reader = new FileReader();
+      reader.onload = function(e){
+        var img = new Image();
+        img.onload = function(){
+          var maxW=900, scale=Math.min(1, maxW/img.width);
+          var canvas=document.createElement('canvas');
+          canvas.width=img.width*scale; canvas.height=img.height*scale;
+          canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+          window._pendingGalleryImage = canvas.toDataURL('image/jpeg',0.72);
+          openGalleryCaptionStep(presetCustomerId, presetOrderId);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(input.files[0]);
+    };
+    input.click();
+  };
+
+  window.openGalleryCaptionStep = function(presetCustomerId, presetOrderId){
+    var custOptions = '<option value="">بدون ربط بعميل</option>' + db.customers.map(function(c){
+      return '<option value="'+c.id+'" '+(c.id===presetCustomerId?'selected':'')+'>'+escapeHtml(c.name)+'</option>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>✏️ وصف الصورة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<img src="'+window._pendingGalleryImage+'" style="width:100%;border-radius:10px;margin-bottom:10px;">'
+      + '<label>وصف مختصر (اختياري)</label>'
+      + '<input id="galleryCaptionInput" placeholder="مثال: جلباب مناسبات - قماش كتان">'
+      + '<label style="margin-top:8px;">ربط بعميل (اختياري)</label>'
+      + '<select id="galleryCustomerSelect" onchange="onGalleryCustomerChange()">'+custOptions+'</select>'
+      + '<div id="galleryOrderSelectWrap"></div>'
+      + '<button class="btn accent" style="width:100%;margin-top:12px;" onclick="saveGalleryItem()">💾 حفظ في المعرض</button>'
+    );
+    if(presetCustomerId){ onGalleryCustomerChange(presetOrderId); }
+  };
+
+  window.onGalleryCustomerChange = function(presetOrderId){
+    var custId = document.getElementById('galleryCustomerSelect').value;
+    var wrap = document.getElementById('galleryOrderSelectWrap');
+    if(!custId){ wrap.innerHTML=''; return; }
+    var orders = db.orders.filter(function(o){ return o.customerId===custId; });
+    if(orders.length===0){ wrap.innerHTML='<p class="meta">مفيش طلبات مسجلة لهذا العميل</p>'; return; }
+    var opts = '<option value="">بدون ربط بطلب معين</option>' + orders.map(function(o){
+      return '<option value="'+o.id+'" '+(o.id===presetOrderId?'selected':'')+'>'+escapeHtml(orderTypeLabel(o))+' - '+fmtDate(o.dateDelivery)+'</option>';
+    }).join('');
+    wrap.innerHTML = '<label style="margin-top:8px;">ربط بطلب معين (اختياري)</label><select id="galleryOrderSelect">'+opts+'</select>';
+  };
+
+  /* استبدال دالة الحفظ عشان تخزن الربط */
+  window.saveGalleryItem = function(){
+    var dataUrl = window._pendingGalleryImage;
+    if(!dataUrl) return;
+    var caption = (document.getElementById('galleryCaptionInput')||{}).value || '';
+    var custId = (document.getElementById('galleryCustomerSelect')||{}).value || '';
+    var orderId = (document.getElementById('galleryOrderSelect')||{}).value || '';
+    var list = getGallery();
+    list.unshift({id:'g'+Date.now(), img:dataUrl, caption:caption, date:todayStr(), customerId:custId||null, orderId:orderId||null});
+    if(saveGallery(list)){
+      toast('✅ اتضافت الصورة للمعرض');
+      window._pendingGalleryImage = null;
+      if(orderId){ closeModal(); openOrderModal(orderId); }
+      else{ openGalleryModal(); }
+    }
+  };
+
+  /* شارة 🔗 على الصور المرتبطة داخل شبكة المعرض */
+  var origOpenGalleryModal = openGalleryModal;
+  openGalleryModal = function(){
+    origOpenGalleryModal();
+    setTimeout(function(){
+      getGallery().forEach(function(item){
+        if(!item.orderId && !item.customerId) return;
+        var el = document.querySelector('.g-item[onclick*="'+item.id+'"]');
+        if(el && !el.querySelector('.g-link-badge')){
+          var b=document.createElement('span'); b.className='g-link-badge';
+          b.style.cssText='position:absolute;top:4px;left:4px;background:rgba(0,0,0,0.55);color:#fff;border-radius:6px;padding:1px 5px;font-size:10px;';
+          b.textContent='🔗';
+          el.appendChild(b);
+        }
+      });
+    }, 30);
+  };
+
+  /* قسم "صور الطلب" داخل فورم تعديل الطلب */
+  var origOOMGallery = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    var r = origOOMGallery.apply(this, arguments);
+    if(id){
+      setTimeout(function(){
+        try{
+          var o = db.orders.find(function(x){ return x.id===id; });
+          if(!o) return;
+          var imgs = getGallery().filter(function(g){ return g.orderId===id; });
+          var thumbs = imgs.map(function(g){
+            return '<div style="width:56px;height:56px;border-radius:8px;overflow:hidden;flex-shrink:0;" onclick="viewGalleryItem(\''+g.id+'\')"><img src="'+g.img+'" style="width:100%;height:100%;object-fit:cover;"></div>';
+          }).join('');
+          var section = document.createElement('div');
+          section.style.cssText='margin:14px 0;';
+          section.innerHTML =
+            '<label>📷 صور الطلب</label>'
+            + '<div style="display:flex;gap:8px;overflow-x:auto;margin:6px 0;">'+thumbs+'</div>'
+            + '<div style="display:flex;gap:8px;">'
+            + '<button type="button" class="btn sm outline" onclick="triggerGalleryUpload(\''+o.customerId+'\',\''+id+'\')">➕ صورة جديدة</button>'
+            + '<button type="button" class="btn sm outline" onclick="openGalleryPickerForOrder(\''+id+'\',\''+o.customerId+'\')">🖼️ من المعرض</button>'
+            + '</div>';
+          var saveBtn = document.querySelector('.modal-box button[onclick^="saveOrder("]');
+          if(saveBtn) saveBtn.insertAdjacentElement('beforebegin', section);
+        }catch(e){}
+      }, 60);
+    }
+    return r;
+  };
+
+  window.openGalleryPickerForOrder = function(orderId, customerId){
+    var list = getGallery();
+    var grid = list.length===0 ? '<div class="g-empty">المعرض فاضي</div>' : list.map(function(item){
+      return '<div class="g-item" onclick="linkGalleryItemToOrder(\''+item.id+'\',\''+orderId+'\',\''+customerId+'\')"><img src="'+item.img+'" loading="lazy"></div>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>🖼️ اختر صورة لربطها بالطلب</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div id="galleryGrid">'+grid+'</div>'
+    );
+  };
+
+  window.linkGalleryItemToOrder = function(itemId, orderId, customerId){
+    var list = getGallery();
+    var item = list.find(function(x){ return x.id===itemId; });
+    if(item){ item.orderId=orderId; item.customerId=customerId; saveGallery(list); toast('🔗 اترابطت الصورة بالطلب'); }
+    closeModal();
+    openOrderModal(orderId);
+  };
+})();
+
+/* 1) زر كثافة العرض (مريح/مضغوط) جنب باقي أيقونات الشريط العلوي */
+(function(){
+  var anchor = document.getElementById('contrastToggleBtn') || document.getElementById('themeToggleBtn');
+  if(!anchor) return;
+  var btn = document.createElement('button');
+  btn.className='theme-toggle-btn'; btn.id='densityToggleBtn';
+  btn.setAttribute('aria-label','كثافة العرض');
+  function updateIcon(){ btn.textContent = document.documentElement.classList.contains('compact-view') ? '▤' : '☰'; }
+  btn.onclick = function(){
+    document.documentElement.classList.toggle('compact-view');
+    localStorage.setItem('compactView', document.documentElement.classList.contains('compact-view')?'1':'0');
+    updateIcon();
+  };
+  anchor.insertAdjacentElement('afterend', btn);
+  if(localStorage.getItem('compactView')==='1') document.documentElement.classList.add('compact-view');
+  updateIcon();
+})();
+
+/* 2) تحويل بطاقات صفحة الإعدادات لأكورديون قابل للطي */
+(function(){
+  function accordionizeCard(card){
+    if(card.dataset.accordionized) return;
+    var heading = card.firstElementChild;
+    if(!heading || heading.tagName!=='H3') return;
+    var rest = Array.prototype.slice.call(card.children, 1);
+    if(rest.length===0) return;
+    card.dataset.accordionized='1';
+    var body = document.createElement('div');
+    body.className='acc-body';
+    body.style.display='none';
+    rest.forEach(function(el){ body.appendChild(el); });
+    card.appendChild(body);
+    var chevron = document.createElement('span');
+    chevron.textContent='▾';
+    chevron.style.cssText='margin-inline-start:auto;transition:transform .2s;font-size:13px;color:var(--muted);';
+    heading.style.cssText='display:flex;align-items:center;cursor:pointer;margin:0;';
+    heading.appendChild(chevron);
+    heading.addEventListener('click', function(){
+      var open = body.style.display!=='none';
+      body.style.display = open ? 'none' : 'block';
+      chevron.style.transform = open ? '' : 'rotate(180deg)';
+    });
+  }
+  function processSettingsCards(){
+    document.querySelectorAll('#page-settings > .card').forEach(accordionizeCard);
+  }
+  processSettingsCards();
+  new MutationObserver(processSettingsCards).observe(document.getElementById('page-settings'), {childList:true});
+})();
+
+/* 1) ظل يظهر على الهيدر عند التمرير + زر الرجوع لأعلى الصفحة */
+(function(){
+  window.addEventListener('scroll', function(){
+    var header = document.querySelector('header.topbar');
+    if(header) header.classList.toggle('scrolled', window.scrollY>10);
+  }, {passive:true});
+
+  var btn = document.createElement('button');
+  btn.id='scrollTopBtn'; btn.textContent='⬆️';
+  btn.onclick = function(){ window.scrollTo({top:0, behavior:'smooth'}); };
+  document.getElementById('app').appendChild(btn);
+  window.addEventListener('scroll', function(){
+    btn.classList.toggle('show', window.scrollY>400);
+  }, {passive:true});
+})();
+
+/* 2) فلاتر سريعة + فرز + تجميع بالحالة + فواصل تاريخ + دليل ألوان لصفحة الطلبات */
+(function(){
+  var extraFilter='none', sortMode='default', groupByStatus=false;
+
+  function ensureControls(){
+    if(document.getElementById('ordersExtraControls')) return;
+    var list = document.getElementById('ordersList');
+    if(!list) return;
+    var wrap = document.createElement('div');
+    wrap.id='ordersExtraControls'; wrap.style.cssText='margin-bottom:10px;';
+    wrap.innerHTML =
+      '<div class="btn-row" style="flex-wrap:wrap;margin-bottom:8px;" id="ordersChipsRow">'
+      + '<button class="btn sm outline" data-chip="urgent">🔥 مستعجل</button>'
+      + '<button class="btn sm outline" data-chip="soon">⏳ قريب الموعد</button>'
+      + '<button class="btn sm outline" data-chip="nodeposit">💰 بدون عربون</button>'
+      + '<button class="btn sm outline" data-chip="group">🗂️ تجميع بالحالة</button>'
+      + '<button class="btn sm outline" id="legendToggleBtn">🎨 دليل الألوان</button>'
+      + '</div>'
+      + '<div class="field" style="margin-bottom:8px;"><label>ترتيب حسب</label>'
+      + '<select id="ordersSortSelect">'
+      + '<option value="default">📥 الأحدث إضافة</option>'
+      + '<option value="nearest">⏳ الأقرب تسليمًا</option>'
+      + '<option value="highest">💰 الأعلى قيمة</option>'
+      + '</select></div>'
+      + '<div id="legendBox" style="display:none;padding:10px;background:var(--card-alt);border-radius:10px;font-size:12px;margin-bottom:8px;">'
+      + '🟢 قيد العمل &nbsp; 🟡 جاهز للتسليم &nbsp; ⚪ تم التسليم &nbsp; 🔴 متأخر / مستعجل'
+      + '</div>';
+    list.insertAdjacentElement('beforebegin', wrap);
+
+    wrap.querySelectorAll('[data-chip]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var chip=b.dataset.chip;
+        if(chip==='group'){ groupByStatus=!groupByStatus; b.classList.toggle('accent',groupByStatus); }
+        else{
+          extraFilter=(extraFilter===chip)?'none':chip;
+          wrap.querySelectorAll('[data-chip]').forEach(function(x){ if(x.dataset.chip!=='group') x.classList.remove('accent'); });
+          if(extraFilter!=='none') b.classList.add('accent');
+        }
+        applyEnhancements();
+      });
+    });
+    document.getElementById('ordersSortSelect').addEventListener('change', function(){ sortMode=this.value; applyEnhancements(); });
+    document.getElementById('legendToggleBtn').addEventListener('click', function(){
+      var box=document.getElementById('legendBox');
+      box.style.display = box.style.display==='none' ? 'block':'none';
+    });
+  }
+
+  function applyEnhancements(){
+    var container=document.getElementById('ordersList');
+    if(!container) return;
+    container.querySelectorAll('.order-group-title').forEach(function(el){ el.remove(); });
+    var cards=Array.prototype.slice.call(container.querySelectorAll('.card'));
+    cards.forEach(function(card){
+      if(!card.dataset.orderId){
+        var btn=card.querySelector('[onclick^="openOrderModal("]');
+        if(btn){ var m=btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/); if(m) card.dataset.orderId=m[1]; }
+      }
+    });
+    var today=todayStr();
+    var in3=new Date(); in3.setDate(in3.getDate()+3);
+    var in3Str=in3.toISOString().slice(0,10);
+
+    cards.forEach(function(card){
+      var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+      var show=true;
+      if(o){
+        if(extraFilter==='urgent') show=!!o.urgent;
+        else if(extraFilter==='soon') show=o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery<=in3Str;
+        else if(extraFilter==='nodeposit') show=o.status!=='تم التسليم' && !Number(o.paid);
+      }
+      card.style.display=show?'':'none';
+    });
+
+    var visible=cards.filter(function(c){ return c.style.display!=='none'; });
+    if(sortMode!=='default'){
+      visible.sort(function(a,b){
+        var oa=db.orders.find(function(x){ return x.id===a.dataset.orderId; });
+        var ob=db.orders.find(function(x){ return x.id===b.dataset.orderId; });
+        if(!oa||!ob) return 0;
+        if(sortMode==='nearest') return (oa.dateDelivery||'9999').localeCompare(ob.dateDelivery||'9999');
+        if(sortMode==='highest') return orderTotal(ob)-orderTotal(oa);
+        return 0;
+      });
+      visible.forEach(function(card){ container.appendChild(card); });
+    }
+
+    if(groupByStatus){
+      var order=['قيد العمل','جاهز للتسليم','تم التسليم'];
+      var groups={};
+      visible.forEach(function(card){
+        var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+        var st=o?o.status:'أخرى';
+        (groups[st]=groups[st]||[]).push(card);
+      });
+      order.forEach(function(st){
+        if(!groups[st]||!groups[st].length) return;
+        var title=document.createElement('div');
+        title.className='section-title order-group-title';
+        title.textContent=st+' ('+groups[st].length+')';
+        container.appendChild(title);
+        groups[st].forEach(function(card){ container.appendChild(card); });
+      });
+    } else if(sortMode==='nearest'){
+      var lastDate=null;
+      visible.forEach(function(card){
+        var o=db.orders.find(function(x){ return x.id===card.dataset.orderId; });
+        var d=o?(o.dateDelivery||'بدون تاريخ'):null;
+        if(d && d!==lastDate){
+          var sep=document.createElement('div');
+          sep.className='order-group-title';
+          sep.style.cssText='font-size:11.5px;color:var(--muted);margin:10px 2px 4px;font-weight:700;';
+          sep.textContent='📅 '+(d==='بدون تاريخ'?d:fmtDate(d));
+          container.insertBefore(sep, card);
+          lastDate=d;
+        }
+      });
+    }
+  }
+
+  // [مدموج] كانت الدالة دي متلفوفة مرتين (هنا + عند دعم الكانبان تحت).
+  // دلوقتي الاتنين في مكان واحد عشان محدش يعدّل حتة من غير ما يشوف التانية.
+  var origRO=renderOrders;
+  renderOrders=function(){
+    origRO.apply(this, arguments);
+    ensureControls();
+    setTimeout(applyEnhancements, 20);
+    if(window.ordersView==='kanban' && typeof window.renderOrdersKanban==='function') window.renderOrdersKanban();
+  };
+})();
+
+/* 3) تجميع العملاء أبجديًا + شريط حروف جانبي للقفز السريع */
+(function(){
+  function firstLetter(name){ return (name&&name.trim().charAt(0))||'#'; }
+
+  function applyAlphaGroup(){
+    var container=document.getElementById('customersList');
+    if(!container) return;
+    container.querySelectorAll('.cust-group-title').forEach(function(el){ el.remove(); });
+    var cards=Array.prototype.slice.call(container.querySelectorAll('.card'));
+    if(cards.length<6){ var s=document.getElementById('alphaStrip'); if(s) s.style.display='none'; return; }
+    var items=cards.map(function(card){
+      var phoneEl=Array.prototype.find.call(card.querySelectorAll('.meta'), function(m){ return m.textContent.trim().indexOf('📞')===0; });
+      var digits=phoneEl?phoneEl.textContent.replace(/[^0-9]/g,''):'';
+      var c=db.customers.find(function(x){ return (x.phone||'').replace(/[^0-9]/g,'')===digits; });
+      return {card:card, name:c?c.name:''};
+    }).filter(function(it){ return it.name; });
+    items.sort(function(a,b){ return a.name.localeCompare(b.name,'ar'); });
+    var lastLetter=null, letters=[];
+    items.forEach(function(it){
+      var letter=firstLetter(it.name);
+      if(letter!==lastLetter){
+        var title=document.createElement('div');
+        title.className='section-title cust-group-title';
+        title.id='cust-letter-'+letter.charCodeAt(0);
+        title.textContent=letter;
+        container.appendChild(title);
+        lastLetter=letter; letters.push(letter);
+      }
+      container.appendChild(it.card);
+    });
+    buildLetterStrip(letters);
+  }
+
+  function buildLetterStrip(letters){
+    var strip=document.getElementById('alphaStrip');
+    if(!strip){
+      strip=document.createElement('div'); strip.id='alphaStrip';
+      strip.style.cssText='position:fixed;top:50%;left:4px;transform:translateY(-50%);display:flex;flex-direction:column;gap:2px;z-index:55;background:var(--card);border-radius:10px;padding:4px 3px;box-shadow:var(--shadow);';
+      document.getElementById('app').appendChild(strip);
+    }
+    strip.innerHTML='';
+    strip.style.display = letters.length>3 ? 'flex' : 'none';
+    letters.forEach(function(letter){
+      var b=document.createElement('button');
+      b.textContent=letter;
+      b.style.cssText='background:none;border:none;font-size:10.5px;color:var(--primary);font-weight:800;padding:1px 3px;';
+      b.onclick=function(){
+        var el=document.getElementById('cust-letter-'+letter.charCodeAt(0));
+        if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+      };
+      strip.appendChild(b);
+    });
+  }
+
+  var origRC3=renderCustomers;
+  renderCustomers=function(){
+    origRC3.apply(this, arguments);
+    setTimeout(applyAlphaGroup, 40);
+  };
+
+  var origShowPage3=showPage;
+  showPage=function(name){
+    var r=origShowPage3.apply(this, arguments);
+    var strip=document.getElementById('alphaStrip');
+    if(strip && name!=='customers') strip.style.display='none';
+    return r;
+  };
+})();
+
+/* شكل زر القفل (أيقونة + نص قابل للإخفاء على الشاشات الضيقة عبر CSS) */
+(function(){
+  var lockBtn = document.querySelector('header.topbar .small-link');
+  if(lockBtn && !lockBtn.dataset.wrapped){
+    lockBtn.dataset.wrapped='1';
+    lockBtn.innerHTML = '🔒<span class="lock-text"> قفل</span>';
+  }
+})();
+
+/* إحساس ضغط فوري للوحة أرقام القفل + قفل مؤقت أثناء التحقق من الرقم */
+(function(){
+  function setup(){
+    var keypad = document.getElementById('keypad');
+    if(!keypad || keypad.dataset.fastTapEnabled) return;
+    keypad.dataset.fastTapEnabled='1';
+
+    keypad.addEventListener('touchstart', function(e){
+      var btn = e.target.closest('button');
+      if(btn) btn.classList.add('pressed');
+    }, {passive:true});
+    ['touchend','touchcancel'].forEach(function(ev){
+      keypad.addEventListener(ev, function(e){
+        var btn = e.target.closest('button');
+        if(btn) btn.classList.remove('pressed');
+        else keypad.querySelectorAll('.pressed').forEach(function(b){ b.classList.remove('pressed'); });
+      }, {passive:true});
+    });
+  }
+  setup();
+
+  var origCheckPin = checkPin;
+  checkPin = function(){
+    var keypad = document.getElementById('keypad');
+    if(keypad) keypad.style.pointerEvents='none';
+    origCheckPin();
+    setTimeout(function(){ if(keypad) keypad.style.pointerEvents=''; }, 450);
+  };
+})();
+
+/* 28) لوحة كانبان لصفحة الطلبات */
+(function(){
+  window.ordersView = 'list';
+  var KANBAN_STATUSES = [
+    {key:'قيد العمل', label:'🧵 قيد العمل', icon:'🧵'},
+    {key:'جاهز للتسليم', label:'📦 جاهز للتسليم', icon:'📦'},
+    {key:'تم التسليم', label:'✅ تم التسليم', icon:'✅'}
+  ];
+  var DELIVERED_LIMIT = 20; // نعرض آخر عدد محدود من الطلبات المُسلَّمة بس عشان الأداء ووضوح اللوحة
+
+  window.setOrdersView = function(v){
+    window.ordersView = v;
+    var listBox = document.getElementById('ordersList');
+    var kanbanBox = document.getElementById('ordersKanban');
+    var statusFilters = document.getElementById('orderStatusFilters');
+    var extraControls = document.getElementById('ordersExtraControls');
+    var listBtn = document.getElementById('ordersViewListBtn');
+    var kanbanBtn = document.getElementById('ordersViewKanbanBtn');
+    if(v==='kanban'){
+      if(listBox) listBox.style.display='none';
+      if(kanbanBox) kanbanBox.style.display='';
+      if(statusFilters) statusFilters.style.display='none';
+      if(extraControls) extraControls.style.display='none';
+      if(listBtn) listBtn.classList.remove('active');
+      if(kanbanBtn) kanbanBtn.classList.add('active');
+      renderOrdersKanban();
+    } else {
+      if(listBox) listBox.style.display='';
+      if(kanbanBox) kanbanBox.style.display='none';
+      if(statusFilters) statusFilters.style.display='';
+      if(extraControls) extraControls.style.display='';
+      if(listBtn) listBtn.classList.add('active');
+      if(kanbanBtn) kanbanBtn.classList.remove('active');
+      renderOrders();
+    }
+  };
+
+  // نفس منطق البحث والفلترة بالتاريخ المستخدم في renderOrders، لكن من غير فلتر الحالة (لأن الحالة هنا أعمدة)
+  function filteredOrdersForKanban(){
+    var qEl = document.getElementById('orderSearch');
+    var fromEl = document.getElementById('orderDateFrom');
+    var toEl = document.getElementById('orderDateTo');
+    var q = qEl ? (qEl.value||'').trim() : '';
+    var dateFrom = fromEl ? fromEl.value : '';
+    var dateTo = toEl ? toEl.value : '';
+    var list = db.orders.slice().sort(function(a,b){ return (b.dateReceived||'').localeCompare(a.dateReceived||''); });
+    if(q){
+      list = list.filter(function(o){
+        var c = customerById(o.customerId);
+        return (c && c.name.includes(q)) || orderTypeLabel(o).includes(q);
+      });
+    }
+    if(dateFrom) list = list.filter(function(o){ return o.dateReceived && o.dateReceived>=dateFrom; });
+    if(dateTo) list = list.filter(function(o){ return o.dateReceived && o.dateReceived<=dateTo; });
+    return list;
+  }
+
+  function kanbanCardHtml(o){
+    var c = customerById(o.customerId);
+    var idx = KANBAN_STATUSES.findIndex(function(s){ return s.key===o.status; });
+    var moveButtons = '';
+    if(idx>0){
+      var prev = KANBAN_STATUSES[idx-1];
+      moveButtons += '<button class="btn sm outline" onclick="moveOrderToStatus(\''+o.id+'\',\''+prev.key.replace(/'/g,"\\'")+'\')">◀ '+escapeHtml(prev.label.replace(/^\S+\s/,''))+'</button>';
+    }
+    if(idx>=0 && idx<KANBAN_STATUSES.length-1){
+      var next = KANBAN_STATUSES[idx+1];
+      moveButtons += '<button class="btn sm accent" onclick="moveOrderToStatus(\''+o.id+'\',\''+next.key.replace(/'/g,"\\'")+'\')">'+escapeHtml(next.label.replace(/^\S+\s/,''))+' ▶</button>';
+    }
+    return '<div class="kanban-card" draggable="true" data-order-id="'+o.id+'">'
+      + '<div class="row"><h3 class="name-row">'+avatarChip(c?c.name:'؟')+(c?escapeHtml(c.name):'عميل محذوف')+'</h3></div>'
+      + '<div class="meta">👗 '+escapeHtml(orderTypeLabel(o))+'</div>'
+      + '<div class="meta">📅 التسليم: '+fmtDate(o.dateDelivery)+'</div>'
+      + '<div class="meta">💰 المتبقي: <b style="color:'+(orderRemaining(o)>0?'var(--danger)':'var(--ok)')+'">'+orderRemaining(o).toLocaleString('ar-EG')+'</b></div>'
+      + '<div class="btn-row">'
+      +   '<button class="btn sm outline" onclick="openOrderModal(\''+o.id+'\')">✏️</button>'
+      +   moveButtons
+      + '</div>'
+      + '</div>';
+  }
+
+  window.renderOrdersKanban = function(){
+    var box = document.getElementById('ordersKanban');
+    if(!box) return;
+    var all = filteredOrdersForKanban();
+    var html = '<div class="kanban-wrap" id="kanbanWrap">';
+    KANBAN_STATUSES.forEach(function(st){
+      var items = all.filter(function(o){ return o.status===st.key; });
+      var note = '';
+      if(st.key==='تم التسليم' && items.length>DELIVERED_LIMIT){
+        note = '<div class="meta" style="text-align:center;">عرض آخر '+DELIVERED_LIMIT+' من '+items.length+'</div>';
+        items = items.slice(0, DELIVERED_LIMIT);
+      }
+      var cardsHtml = items.length
+        ? items.map(kanbanCardHtml).join('')
+        : '<div class="kanban-empty-col">لا يوجد طلبات هنا</div>';
+      html += '<div class="kanban-col" data-status="'+escapeHtml(st.key)+'">'
+        + '<div class="kanban-col-head"><span>'+st.label+'</span><span class="cnt">'+items.length+'</span></div>'
+        + cardsHtml + note
+        + '</div>';
+    });
+    html += '</div>';
+    box.innerHTML = html;
+    wireKanbanDragDrop();
+  };
+
+  function wireKanbanDragDrop(){
+    var wrap = document.getElementById('kanbanWrap');
+    if(!wrap) return;
+    wrap.querySelectorAll('.kanban-card').forEach(function(card){
+      card.addEventListener('dragstart', function(e){
+        card.classList.add('dragging');
+        try{ e.dataTransfer.setData('text/plain', card.dataset.orderId); }catch(err){}
+      });
+      card.addEventListener('dragend', function(){ card.classList.remove('dragging'); });
+    });
+    wrap.querySelectorAll('.kanban-col').forEach(function(col){
+      col.addEventListener('dragover', function(e){ e.preventDefault(); col.classList.add('drag-over'); });
+      col.addEventListener('dragleave', function(){ col.classList.remove('drag-over'); });
+      col.addEventListener('drop', function(e){
+        e.preventDefault();
+        col.classList.remove('drag-over');
+        var id = '';
+        try{ id = e.dataTransfer.getData('text/plain'); }catch(err){}
+        var newStatus = col.getAttribute('data-status');
+        if(id && newStatus) moveOrderToStatus(id, newStatus);
+      });
+    });
+  }
+
+  // تحديث حالة الطلب من اللوحة (سواء بالسحب أو بالأزرار) — بيعيد استخدام markOrderDelivered
+  // عشان يحافظ على كل التأثيرات الجانبية الحالية (تسجيل وقت التسليم، سجل النشاط، التراجع...)
+  window.moveOrderToStatus = function(orderId, newStatus){
+    var o = db.orders.find(function(x){ return x.id===orderId; });
+    if(!o || o.status===newStatus) return;
+    if(newStatus==='تم التسليم'){
+      markOrderDelivered(orderId);
+      renderOrdersKanban();
+      return;
+    }
+    var before = {status:o.status, deliveredDate:o.deliveredDate};
+    var wasDelivered = (before.status==='تم التسليم');
+    o.status = newStatus;
+    if(wasDelivered) o.deliveredDate = null;
+    var c = customerById(o.customerId);
+    logActivity('🔄 تغيير حالة طلب '+(c?c.name:'')+' إلى "'+newStatus+'"');
+    setUndo('تغيير حالة الطلب', function(){
+      o.status = before.status;
+      o.deliveredDate = before.deliveredDate;
+      saveDB();
+      renderHome();
+      renderOrders();
+      renderOrdersKanban();
+    });
+    saveDB();
+    renderHome();
+    renderOrders();
+    renderOrdersKanban();
+    toast('تم تحديث حالة الطلب ✅');
+  };
+
+  // [مدموج] مزامنة الكانبان بقت جزء من اللفة الوحيدة لـ renderOrders (فوق، جنب ensureControls/applyEnhancements)
+  // بدل ما تتلف تاني هنا.
+
+  // الوضع الافتراضي: قائمة (نفس السلوك القديم)
+  var listBtnInit = document.getElementById('ordersViewListBtn');
+  if(listBtnInit) listBtnInit.classList.add('active');
+})();
+
+/* 29) تقسيم صفحة الإعدادات لأقسام (تابات) بدل قائمة طويلة واحدة */
+(function(){
+  var section = document.getElementById('page-settings');
+  if(!section || document.getElementById('settingsTabs')) return;
+
+  var GROUPS = [
+    {id:'general', label:'🏷️ عام', keywords:['بيانات الورشة','عن التطبيق']},
+    {id:'appearance', label:'🎨 المظهر', keywords:['تخصيص الألوان','شكل الأزرار','تخصيص الشاشة الرئيسية','وضع الشاشة الكبيرة','تخصيص الخط','تأثير التحميل']},
+    {id:'operations', label:'⚙️ التشغيل', keywords:['الطاقة الاستيعابية','يوم الإجازة الأسبوعية','مواعيد الأعياد','أنواع التفصيل','عملاء VIP','تنبيه المديونية','رقم الفاتورة والضريبة']},
+    {id:'security', label:'🔒 الأمان والصلاحيات', keywords:['تغيير الرقم السري','القفل التلقائي','وضع المدير','وضع الاستقبال','صفحة المالية']},
+    {id:'data', label:'💾 البيانات', keywords:['نسخة احتياطية','سلة المحذوفات','سجل النشاط','تصدير تقارير Excel']},
+    {id:'advanced', label:'🧑‍💻 متقدم', keywords:['تعديل متقدم','تنزيل كود التطبيق']}
+  ];
+  var GROUP_BY_ID = {cloudSyncCardWrap:'data', pushNotifyCardWrap:'data'};
+
+  function categorize(){
+    var cards = section.querySelectorAll(':scope > .card');
+    cards.forEach(function(c){
+      if(c.dataset.settingsGroup) return;
+      if(GROUP_BY_ID[c.id]){ c.dataset.settingsGroup = GROUP_BY_ID[c.id]; return; }
+      var h3 = c.querySelector('h3');
+      var text = h3 ? h3.textContent : '';
+      var found = 'general';
+      for(var i=0;i<GROUPS.length;i++){
+        if(GROUPS[i].keywords.some(function(k){ return text.indexOf(k)!==-1; })){ found=GROUPS[i].id; break; }
+      }
+      c.dataset.settingsGroup = found;
+    });
+  }
+
+  var currentSettingsTab = 'all';
+  function applyFilter(group){
+    currentSettingsTab = group;
+    section.querySelectorAll(':scope > .card[data-settings-group]').forEach(function(c){
+      c.style.display = (group==='all' || c.dataset.settingsGroup===group) ? '' : 'none';
+    });
+  }
+
+  categorize();
+
+  var bar = document.createElement('div');
+  bar.className='settings-tabs'; bar.id='settingsTabs';
+  var html = '<button class="settings-tab-btn active" data-group="all">📁 الكل</button>';
+  GROUPS.forEach(function(g){ html += '<button class="settings-tab-btn" data-group="'+g.id+'">'+g.label+'</button>'; });
+  bar.innerHTML = html;
+  section.insertBefore(bar, section.firstChild);
+  bar.addEventListener('click', function(e){
+    var btn = e.target.closest('.settings-tab-btn');
+    if(!btn) return;
+    bar.querySelectorAll('.settings-tab-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+    applyFilter(btn.getAttribute('data-group'));
+  });
+
+  // أي بطاقات جديدة تتضاف بعد كده (زي بطاقات صلاحيات المدير/الاستقبال/المالية) لازم تتصنّف وتتفلتر برضه
+  var obs = new MutationObserver(function(){
+    categorize();
+    applyFilter(currentSettingsTab);
+  });
+  obs.observe(section, {childList:true});
+})();
+
+})(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
+
