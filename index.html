@@ -776,18 +776,34 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           <button class="btn secondary" onclick="showWeeklySummary()">📋 ملخص الأسبوع</button>
           <button class="btn outline" onclick="openPricingCalculatorModal()">🧮 حاسبة تسعير سريعة</button>
         </div>
-        <div id="homeAlerts"></div>
-        <div class="grid-cards" id="homeStats"></div>
-      <div class="section-title">📅 نظرة الأسبوع</div>
-      <div id="weeklyOverview"></div>
-      <div class="section-title">🌅 خطة النهاردة</div>
-      <div id="todayPlan"></div>
-      <div class="section-title">📈 الالتزام بالخطة (آخر 7 أيام)</div>
-      <div id="commitmentLog"></div>
-      <div class="section-title">📅 أقرب مواعيد التسليم</div>
-      <div id="homeUpcoming"></div>
-      <div class="section-title">⏰ طلبات متأخرة</div>
-      <div id="homeLate"></div>
+        <div id="homeWidgetsContainer">
+          <div id="widget-alerts" class="home-widget">
+            <div id="homeAlerts"></div>
+          </div>
+          <div id="widget-stats" class="home-widget">
+            <div class="grid-cards" id="homeStats"></div>
+          </div>
+          <div id="widget-weekly" class="home-widget">
+            <div class="section-title">📅 نظرة الأسبوع</div>
+            <div id="weeklyOverview"></div>
+          </div>
+          <div id="widget-today" class="home-widget">
+            <div class="section-title">🌅 خطة النهاردة</div>
+            <div id="todayPlan"></div>
+          </div>
+          <div id="widget-commitment" class="home-widget">
+            <div class="section-title">📈 الالتزام بالخطة (آخر 7 أيام)</div>
+            <div id="commitmentLog"></div>
+          </div>
+          <div id="widget-upcoming" class="home-widget">
+            <div class="section-title">📅 أقرب مواعيد التسليم</div>
+            <div id="homeUpcoming"></div>
+          </div>
+          <div id="widget-late" class="home-widget">
+            <div class="section-title">⏰ طلبات متأخرة</div>
+            <div id="homeLate"></div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -918,6 +934,12 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           </select>
         </div>
         <button class="btn" onclick="saveButtonRadius()">💾 حفظ شكل الأزرار</button>
+      </div>
+      <div class="card">
+        <h3>🧩 تخصيص الشاشة الرئيسية</h3>
+        <p class="meta">رتّب أقسام الشاشة الرئيسية بالسهام، أو أخفِ أي قسم مش محتاجه — التغيير يطبّق فوراً.</p>
+        <div id="homeWidgetsSettingsList"></div>
+        <button class="btn outline" style="margin-top:12px;" onclick="resetHomeWidgets()">↩️ استعادة الترتيب الافتراضي</button>
       </div>
       <div class="card">
         <h3>🔤 تخصيص الخط</h3>
@@ -1144,6 +1166,7 @@ function defaultDB(){
     btnRadius:12,
     fontSettings:{family:'default', size:'1'},
     skeletonLoading:false,
+    homeWidgets:['alerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
     customCSS:'',
     customJS:'',
     darkMode:false,
@@ -1336,7 +1359,7 @@ function initCloudSync(){
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
           renderAll();
-          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyDarkMode(); applyCustomCSS(); }catch(e){}
+          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
           cloudApplyingRemote = false;
         }
         cloudStatusChanged();
@@ -1817,6 +1840,7 @@ function fabAction(){
 function boot(){
   applyWorkshopBranding();
   document.getElementById('topDate').textContent = new Date().toLocaleDateString('ar-EG',{weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  applyHomeWidgetsLayout();
   showPage('home');
   runCustomJS();
 }
@@ -2933,7 +2957,8 @@ function openOrderModal(id, presetCustomerId){
 
   const html = `
     <div class="modal-head"><h3>${o?'✏️ تعديل طلب':'➕ طلب جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>العميل</label><select id="f_customer">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
+    <div class="field"><label>العميل</label><select id="f_customer" onchange="renderOrderCustomerMeasurements()">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
+    <div id="orderCustomerMeasurements" style="margin:-6px 0 12px;"></div>
     <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">👗 أصناف الطلب</div>
     <div id="itemsContainer">${items.map(it=>itemRowHtml(it)).join('') || itemRowHtml()}</div>
     <button type="button" class="btn sm secondary" style="margin-bottom:14px;" onclick="addItemRow()">➕ إضافة صنف آخر</button>
@@ -2983,6 +3008,29 @@ function openOrderModal(id, presetCustomerId){
   openModal(html);
   onDiscountTypeChange();
   checkDeliveryDateWarning();
+  renderOrderCustomerMeasurements();
+}
+
+// يعرض مقاسات العميل المختار كمرجع سريع أثناء إنشاء/تعديل الطلب، بدون الحاجة للرجوع لملفه
+function renderOrderCustomerMeasurements(){
+  const box = document.getElementById('orderCustomerMeasurements');
+  if(!box) return;
+  const sel = document.getElementById('f_customer');
+  const cid = sel ? sel.value : '';
+  const c = cid ? customerById(cid) : null;
+  if(!c){ box.innerHTML=''; return; }
+  const hasAny = c.length||c.sleeve||c.chest||c.waist||c.shoulder;
+  if(!hasAny){
+    box.innerHTML = `<div class="meta">📏 لا توجد مقاسات محفوظة لهذا العميل — <a href="javascript:void(0)" onclick="closeModal();openCustomerModal('${c.id}');" style="color:var(--primary);font-weight:600;">أضفها من ملفه</a></div>`;
+    return;
+  }
+  box.innerHTML = `<div class="meas-chips-row" style="display:flex;flex-wrap:wrap;gap:6px;">
+    <span class="meas-chip m-length">📏 <span class="meas-lbl">الطول</span> ${c.length||'-'}</span>
+    <span class="meas-chip m-sleeve">📏 <span class="meas-lbl">طول الكم</span> ${c.sleeve||'-'}</span>
+    <span class="meas-chip m-chest">📏 <span class="meas-lbl">الصدر</span> ${c.chest||'-'}</span>
+    <span class="meas-chip m-waist">📏 <span class="meas-lbl">الخزنة</span> ${c.waist||'-'}</span>
+    <span class="meas-chip m-shoulder">📏 <span class="meas-lbl">وسع الكم</span> ${c.shoulder||'-'}</span>
+  </div>`;
 }
 
 // حساب قيمة الشغل المتبقي (غير المسلَّم) بالجنيه، باستثناء الطلب الجاري تعديله
@@ -4082,6 +4130,7 @@ function renderSettings(){
   fillThemeInputs();
   fillFontInputs();
   fillSkeletonInput();
+  renderHomeWidgetsSettings();
   document.getElementById('customCSSInput').value = db.customCSS||'';
   document.getElementById('customJSInput').value = db.customJS||'';
   document.getElementById('dailyCapacityInput').value = db.dailyCapacity;
@@ -4240,6 +4289,86 @@ function saveButtonRadius(){
   saveDB();
   applyTheme();
   toast('تم حفظ شكل الأزرار ✅');
+}
+
+/* ============================================================
+   تخصيص الشاشة الرئيسية (ترتيب/إخفاء الودجت)
+   ============================================================ */
+const HOME_WIDGETS_DEFAULT = ['alerts','stats','weekly','today','commitment','upcoming','late'];
+const HOME_WIDGET_LABELS = {
+  alerts:'🔔 التنبيهات', stats:'📊 الإحصائيات', weekly:'📅 نظرة الأسبوع', today:'🌅 خطة النهاردة',
+  commitment:'📈 الالتزام بالخطة', upcoming:'📅 أقرب مواعيد التسليم', late:'⏰ طلبات متأخرة'
+};
+
+// يرجّع ترتيب الودجت المحفوظ، وبينشئ واحد افتراضي أول مرة أو لو فيه ودجت جديدة اتضافت في تحديث لاحق
+function getHomeWidgetsOrder(){
+  if(!Array.isArray(db.homeWidgets) || !db.homeWidgets.length){
+    db.homeWidgets = HOME_WIDGETS_DEFAULT.map(id=>({id, visible:true}));
+  }
+  HOME_WIDGETS_DEFAULT.forEach(id=>{
+    if(!db.homeWidgets.some(w=>w.id===id)) db.homeWidgets.push({id, visible:true});
+  });
+  return db.homeWidgets;
+}
+
+// يطبّق الترتيب والإظهار/الإخفاء فعلياً على عناصر الشاشة الرئيسية
+function applyHomeWidgetsLayout(){
+  const order = getHomeWidgetsOrder();
+  const container = document.getElementById('homeWidgetsContainer');
+  if(!container) return;
+  order.forEach(w=>{
+    const el = document.getElementById('widget-'+w.id);
+    if(!el) return;
+    el.style.display = (w.visible===false) ? 'none' : '';
+    container.appendChild(el);
+  });
+}
+
+function moveHomeWidget(id, dir){
+  const order = getHomeWidgetsOrder();
+  const idx = order.findIndex(w=>w.id===id);
+  const newIdx = idx+dir;
+  if(idx<0 || newIdx<0 || newIdx>=order.length) return;
+  const tmp = order[idx];
+  order[idx] = order[newIdx];
+  order[newIdx] = tmp;
+  saveDB();
+  applyHomeWidgetsLayout();
+  renderHomeWidgetsSettings();
+}
+
+function toggleHomeWidget(id, visible){
+  const order = getHomeWidgetsOrder();
+  const w = order.find(w=>w.id===id);
+  if(w) w.visible = !!visible;
+  saveDB();
+  applyHomeWidgetsLayout();
+}
+
+function resetHomeWidgets(){
+  db.homeWidgets = HOME_WIDGETS_DEFAULT.map(id=>({id, visible:true}));
+  saveDB();
+  applyHomeWidgetsLayout();
+  renderHomeWidgetsSettings();
+  toast('تم استعادة ترتيب الشاشة الرئيسية الافتراضي ✅');
+}
+
+function renderHomeWidgetsSettings(){
+  const box = document.getElementById('homeWidgetsSettingsList');
+  if(!box) return;
+  const order = getHomeWidgetsOrder();
+  box.innerHTML = order.map((w,i)=>`
+    <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);">
+      <span>${HOME_WIDGET_LABELS[w.id]||w.id}</span>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="btn sm outline" style="padding:6px 10px;" ${i===0?'disabled':''} onclick="moveHomeWidget('${w.id}',-1)">⬆️</button>
+        <button class="btn sm outline" style="padding:6px 10px;" ${i===order.length-1?'disabled':''} onclick="moveHomeWidget('${w.id}',1)">⬇️</button>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" style="width:18px;height:18px;" ${w.visible!==false?'checked':''} onchange="toggleHomeWidget('${w.id}', this.checked)">
+        </label>
+      </div>
+    </div>
+  `).join('');
 }
 
 /* ============================================================
@@ -4702,6 +4831,7 @@ function importBackup(event){
       applyFontSettings();
       applyDarkMode();
       applyCustomCSS();
+      applyHomeWidgetsLayout();
       toast('تم استيراد النسخة الاحتياطية بنجاح ✅');
     }catch(err){
       toast('حدث خطأ أثناء قراءة الملف');
