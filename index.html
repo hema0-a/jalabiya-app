@@ -884,6 +884,7 @@ html.high-contrast .section-title::before{ border:1.5px solid #000; }
         <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importBackup(event)">
       </div>
       <div class="card" id="cloudSyncCardWrap"></div>
+      <div class="card" id="pushNotifyCardWrap"></div>
       <div class="card">
         <h3>🗑️ سلة المحذوفات <span id="trashCountTxt" class="meta"></span></h3>
         <p class="meta">العملاء والطلبات المحذوفة تُحفظ هنا لمدة 7 أيام قبل حذفها نهائياً، ويمكنك استرجاعها في أي وقت خلال هذه الفترة.</p>
@@ -942,6 +943,7 @@ html.high-contrast .section-title::before{ border:1.5px solid #000; }
 <!-- Firebase (للمزامنة السحابية بين الأجهزة) -->
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 
 <script>
 /* ============================================================
@@ -983,7 +985,8 @@ function defaultDB(){
     holidays:[],
     activityLog:[],
     updatedAt: 0,
-    cloudSync: {enabled:false, syncId:null, firebaseConfig:null}
+    cloudSync: {enabled:false, syncId:null, firebaseConfig:null},
+    pushNotify: {vapidKey:null, daysBefore:1, deviceTokens:[], notifiedOrderIds:[]}
   };
 }
 
@@ -1064,6 +1067,10 @@ function loadDB(){
       if(!db.activityLog) db.activityLog=[];
       if(db.updatedAt===undefined) db.updatedAt=0;
       if(!db.cloudSync) db.cloudSync={enabled:false, syncId:null, firebaseConfig:null};
+      if(!db.pushNotify) db.pushNotify={vapidKey:null, daysBefore:1, deviceTokens:[], notifiedOrderIds:[]};
+      if(!Array.isArray(db.pushNotify.deviceTokens)) db.pushNotify.deviceTokens=[];
+      if(!Array.isArray(db.pushNotify.notifiedOrderIds)) db.pushNotify.notifiedOrderIds=[];
+      if(!db.pushNotify.daysBefore) db.pushNotify.daysBefore=1;
       purgeOldTrash();
     } else {
       db = defaultDB();
@@ -1182,6 +1189,9 @@ function fillMissingDefaults(){
     if(db[k]===undefined) db[k] = d[k];
   });
   if(!db.theme) db.theme = d.theme;
+  if(!db.pushNotify) db.pushNotify = d.pushNotify;
+  if(!Array.isArray(db.pushNotify.deviceTokens)) db.pushNotify.deviceTokens=[];
+  if(!Array.isArray(db.pushNotify.notifiedOrderIds)) db.pushNotify.notifiedOrderIds=[];
 }
 
 function randomSyncId(){
@@ -1312,6 +1322,123 @@ function toggleCloudSetupMode(mode){
   const connectBox = document.getElementById('cloudSetupConnectBox');
   if(createBox) createBox.style.display = mode==='create' ? 'block':'none';
   if(connectBox) connectBox.style.display = mode==='connect' ? 'block':'none';
+}
+
+/* ============================================================
+   الإشعارات الحقيقية (Firebase Cloud Messaging - Web Push)
+   ============================================================
+   بتستخدم نفس مشروع Firebase بتاع المزامنة السحابية. كل جهاز بيسجّل
+   "توكن" خاص بيه بيتخزن جوه db.pushNotify.deviceTokens (وبالتالي
+   بيتبعت للسحابة زي أي بيانات تانية). Cloud Function منفصلة (مرفقة
+   في ملفات المشروع) هي اللي بتراجع الطلبات يوميًا وتبعت الإشعار
+   الفعلي عن طريق FCM حتى لو التطبيق مقفول تمامًا.
+   ============================================================ */
+let messagingInstance = null;
+
+function getPushSwUrl(){
+  const cfg = db.cloudSync && db.cloudSync.firebaseConfig;
+  if(!cfg) return null;
+  const params = new URLSearchParams({
+    apiKey: cfg.apiKey||'', authDomain: cfg.authDomain||'', projectId: cfg.projectId||'',
+    storageBucket: cfg.storageBucket||'', messagingSenderId: cfg.messagingSenderId||'', appId: cfg.appId||''
+  });
+  return 'firebase-messaging-sw.js?'+params.toString();
+}
+
+async function enablePushNotifications(){
+  try{
+    if(!db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.firebaseConfig){
+      toast('فعّل المزامنة السحابية الأول من الكارت اللي فوق');
+      return;
+    }
+    const vapidInput = document.getElementById('vapidKeyInput');
+    const vapidKey = vapidInput ? vapidInput.value.trim() : (db.pushNotify.vapidKey||'');
+    if(!vapidKey){ toast('الصق مفتاح Web Push (VAPID) الأول — تلاقيه في Firebase Console'); return; }
+    if(!('serviceWorker' in navigator) || typeof Notification==='undefined'){
+      toast('المتصفح ده مش بيدعم الإشعارات الحقيقية');
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if(perm !== 'granted'){ toast('لازم توافق على إذن الإشعارات من المتصفح عشان تشتغل'); return; }
+
+    const swUrl = getPushSwUrl();
+    const reg = await navigator.serviceWorker.register(swUrl);
+    if(!cloudApp){
+      cloudApp = (firebase.apps && firebase.apps.length) ? firebase.apps[0] : firebase.initializeApp(db.cloudSync.firebaseConfig);
+    }
+    messagingInstance = firebase.messaging();
+    const token = await messagingInstance.getToken({vapidKey, serviceWorkerRegistration: reg});
+    if(!token){ toast('تعذر الحصول على رمز الإشعارات — تأكد من مفتاح VAPID'); return; }
+
+    db.pushNotify.vapidKey = vapidKey;
+    if(!db.pushNotify.deviceTokens.includes(token)) db.pushNotify.deviceTokens.push(token);
+    saveDB();
+    renderPushNotifyCard();
+    toast('✅ تفعّلت الإشعارات الحقيقية على هذا الجهاز');
+
+    messagingInstance.onMessage(function(payload){
+      const title = (payload.notification && payload.notification.title) || 'تنبيه';
+      const body = (payload.notification && payload.notification.body) || '';
+      toast('🔔 '+title+(body?(' — '+body):''));
+    });
+  }catch(e){
+    console.warn('فشل تفعيل الإشعارات:', e);
+    toast('حصل خطأ أثناء تفعيل الإشعارات: '+(e && e.message ? e.message : ''));
+  }
+}
+
+function disablePushNotifications(){
+  db.pushNotify.deviceTokens = [];
+  saveDB();
+  renderPushNotifyCard();
+  toast('تم إيقاف الإشعارات على هذا الجهاز');
+}
+
+function saveDaysBeforeSetting(){
+  const el = document.getElementById('daysBeforeInput');
+  if(!el) return;
+  const v = Math.max(0, Math.min(14, Number(el.value)||1));
+  db.pushNotify.daysBefore = v;
+  saveDB();
+  toast('✅ اتحفظ');
+}
+
+function renderPushNotifyCard(){
+  const box = document.getElementById('pushNotifyCardWrap');
+  if(!box) return;
+  const cs = db.cloudSync || {};
+  const pn = db.pushNotify || {vapidKey:null, daysBefore:1, deviceTokens:[]};
+
+  if(!cs.enabled || !cs.syncId){
+    box.innerHTML = `
+      <h3>🔔 إشعارات حقيقية لمواعيد التسليم</h3>
+      <p class="meta">فعّل المزامنة السحابية فوق الأول — الإشعارات الحقيقية بتشتغل من خلال نفس مشروع Firebase.</p>
+    `;
+    return;
+  }
+
+  const enabledHere = typeof Notification!=='undefined' && Notification.permission==='granted'
+    && pn.deviceTokens && pn.deviceTokens.length>0;
+
+  box.innerHTML = `
+    <h3>🔔 إشعارات حقيقية لمواعيد التسليم</h3>
+    <p class="meta">توصلك إشعارات على الموبايل حتى لو التطبيق مقفول تمامًا، قبل موعد تسليم أي طلب بعدد الأيام اللي تحددها. محتاجة إعداد لمرة واحدة على Firebase (راجع ملف الشرح المرفق مع المشروع).</p>
+    ${enabledHere ? `
+      <p class="meta" style="color:var(--ok);font-weight:700;">✅ الإشعارات مفعّلة على هذا الجهاز</p>
+      <div class="field"><label>نبّهني قبل التسليم بعدد الأيام</label>
+        <div class="field-row2">
+          <input id="daysBeforeInput" type="number" min="0" max="14" value="${pn.daysBefore||1}">
+          <button class="btn sm secondary" onclick="saveDaysBeforeSetting()">💾 حفظ</button>
+        </div>
+      </div>
+      <button class="btn sm danger" onclick="disablePushNotifications()">🔕 إيقاف الإشعارات على هذا الجهاز</button>
+    ` : `
+      <div class="field"><label>مفتاح Web Push (VAPID key)</label>
+        <input id="vapidKeyInput" type="text" placeholder="من Firebase Console → Cloud Messaging → Web Push certificates" style="font-size:12px;direction:ltr;text-align:left;" value="${pn.vapidKey?pn.vapidKey.replace(/"/g,'&quot;'):''}">
+      </div>
+      <button class="btn" onclick="enablePushNotifications()">🔔 تفعيل الإشعارات على هذا الجهاز</button>
+    `}
+  `;
 }
 
 function uid(){
@@ -3762,6 +3889,7 @@ function renderSettings(){
   renderHolidaysList();
   renderActivityLog();
   renderCloudSyncCard();
+  renderPushNotifyCard();
 }
 
 function renderActivityLog(){
