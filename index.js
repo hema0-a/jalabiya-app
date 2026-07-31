@@ -94,3 +94,72 @@ async function processWorkshop(doc, todayStr) {
   // مع منطق "آخر تعديل بيكسب" المستخدم في مزامنة التطبيق بين الأجهزة
   await doc.ref.update({'pushNotify.notifiedOrderIds': updatedNotified});
 }
+// تحديث معاينة الخط
+function updateFontPreview(type, font) {
+  const preview = document.getElementById('fontPreview');
+  if (preview) {
+    const fonts = {
+      display: document.getElementById('fontDisplaySelect')?.value || 'El Messiri',
+      body: document.getElementById('fontBodySelect')?.value || 'IBM Plex Sans Arabic',
+      mono: document.getElementById('fontMonoSelect')?.value || 'IBM Plex Mono'
+    };
+    
+    preview.style.fontFamily = fonts.body;
+    preview.innerHTML = `معاينة: ${font} 👈 هذا هو الخط الجديد`;
+  }
+}
+
+// حفظ إعدادات الخطوط
+function saveFontSettings() {
+  const fonts = {
+    display: document.getElementById('fontDisplaySelect')?.value || 'El Messiri',
+    body: document.getElementById('fontBodySelect')?.value || 'IBM Plex Sans Arabic',
+    mono: document.getElementById('fontMonoSelect')?.value || 'IBM Plex Mono'
+  };
+  
+  FontManager.saveFonts(fonts);
+  
+  // تحديث الخطوط فوراً
+  const root = document.documentElement;
+  root.style.setProperty('--font-display', fonts.display);
+  root.style.setProperty('--font-body', fonts.body);
+  root.style.setProperty('--font-num', fonts.mono);
+}
+
+// استعادة الخطوط الافتراضية
+function resetFontSettings() {
+  FontManager.resetFonts();
+  
+  // تحديث حقول الاختيار
+  document.getElementById('fontDisplaySelect').value = 'El Messiri';
+  document.getElementById('fontBodySelect').value = 'IBM Plex Sans Arabic';
+  document.getElementById('fontMonoSelect').value = 'IBM Plex Mono';
+  
+  updateFontPreview('body', 'IBM Plex Sans Arabic');
+}
+// عند تحميل قائمة الطلبات
+async function renderOrdersWithSkeleton() {
+  await SkeletonLoader.loadWithSkeleton(
+    'ordersList',
+    async () => {
+      // كود جلب البيانات الفعلي
+      const orders = await getOrdersFromDB();
+      renderOrders(orders);
+    },
+    'list',
+    { count: 5 }
+  );
+}
+
+// عند تحميل الإحصائيات (شبكة)
+async function loadStatsWithSkeleton() {
+  await SkeletonLoader.loadWithSkeleton(
+    'homeStats',
+    async () => {
+      const stats = await getStatsFromDB();
+      renderStats(stats);
+    },
+    'grid',
+    { count: 4 }
+  );
+}
