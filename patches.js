@@ -410,14 +410,24 @@ setTimeout(function(){
   document.addEventListener('touchend', function(e){
     if(!activeCard) return;
     var dx = e.changedTouches[0].clientX-startX;
+    var dy = e.changedTouches[0].clientY-startY;
     var id = activeCard.dataset.orderId;
     var cardRef = activeCard;
     resetCard();
-    if(Math.abs(dx)>90 && id){
+    /* [تم الإصلاح] كان بيتأكد بس إن dx>90 من غير ما يقارنها بـ dy، فأي
+       سكرول عادي لأسفل بزاوية بسيطة (شائع جدًا على الموبايل) كان بيتحسب
+       "سحب لليمين" ويسجّل الطلب "تم التسليم" لوحده. دلوقتي لازم يكون
+       الإزاحة الأفقية أكبر بوضوح من الرأسية عشان نعتبرها سحب فعلي. */
+    if(Math.abs(dx)>90 && Math.abs(dx)>Math.abs(dy)*1.5 && id){
       var o = db.orders.find(function(x){ return x.id===id; });
       if(dx>0 && o && o.status!=='تم التسليم'){
-        if(navigator.vibrate) navigator.vibrate(30);
-        markOrderDelivered(id);
+        var custName = (customerById(o.customerId)||{}).name || '';
+        appConfirm('هل تريد تسجيل طلب' + (custName?(' "'+custName+'"'):'') + ' كـ"تم التسليم"؟', {okText:'تم التسليم', cancelText:'إلغاء', danger:false}).then(function(ok){
+          if(ok){
+            if(navigator.vibrate) navigator.vibrate(30);
+            markOrderDelivered(id);
+          }
+        });
       } else if(dx<0){
         if(navigator.vibrate) navigator.vibrate(20);
         openOrderModal(id);
@@ -2275,6 +2285,41 @@ cloudStatusChanged = function(){
     applyFilter(currentSettingsTab);
   });
   obs.observe(section, {childList:true});
+})();
+
+/* 11) نافذة تأكيد قبل حفظ أي تعديل على بيانات عميل موجود بالفعل
+   (الإضافة الجديدة مش محتاجة تأكيد لوحدها — أصلاً فيه خطوة "حفظ"
+   صريحة، والتأكيد هنا يبقى مخصص للتعديل على بيانات موجودة). */
+(function(){
+  var origSaveCustomerConfirm = saveCustomer;
+  saveCustomer = async function(id){
+    if(id){
+      var c = customerById(id);
+      var ok = await appConfirm(
+        'هل تريد حفظ التعديلات على بيانات العميل' + (c?(' "'+c.name+'"'):'') + '؟',
+        {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
+      );
+      if(!ok) return;
+    }
+    return origSaveCustomerConfirm.apply(this, arguments);
+  };
+})();
+
+/* 12) نافذة تأكيد قبل حفظ أي تعديل على طلب موجود بالفعل */
+(function(){
+  var origSaveOrderConfirm = saveOrder;
+  saveOrder = async function(id){
+    if(id){
+      var o = db.orders.find(function(x){ return x.id===id; });
+      var c = o ? customerById(o.customerId) : null;
+      var ok = await appConfirm(
+        'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟',
+        {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
+      );
+      if(!ok) return;
+    }
+    return origSaveOrderConfirm.apply(this, arguments);
+  };
 })();
 
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
