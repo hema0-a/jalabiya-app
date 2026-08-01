@@ -2302,11 +2302,18 @@ async function savePayment(orderId){
    نفس تفاصيل ورقة الإيصال المطبوعة (printReceipt) بالظبط: بيانات الورشة،
    بيانات العميل، جدول الأصناف بالعدد وسعر القطعة وإجمالي كل صنف،
    المصاريف الإضافية، الخصم، الضريبة، ثم الإجمالي والمدفوع والمتبقي. */
-function sendWhatsApp(orderId){
+async function sendWhatsApp(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
   if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
+
+  // أول محاولة: نبعت الإيصال كصورة بنفس التصميم الاحترافي (زي ورقة الطباعة)
+  // عن طريق نافذة المشاركة الأصلية بالجهاز، فيها يقدر يختار واتساب مباشرة.
+  const shared = await shareReceiptAsImage(orderId, c);
+  if(shared) return;
+
+  // خطة بديلة (لو الجهاز/المتصفح مش بيدعم مشاركة صور): نفس الرسالة النصية زي الأول.
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
   const discount = orderDiscountAmount(o);
@@ -2363,7 +2370,21 @@ function sendReminder(orderId){
   openExternalLink(url);
 }
 
-function printReceipt(orderId){
+/* أنماط CSS لورقة الإيصال — مستخدمة في نافذة الطباعة وفي نسخة الصورة اللي بتتبعت في واتساب */
+const RECEIPT_STYLE = `
+  h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
+  table{width:100%;border-collapse:collapse;margin-top:14px;}
+  td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
+  td.lbl{color:#666;width:45%;}
+  td.val{font-weight:bold;}
+  .total-row td{font-size:17px;color:#1F6D57;}
+  .items-table td{font-size:13.5px;padding:7px 6px;}
+  .items-table th{text-align:right;font-size:12.5px;color:#666;border-bottom:2px solid #ddd;padding:6px;}
+`;
+
+/* بيبني جسم ورقة الإيصال (نفس التصميم الاحترافي) من غير <html>/<head> عشان
+   يتقدر يتحط جوه نافذة طباعة أو جوه عنصر مخفي بيتحول لصورة PNG لواتساب. */
+function buildReceiptBodyHtml(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
@@ -2371,19 +2392,7 @@ function printReceipt(orderId){
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
   const remaining = orderRemaining(o);
-  const html = `
-    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>إيصال - ${escapeHtml(c?c.name:'')}</title>
-    <style>
-      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
-      h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
-      table{width:100%;border-collapse:collapse;margin-top:14px;}
-      td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
-      td.lbl{color:#666;width:45%;}
-      td.val{font-weight:bold;}
-      .total-row td{font-size:17px;color:#1F6D57;}
-      .items-table td{font-size:13.5px;padding:7px 6px;}
-      .items-table th{text-align:right;font-size:12.5px;color:#666;border-bottom:2px solid #ddd;padding:6px;}
-    </style></head><body>
+  return `
       ${printBrandHeaderHtml()}
       <h1>🧾 إيصال تفصيل جلابة <span style="font-size:13px;color:#888;">رقم ${o.invoiceNumber||'-'}</span></h1>
       <table>
@@ -2411,9 +2420,48 @@ function printReceipt(orderId){
         <tr><td class="lbl">المدفوع</td><td class="val">${o.paid||0} ج.م</td></tr>
         <tr><td class="lbl">المتبقي</td><td class="val">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
       </table>
+  `;
+}
+
+function printReceipt(orderId){
+  const o = db.orders.find(x=>x.id===orderId);
+  const c = customerById(o.customerId);
+  const html = `
+    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>إيصال - ${escapeHtml(c?c.name:'')}</title>
+    <style>
+      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
+      ${RECEIPT_STYLE}
+    </style></head><body>
+      ${buildReceiptBodyHtml(orderId)}
     </body></html>
   `;
   openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
+}
+
+/* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG وبيشاركها مباشرة (بيظهر
+   خيار واتساب في نافذة المشاركة الأصلية بالجهاز). بيرجّع true لو نجح. */
+async function shareReceiptAsImage(orderId, c){
+  if(typeof html2canvas === 'undefined') return false;
+  if(!(navigator.canShare)) return false;
+  let wrap = null;
+  try{
+    wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:520px;background:#fff;padding:24px;color:#222;direction:rtl;font-family:Tahoma,Arial,sans-serif;';
+    wrap.innerHTML = `<style>${RECEIPT_STYLE}</style>` + buildReceiptBodyHtml(orderId);
+    document.body.appendChild(wrap);
+    const canvas = await html2canvas(wrap, {scale:2, backgroundColor:'#ffffff', useCORS:true});
+    const blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
+    if(!blob) return false;
+    const o = db.orders.find(x=>x.id===orderId);
+    const file = new File([blob], 'فاتورة_'+(c?c.name:'طلب')+'.png', {type:'image/png'});
+    if(!navigator.canShare({files:[file]})) return false;
+    await navigator.share({files:[file], title:'فاتورة رقم '+(o.invoiceNumber||'')});
+    return true;
+  }catch(e){
+    return false;
+  }finally{
+    if(wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  }
 }
 
 function printOrderLabel(orderId){
