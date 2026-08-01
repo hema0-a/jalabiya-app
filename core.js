@@ -1446,8 +1446,10 @@ function printBrandHeaderHtml(){
   const lines = [escapeHtml(name)];
   if(db.ownerName) lines.push(escapeHtml(db.ownerName));
   if(db.ownerPhone) lines.push('📞 '+escapeHtml(db.ownerPhone));
-  if(db.workshopAddress) lines.push(escapeHtml(db.workshopAddress));
+  if(db.workshopAddress) lines.push('📍 '+escapeHtml(db.workshopAddress));
+  const logoHtml = db.workshopLogo?`<img src="${db.workshopLogo}" style="width:54px;height:54px;border-radius:50%;object-fit:cover;display:block;margin:0 auto 8px;border:2px solid #1F6D57;">`:'';
   return `<div style="text-align:center;margin-bottom:10px;">
+    ${logoHtml}
     <div style="font-size:17px;font-weight:900;color:#1F6D57;">${lines[0]}</div>
     ${lines.slice(1).map(l=>`<div style="font-size:12px;color:#666;">${l}</div>`).join('')}
   </div><hr style="border:none;border-top:1px dashed #ccc;margin-bottom:10px;">`;
@@ -2348,7 +2350,7 @@ async function sendWhatsApp(orderId){
 
   let dataUrl = null, blob = null;
   try{
-    const canvas = drawReceiptCanvas(orderId);
+    const canvas = await drawReceiptCanvas(orderId);
     dataUrl = canvas.toDataURL('image/png');
     blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
   }catch(e){
@@ -2432,16 +2434,37 @@ function sendReminder(orderId){
   openWhatsAppChat(phone, msg);
 }
 
-/* أنماط CSS لورقة الإيصال — مستخدمة في نافذة الطباعة وفي نسخة الصورة اللي بتتبعت في واتساب */
+/* أنماط CSS لورقة الإيصال — مستخدمة في نافذة الطباعة وفي نسخة الصورة اللي بتتبعت في واتساب.
+   تصميم بطاقة احترافية: شريط علوي ملون + شريط عنوان بلون داكن مع شارة رقم الفاتورة +
+   جدول أصناف مقسّم بألوان متبادلة + صندوق إجمالي مميز + خاتمة شكر. الألوان بتتاخد من
+   ثيم التطبيق (db.theme) عن طريق متغيرات CSS --pc/--pd عشان الفاتورة تفضل متناسقة مع
+   هوية الورشة لو اتغيرت الألوان من الإعدادات. */
 const RECEIPT_STYLE = `
-  h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
-  table{width:100%;border-collapse:collapse;margin-top:14px;}
-  td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
-  td.lbl{color:#666;width:45%;}
-  td.val{font-weight:bold;}
-  .total-row td{font-size:17px;color:#1F6D57;}
-  .items-table td{font-size:13.5px;padding:7px 6px;}
-  .items-table th{text-align:right;font-size:12.5px;color:#666;border-bottom:2px solid #ddd;padding:6px;}
+  .inv-card{max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;
+    box-shadow:0 3px 20px rgba(0,0,0,.09);border:1px solid #ececec;}
+  .inv-topbar{height:6px;background:var(--pc,#1F6D57);}
+  .inv-header{text-align:center;padding:20px 20px 14px;}
+  .inv-logo{width:58px;height:58px;border-radius:50%;object-fit:cover;margin:0 auto 8px;display:block;border:2px solid var(--pc,#1F6D57);}
+  .inv-brand{font-size:19px;font-weight:900;color:var(--pc,#1F6D57);}
+  .inv-sub{font-size:12.5px;color:#777;margin-top:3px;}
+  .inv-titlebar{display:flex;align-items:center;justify-content:space-between;background:var(--pd,#123C2F);color:#fff;padding:12px 20px;}
+  .inv-titlebar h1{font-size:16.5px;margin:0;border:none;padding:0;color:#fff;font-weight:900;}
+  .inv-badge{background:rgba(255,255,255,.16);padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
+  .inv-body{padding:18px 20px 6px;}
+  table{width:100%;border-collapse:collapse;}
+  td{padding:9px 4px;border-bottom:1px solid #f0f0f0;font-size:14px;}
+  td.lbl{color:#888;width:45%;}
+  td.val{font-weight:700;color:#222;}
+  .items-table{margin-top:8px;border:1px solid #ececec;border-radius:10px;overflow:hidden;border-collapse:separate;border-spacing:0;}
+  .items-table th{text-align:right;font-size:11.5px;color:#fff;background:var(--pc,#1F6D57);padding:9px 8px;font-weight:700;border:none;}
+  .items-table td{font-size:13px;padding:8px;border-bottom:1px solid #f2f2f2;}
+  .items-table tr:last-child td{border-bottom:none;}
+  .items-table tr:nth-child(even) td{background:#faf9f6;}
+  .totals-box{margin-top:14px;background:#f8f6f1;border-radius:10px;padding:2px 12px;}
+  .total-row td{font-size:16.5px;color:var(--pc,#1F6D57);border-top:2px solid var(--pc,#1F6D57);border-bottom:none;padding-top:12px;}
+  .remaining-ok{color:#1F6D57!important;}
+  .remaining-due{color:#B03A2E!important;}
+  .inv-footer{text-align:center;padding:14px 20px 18px;font-size:12px;color:#999;border-top:1px dashed #e2e2e2;margin-top:8px;}
 `;
 
 /* بيبني جسم ورقة الإيصال (نفس التصميم الاحترافي) من غير <html>/<head> عشان
@@ -2454,34 +2477,57 @@ function buildReceiptBodyHtml(orderId){
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
   const remaining = orderRemaining(o);
+  const theme = db.theme||{};
+  const primary = theme.primary||'#1F6D57';
+  const primaryDark = theme.primaryDark||'#123C2F';
+  const name = db.workshopName||'ورشة تفصيل الجلابيب';
+  const contactLines = [];
+  if(db.ownerName) contactLines.push(escapeHtml(db.ownerName));
+  if(db.ownerPhone) contactLines.push('📞 '+escapeHtml(db.ownerPhone));
+  if(db.workshopAddress) contactLines.push('📍 '+escapeHtml(db.workshopAddress));
   return `
-      ${printBrandHeaderHtml()}
-      <h1>🧾 إيصال تفصيل جلابة <span style="font-size:13px;color:#888;">رقم ${o.invoiceNumber||'-'}</span></h1>
-      <table>
-        <tr><td class="lbl">العميل</td><td class="val">${escapeHtml(c?c.name:'-')}</td></tr>
-        <tr><td class="lbl">الهاتف</td><td class="val">${escapeHtml(c?c.phone||'-':'-')}</td></tr>
-        <tr><td class="lbl">تاريخ الاستلام</td><td class="val">${fmtDate(o.dateReceived)}</td></tr>
-        <tr><td class="lbl">تاريخ التسليم المتوقع</td><td class="val">${fmtDate(o.dateDelivery)}</td></tr>
-      </table>
-      <table class="items-table">
-        <tr><th>الصنف</th><th>العدد</th><th>سعر القطعة</th><th>الإجمالي</th></tr>
-        ${(Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]).map(it=>`
-          <tr>
-            <td>${escapeHtml(it.type)}</td>
-            <td>${it.qty||1}</td>
-            <td>${(Number(it.unitPrice)||0).toLocaleString('ar-EG')} ج.م</td>
-            <td>${((it.qty||1)*(Number(it.unitPrice)||0)).toLocaleString('ar-EG')} ج.م</td>
-          </tr>
-        `).join('')}
-      </table>
-      <table>
-        <tr><td class="lbl">مصاريف إضافية</td><td class="val">${o.extra||0} ج.م</td></tr>
-        ${discount>0?`<tr><td class="lbl">الخصم</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-        ${tax>0?`<tr><td class="lbl">الضريبة/الرسوم</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-        <tr class="total-row"><td class="lbl">الإجمالي</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
-        <tr><td class="lbl">المدفوع</td><td class="val">${o.paid||0} ج.م</td></tr>
-        <tr><td class="lbl">المتبقي</td><td class="val">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
-      </table>
+    <div class="inv-card" style="--pc:${primary};--pd:${primaryDark};">
+      <div class="inv-topbar"></div>
+      <div class="inv-header">
+        ${db.workshopLogo?`<img src="${db.workshopLogo}" class="inv-logo">`:''}
+        <div class="inv-brand">${escapeHtml(name)}</div>
+        ${contactLines.map(l=>`<div class="inv-sub">${l}</div>`).join('')}
+      </div>
+      <div class="inv-titlebar">
+        <h1>🧾 إيصال تفصيل جلابة</h1>
+        <span class="inv-badge">رقم ${o.invoiceNumber||'-'}</span>
+      </div>
+      <div class="inv-body">
+        <table>
+          <tr><td class="lbl">العميل</td><td class="val">${escapeHtml(c?c.name:'-')}</td></tr>
+          <tr><td class="lbl">الهاتف</td><td class="val">${escapeHtml(c?c.phone||'-':'-')}</td></tr>
+          <tr><td class="lbl">تاريخ الاستلام</td><td class="val">${fmtDate(o.dateReceived)}</td></tr>
+          <tr><td class="lbl">تاريخ التسليم المتوقع</td><td class="val">${fmtDate(o.dateDelivery)}</td></tr>
+        </table>
+        <table class="items-table">
+          <tr><th>الصنف</th><th>العدد</th><th>سعر القطعة</th><th>الإجمالي</th></tr>
+          ${(Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]).map(it=>`
+            <tr>
+              <td>${escapeHtml(it.type)}</td>
+              <td>${it.qty||1}</td>
+              <td>${(Number(it.unitPrice)||0).toLocaleString('ar-EG')} ج.م</td>
+              <td>${((it.qty||1)*(Number(it.unitPrice)||0)).toLocaleString('ar-EG')} ج.م</td>
+            </tr>
+          `).join('')}
+        </table>
+        <div class="totals-box">
+          <table>
+            <tr><td class="lbl">مصاريف إضافية</td><td class="val">${o.extra||0} ج.م</td></tr>
+            ${discount>0?`<tr><td class="lbl">الخصم</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
+            ${tax>0?`<tr><td class="lbl">الضريبة/الرسوم</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
+            <tr class="total-row"><td class="lbl">الإجمالي</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
+            <tr><td class="lbl">المدفوع</td><td class="val">${o.paid||0} ج.م</td></tr>
+            <tr><td class="lbl">المتبقي</td><td class="val ${remaining>0?'remaining-due':'remaining-ok'}">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="inv-footer">شكرًا لثقتكم بنا 🌿</div>
+    </div>
   `;
 }
 
@@ -2491,8 +2537,12 @@ function printReceipt(orderId){
   const html = `
     <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>إيصال - ${escapeHtml(c?c.name:'')}</title>
     <style>
-      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
+      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;background:#f3f1ec;}
       ${RECEIPT_STYLE}
+      @media print{
+        body{background:#fff;padding:0;}
+        .inv-card{box-shadow:none;border:1px solid #ddd;}
+      }
     </style></head><body>
       ${buildReceiptBodyHtml(orderId)}
     </body></html>
@@ -2500,10 +2550,37 @@ function printReceipt(orderId){
   openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
 }
 
-/* بيرسم إيصال الفاتورة بنفس التصميم الاحترافي مباشرة على Canvas — من غير أي
-   مكتبة خارجية أو اتصال إنترنت، عشان يشتغل 100% جوه أي WebView/تطبيق.
-   بيرجّع الـ canvas الجاهز. */
-function drawReceiptCanvas(orderId){
+// يحمّل صورة (زي شعار الورشة) كـ Promise عشان نقدر نرسمها على Canvas بعد ما تخلص تحميل فعليًا
+function loadImageAsync(src){
+  return new Promise((resolve)=>{
+    if(!src){ resolve(null); return; }
+    const img = new Image();
+    img.onload = ()=>resolve(img);
+    img.onerror = ()=>resolve(null);
+    img.src = src;
+  });
+}
+
+// يرسم مسار مستطيل بزوايا دائرية — مستخدم لرسم البطاقة والشارات والصندوقات على الـ Canvas
+function roundRectPath(ctx,x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y);
+  ctx.arcTo(x+w,y,x+w,y+r,r);
+  ctx.lineTo(x+w,y+h-r);
+  ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+  ctx.lineTo(x+r,y+h);
+  ctx.arcTo(x,y+h,x,y+h-r,r);
+  ctx.lineTo(x,y+r);
+  ctx.arcTo(x,y,x+r,y,r);
+  ctx.closePath();
+}
+
+/* بيرسم إيصال الفاتورة بنفس التصميم الاحترافي (بطاقة بزوايا دائرية، شريط علوي وعنوان
+   ملوّنين، شارة رقم فاتورة، جدول أصناف مقسّم بألوان متبادلة، صندوق إجمالي مميز، خاتمة شكر)
+   مباشرة على Canvas — من غير أي مكتبة خارجية أو اتصال إنترنت، عشان يشتغل 100% جوه أي
+   WebView/تطبيق. بيرجّع الـ canvas الجاهز. دالة async عشان تقدر تنتظر تحميل شعار الورشة. */
+async function drawReceiptCanvas(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
@@ -2512,6 +2589,10 @@ function drawReceiptCanvas(orderId){
   const total = orderTotal(o);
   const remaining = orderRemaining(o);
   const items = (Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]);
+
+  const theme = db.theme||{};
+  const primary = theme.primary || '#1F6D57';
+  const primaryDark = theme.primaryDark || '#123C2F';
 
   const brandLines = [db.workshopName||'ورشة تفصيل الجلابيب'];
   if(db.ownerName) brandLines.push(db.ownerName);
@@ -2524,23 +2605,35 @@ function drawReceiptCanvas(orderId){
     ['تاريخ الاستلام', fmtDate(o.dateReceived)],
     ['تاريخ التسليم المتوقع', fmtDate(o.dateDelivery)]
   ];
-  const totalsRows = [['مصاريف إضافية', (o.extra||0)+' ج.م', false]];
-  if(discount>0) totalsRows.push(['الخصم', '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false]);
-  if(tax>0) totalsRows.push(['الضريبة/الرسوم', '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false]);
-  totalsRows.push(['الإجمالي', Math.round(total).toLocaleString('ar-EG')+' ج.م', true]);
-  totalsRows.push(['المدفوع', (o.paid||0)+' ج.م', false]);
-  totalsRows.push(['المتبقي', Math.round(remaining).toLocaleString('ar-EG')+' ج.م', false]);
+  const totalsRows = [['مصاريف إضافية', (o.extra||0)+' ج.م', false, false]];
+  if(discount>0) totalsRows.push(['الخصم', '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false, false]);
+  if(tax>0) totalsRows.push(['الضريبة/الرسوم', '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false, false]);
+  totalsRows.push(['الإجمالي', Math.round(total).toLocaleString('ar-EG')+' ج.م', true, false]);
+  totalsRows.push(['المدفوع', (o.paid||0)+' ج.م', false, false]);
+  totalsRows.push(['المتبقي', Math.round(remaining).toLocaleString('ar-EG')+' ج.م', false, remaining>0]);
+
+  const logoImg = db.workshopLogo ? await loadImageAsync(db.workshopLogo) : null;
 
   const FONT = 'Tahoma, Arial, sans-serif';
-  const W = 580, PAD = 28, ROW_H = 38;
-  const brandH = 30 + (brandLines.length-1)*20 + 16;
-  const titleH = 46;
+  const OM = 14;   // هامش صفحة رفيع حوالين البطاقة (يظهر خلفها كإطار خفيف)
+  const CW = 580;  // عرض البطاقة
+  const PAD = 24;  // حشو داخلي
+  const ROW_H = 36;
+
+  const logoSize = logoImg ? 60 : 0;
+  const headerH = 62 + (logoImg?logoSize+10:0) + (brandLines.length-1)*18;
+  const titleBarH = 46;
   const infoH = infoRows.length*ROW_H;
-  const itemHeadH = 30, itemRowH = 34;
+  const itemHeadH = 32, itemRowH = 34;
   const itemsH = itemHeadH + items.length*itemRowH;
-  const totalsH = totalsRows.length*ROW_H;
+  const totalsPadV = 10;
+  const totalsH = totalsPadV*2 + totalsRows.length*ROW_H;
   const GAP = 16;
-  const H = PAD + brandH + titleH + infoH + GAP + itemsH + GAP + totalsH + PAD;
+  const footerH = 40;
+
+  const CH = headerH + titleBarH + PAD + infoH + GAP + itemsH + GAP + totalsH + GAP + footerH + PAD;
+  const W = CW + OM*2;
+  const H = CH + OM*2;
 
   const scale = 2;
   const canvas = document.createElement('canvas');
@@ -2549,96 +2642,175 @@ function drawReceiptCanvas(orderId){
   ctx.scale(scale, scale);
   ctx.direction = 'rtl';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#ffffff';
+
+  // خلفية الصفحة خلف البطاقة
+  ctx.fillStyle = '#f3f1ec';
   ctx.fillRect(0,0,W,H);
 
-  const dashedLine = (y)=>{
+  // ظل خفيف تحت البطاقة
+  ctx.save();
+  roundRectPath(ctx, OM+2, OM+3, CW, CH, 18);
+  ctx.fillStyle = 'rgba(0,0,0,0.06)';
+  ctx.fill();
+  ctx.restore();
+
+  // البطاقة البيضاء (كل المحتوى بيترسم جوه القص ده عشان الزوايا تفضل دائرية)
+  ctx.save();
+  roundRectPath(ctx, OM, OM, CW, CH, 18);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.clip();
+
+  const X0 = OM, X1 = OM+CW;
+  let y = OM;
+
+  // الشريط العلوي الملون
+  ctx.fillStyle = primary;
+  ctx.fillRect(X0, y, CW, 6);
+  y += 6 + 16;
+
+  // شعار الورشة (لو موجود) واسمها وبيانات التواصل
+  if(logoImg){
+    const cx = OM+CW/2, cy = y+logoSize/2;
     ctx.save();
-    ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
-    ctx.beginPath(); ctx.moveTo(PAD,y); ctx.lineTo(W-PAD,y); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, logoSize/2, 0, Math.PI*2); ctx.closePath(); ctx.clip();
+    ctx.drawImage(logoImg, cx-logoSize/2, cy-logoSize/2, logoSize, logoSize);
     ctx.restore();
-  };
-  const solidLine = (y, color, width)=>{
+    ctx.save();
+    ctx.beginPath(); ctx.arc(cx, cy, logoSize/2, 0, Math.PI*2);
+    ctx.lineWidth = 2; ctx.strokeStyle = primary; ctx.stroke();
+    ctx.restore();
+    y += logoSize + 10;
+  }
+  ctx.textAlign = 'center';
+  ctx.fillStyle = primary;
+  ctx.font = '900 19px '+FONT;
+  ctx.fillText(brandLines[0], OM+CW/2, y+10);
+  y += 26;
+  ctx.font = '13px '+FONT;
+  ctx.fillStyle = '#777';
+  for(let i=1;i<brandLines.length;i++){
+    ctx.fillText(brandLines[i], OM+CW/2, y+8);
+    y += 18;
+  }
+  y += 14;
+
+  // شريط العنوان الملوّن + شارة رقم الفاتورة
+  ctx.fillStyle = primaryDark;
+  ctx.fillRect(X0, y, CW, titleBarH);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '900 17px '+FONT;
+  ctx.fillText('🧾 إيصال تفصيل جلابة', X1-PAD, y+titleBarH/2);
+  const badgeText = 'رقم '+(o.invoiceNumber||'-');
+  ctx.font = '12px '+FONT;
+  const badgeW = ctx.measureText(badgeText).width + 20;
+  const badgeH = 24;
+  const badgeX = X0+PAD, badgeY = y+(titleBarH-badgeH)/2;
+  ctx.save();
+  roundRectPath(ctx, badgeX, badgeY, badgeW, badgeH, 12);
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fill();
+  ctx.restore();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(badgeText, badgeX+badgeW/2, badgeY+badgeH/2);
+  y += titleBarH + PAD;
+
+  const solidLine = (yy, color, width)=>{
     ctx.save();
     ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash([]);
-    ctx.beginPath(); ctx.moveTo(PAD,y); ctx.lineTo(W-PAD,y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X0+PAD,yy); ctx.lineTo(X1-PAD,yy); ctx.stroke();
     ctx.restore();
   };
-  const labelValueRow = (y, label, value, big)=>{
+  const dashedLine = (yy)=>{
+    ctx.save();
+    ctx.strokeStyle = '#ddd'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(X0+PAD,yy); ctx.lineTo(X1-PAD,yy); ctx.stroke();
+    ctx.restore();
+  };
+  const labelValueRow = (yy, label, value, big, danger)=>{
     ctx.textAlign = 'right';
-    ctx.fillStyle = big ? '#1F6D57' : '#666';
+    ctx.fillStyle = big ? primary : '#888';
     ctx.font = (big?'bold 17px ':'14px ')+FONT;
-    ctx.fillText(label, W-PAD, y+ROW_H/2);
+    ctx.fillText(label, X1-PAD, yy+ROW_H/2);
     ctx.textAlign = 'left';
-    ctx.fillStyle = big ? '#1F6D57' : '#222';
+    ctx.fillStyle = big ? primary : (danger ? '#B03A2E' : '#222');
     ctx.font = (big?'bold 17px ':'bold 14px ')+FONT;
-    ctx.fillText(String(value), PAD, y+ROW_H/2);
-    solidLine(y+ROW_H, '#e5e5e5', 1);
+    ctx.fillText(String(value), X0+PAD, yy+ROW_H/2);
+    if(!big) solidLine(yy+ROW_H, '#f0f0f0', 1);
   };
 
-  let y = PAD;
-  // اسم الورشة وبيانات التواصل
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#1F6D57';
-  ctx.font = '900 19px '+FONT;
-  ctx.fillText(brandLines[0], W/2, y+10);
-  y += 28;
-  ctx.font = '13px '+FONT;
-  ctx.fillStyle = '#666';
-  for(let i=1;i<brandLines.length;i++){
-    ctx.fillText(brandLines[i], W/2, y+8);
-    y += 20;
-  }
-  y += 6;
-  dashedLine(y);
-  y += 20;
-
-  // عنوان الإيصال
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#222';
-  ctx.font = '900 19px '+FONT;
-  ctx.fillText('🧾 إيصال تفصيل جلابة', W-PAD, y+8);
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#888';
-  ctx.font = '12px '+FONT;
-  ctx.fillText('رقم '+(o.invoiceNumber||'-'), PAD, y+8);
-  y += 18;
-  solidLine(y, '#1F6D57', 2);
-  y += 22;
-
   // صفوف بيانات العميل
-  infoRows.forEach(([lbl,val])=>{ labelValueRow(y, lbl, val, false); y += ROW_H; });
+  infoRows.forEach(([lbl,val])=>{ labelValueRow(y, lbl, val, false, false); y += ROW_H; });
   y += GAP;
 
-  // جدول الأصناف
-  const totalColRight = PAD+90;
-  const priceColRight = totalColRight+120;
+  // جدول الأصناف (نفس تقسيم الأعمدة القديم، بس بمرجعية X0/X1 الجديدة)
+  const totalColLeft = X0+PAD+90;
+  const priceColRight = totalColLeft+120;
   const qtyColRight = priceColRight+64;
-  const nameColRight = W-PAD;
-  ctx.font = '12.5px '+FONT;
-  ctx.fillStyle = '#666';
+  const nameColRight = X1-PAD;
+
+  ctx.fillStyle = primary;
+  ctx.fillRect(X0+PAD, y, CW-2*PAD, itemHeadH);
+  ctx.font = '12px '+FONT;
+  ctx.fillStyle = '#ffffff';
   ctx.textAlign='right'; ctx.fillText('الصنف', nameColRight, y+itemHeadH/2);
   ctx.textAlign='center'; ctx.fillText('العدد', qtyColRight-32, y+itemHeadH/2);
   ctx.textAlign='center'; ctx.fillText('سعر القطعة', priceColRight-60, y+itemHeadH/2);
-  ctx.textAlign='left'; ctx.fillText('الإجمالي', PAD, y+itemHeadH/2);
+  ctx.textAlign='left'; ctx.fillText('الإجمالي', totalColLeft-90, y+itemHeadH/2);
   y += itemHeadH;
-  solidLine(y, '#ddd', 2);
-  items.forEach(it=>{
+  const itemsTopY = y;
+  items.forEach((it,idx)=>{
     const qty = it.qty||1;
     const price = Number(it.unitPrice)||0;
-    ctx.font = '13.5px '+FONT;
+    if(idx%2===1){
+      ctx.fillStyle = '#faf9f5';
+      ctx.fillRect(X0+PAD, y, CW-2*PAD, itemRowH);
+    }
+    ctx.font = '13px '+FONT;
     ctx.fillStyle = '#222';
     ctx.textAlign='right'; ctx.fillText(String(it.type||''), nameColRight, y+itemRowH/2);
     ctx.textAlign='center'; ctx.fillText(String(qty), qtyColRight-32, y+itemRowH/2);
     ctx.textAlign='center'; ctx.fillText(price.toLocaleString('ar-EG')+' ج.م', priceColRight-60, y+itemRowH/2);
-    ctx.textAlign='left'; ctx.fillText((qty*price).toLocaleString('ar-EG')+' ج.م', PAD, y+itemRowH/2);
+    ctx.textAlign='left'; ctx.fillText((qty*price).toLocaleString('ar-EG')+' ج.م', totalColLeft-90, y+itemRowH/2);
     y += itemRowH;
-    solidLine(y, '#eee', 1);
+    if(idx<items.length-1) solidLine(y, '#f2f2f2', 1);
   });
+  ctx.save();
+  ctx.strokeStyle = '#ececec'; ctx.lineWidth = 1;
+  ctx.strokeRect(X0+PAD+0.5, itemsTopY-itemHeadH+0.5, CW-2*PAD-1, itemsH-1);
+  ctx.restore();
   y += GAP;
 
-  // المصاريف والإجمالي والمدفوع والمتبقي
-  totalsRows.forEach(([lbl,val,big])=>{ labelValueRow(y, lbl, val, big); y += ROW_H; });
+  // صندوق المصاريف والإجمالي (خلفية مميزة)
+  ctx.save();
+  roundRectPath(ctx, X0+PAD, y, CW-2*PAD, totalsH, 10);
+  ctx.fillStyle = '#f8f6f1';
+  ctx.fill();
+  ctx.restore();
+  y += totalsPadV;
+  totalsRows.forEach(([lbl,val,big,danger])=>{ labelValueRow(y, lbl, val, big, danger); y += ROW_H; });
+  y += totalsPadV;
+  y += GAP;
+
+  // خط متقطع وخاتمة شكر
+  dashedLine(y);
+  y += 22;
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#999';
+  ctx.font = '13px '+FONT;
+  ctx.fillText('شكرًا لثقتكم بنا 🌿', OM+CW/2, y);
+
+  ctx.restore(); // فك القص عن حدود البطاقة
+
+  // إطار رفيع حوالين البطاقة
+  ctx.save();
+  roundRectPath(ctx, OM, OM, CW, CH, 18);
+  ctx.strokeStyle = '#eee';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 
   return canvas;
 }
