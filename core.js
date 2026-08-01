@@ -1763,7 +1763,6 @@ function renderOrders(){
           : `<button class="btn sm outline" onclick="startOrderWork('${o.id}')">▶️ بدء الشغل</button>`) : ''}
         <button class="btn sm accent" onclick="sendWhatsApp('${o.id}')">📲 فاتورة واتساب</button>
         <button class="btn sm outline" onclick="printReceipt('${o.id}')">🖨️ إيصال</button>
-        <button class="btn sm outline" onclick="printOrderLabel('${o.id}')">🏷️ ملصق</button>
         <button class="btn sm danger" onclick="deleteOrder('${o.id}')">🗑️ حذف</button>
       </div>
     </div>`;
@@ -2299,7 +2298,10 @@ async function savePayment(orderId){
   toast('تم تسجيل الدفعة ✅');
 }
 
-/* ---- فاتورة واتساب ---- */
+/* ---- فاتورة واتساب ----
+   نفس تفاصيل ورقة الإيصال المطبوعة (printReceipt) بالظبط: بيانات الورشة،
+   بيانات العميل، جدول الأصناف بالعدد وسعر القطعة وإجمالي كل صنف،
+   المصاريف الإضافية، الخصم، الضريبة، ثم الإجمالي والمدفوع والمتبقي. */
 function sendWhatsApp(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
@@ -2307,7 +2309,6 @@ function sendWhatsApp(orderId){
   if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
-  const subtotal = orderSubtotal(o);
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
@@ -2315,18 +2316,33 @@ function sendWhatsApp(orderId){
   const extraLines = [];
   if(discount>0) extraLines.push(`الخصم: -${Math.round(discount).toLocaleString('ar-EG')} ج.م`);
   if(tax>0) extraLines.push(`الضريبة/الرسوم: +${Math.round(tax).toLocaleString('ar-EG')} ج.م`);
+  const itemsList = (Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}])
+    .map(it=>`- ${it.type} | العدد: ${it.qty||1} | سعر القطعة: ${(Number(it.unitPrice)||0).toLocaleString('ar-EG')} ج.م | الإجمالي: ${((it.qty||1)*(Number(it.unitPrice)||0)).toLocaleString('ar-EG')} ج.م`)
+    .join('\n');
+  const brandLines = [db.workshopName||'ورشة تفصيل الجلابيب'];
+  if(db.ownerName) brandLines.push(db.ownerName);
+  if(db.ownerPhone) brandLines.push('📞 '+db.ownerPhone);
+  if(db.workshopAddress) brandLines.push('📍 '+db.workshopAddress);
   const msg =
-`فاتورة تفصيل جلابة 🧵
+`${brandLines.join('\n')}
+—————————————
+🧾 فاتورة تفصيل جلابة
 رقم الفاتورة: ${o.invoiceNumber}
-العميل: ${c.name}
-الأصناف:
-${itemsBreakdownLines(o).join('\n')}
-تاريخ الاستلام: ${fmtDate(o.dateReceived)}
-تاريخ التسليم: ${fmtDate(o.dateDelivery)}
+
+👤 العميل: ${c.name}
+📞 الهاتف: ${c.phone}
+📅 تاريخ الاستلام: ${fmtDate(o.dateReceived)}
+📅 تاريخ التسليم المتوقع: ${fmtDate(o.dateDelivery)}
+
+🧵 الأصناف:
+${itemsList}
+
 مصاريف إضافية: ${o.extra||0} ج.م
-${extraLines.length?extraLines.join('\n')+'\n':''}الإجمالي: ${Math.round(total).toLocaleString('ar-EG')} ج.م
+${extraLines.length?extraLines.join('\n')+'\n':''}—————————————
+الإجمالي: ${Math.round(total).toLocaleString('ar-EG')} ج.م
 المدفوع: ${o.paid||0} ج.م
 المتبقي: ${Math.round(remaining).toLocaleString('ar-EG')} ج.م
+
 شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
   openExternalLink(url);
