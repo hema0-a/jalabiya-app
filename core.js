@@ -2339,8 +2339,8 @@ async function sendWhatsApp(orderId){
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
 
-  // نجهز صورة الإيصال ونحفظها في الجهاز قبل ما نفتح واتساب
-  const imgSaved = await saveReceiptImageToDevice(orderId, c);
+  // نجهز صورة الإيصال (نسخ/حفظ) قبل ما نفتح واتساب
+  const imgResult = await saveReceiptImageToDevice(orderId, c);
 
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
@@ -2378,7 +2378,9 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
 
 شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
   openWhatsAppChat(phone, msg);
-  if(imgSaved) toast('📸 صورة الفاتورة جاهزة — في شات العميل اضغط 📎 واختار آخر صورة وابعتها');
+  if(imgResult==='clipboard') toast('📋 الصورة اتنسخت — في شات العميل دوس مطوّل في خانة الكتابة واختار "لصق" وابعتها');
+  else if(imgResult==='downloaded') toast('📸 صورة الفاتورة جاهزة — في شات العميل اضغط 📎 واختار آخر صورة وابعتها');
+  else if(imgResult==='shared') toast('📤 تم فتح نافذة المشاركة — اختار واتساب وابعت الصورة للعميل');
 }
 
 function sendReminder(orderId){
@@ -2606,13 +2608,18 @@ function drawReceiptCanvas(orderId){
   return canvas;
 }
 
-/* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG.
-   بيرجّع واحدة من:
-   - 'shared'  → اتبعتت الصورة مباشرة عن طريق نافذة مشاركة الجهاز (اختار واتساب منها)
-   - 'saved'   → مقدرناش نفتح نافذة المشاركة، فحفظنا الصورة في جهازه عشان يرفقها يدوي
-   - 'failed'  → مقدرناش نجهز صورة خالص (هنرجع للرسالة النصية القديمة) */
-/* بيجهز صورة الإيصال الاحترافية ويحفظها في جهاز المستخدم (تنزيل مباشر) عشان
-   تبقى جاهزة يرفقها بضغطة واحدة في شات العميل. بيرجّع true لو نجح الحفظ. */
+/* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG وبيجهزها للإرسال بأسرع
+   طريقة ممكنة في شات العميل. واتساب (زي أي تطبيق تاني) مابيسمحش لموقع يبعت
+   ملف/صورة لمحادثة شخص معين تلقائيًا من غير تدخل المستخدم — ده قيد أمان من
+   واتساب نفسه ضد السبام، مش قصور في الكود، فمفيش طريقة تقنية تخلي الصورة
+   "تتبعت لوحدها". أقصى حاجة ممكنة وهي اللي بنعملها هنا، بالترتيب:
+   1) ننسخ الصورة لذاكرة النسخ (Clipboard) — لو نجحت، المستخدم غير مضطر
+      يدور عليها في المعرض، هيدوس مطولاً في خانة الكتابة في شات واتساب
+      ويختار "لصق" وهتظهر جاهزة للإرسال فورًا.
+   2) لو الـ Clipboard مش مدعومة، نحفظ الصورة في الجهاز (تنزيل مباشر)
+      عشان يرفقها بضغطة 📎 من آخر صورة/تنزيل.
+   3) لو التنزيل اتحظر برضو، نفتح نافذة المشاركة العامة للجهاز.
+   بيرجّع واحدة من: 'clipboard' | 'downloaded' | 'shared' | false */
 async function saveReceiptImageToDevice(orderId, c){
   let blob = null;
   try{
@@ -2623,6 +2630,16 @@ async function saveReceiptImageToDevice(orderId, c){
   }
   if(!blob) return false;
 
+  // 1) أسرع طريقة: نسخ الصورة لذاكرة النسخ عشان تتلصق مباشرة في شات واتساب
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      await navigator.clipboard.write([new window.ClipboardItem({'image/png': blob})]);
+      return 'clipboard';
+    }
+  }catch(e){
+    console.warn('sendWhatsApp: فشل نسخ الصورة لذاكرة النسخ، هنجرب التنزيل', e);
+  }
+
   const filename = 'فاتورة_'+(c?c.name:'طلب')+'.png';
   try{
     const url = URL.createObjectURL(blob);
@@ -2630,7 +2647,7 @@ async function saveReceiptImageToDevice(orderId, c){
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 60000);
-    return true;
+    return 'downloaded';
   }catch(e){
     console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف، هنجرب نافذة المشاركة العامة', e);
   }
@@ -2640,10 +2657,10 @@ async function saveReceiptImageToDevice(orderId, c){
     const file = new File([blob], filename, {type:'image/png'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
       await navigator.share({files:[file], title:filename});
-      return true;
+      return 'shared';
     }
   }catch(e){
-    if(e && e.name==='AbortError') return true;
+    if(e && e.name==='AbortError') return 'shared';
     console.warn('sendWhatsApp: فشلت مشاركة الصورة برضو', e);
   }
   return false;
