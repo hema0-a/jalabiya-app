@@ -198,6 +198,12 @@ let cloudPushTimer = null;
 let cloudApplyingRemote = false; // true أثناء ما بنطبق تحديث جاي من السحابة، عشان منعملش لوب (نستقبل ونرجع نبعت)
 let cloudStatus = 'off'; // off | connecting | online | error
 let cloudPendingChanges = false; // true من وقت آخر تعديل لحد ما ينجح الرفع للسحابة
+// true بس بعد ما نستلم أول رد فعلي من السحابة (onSnapshot) لجلسة الاتصال الحالية —
+// سواء "فيه مستند وده اللي جواه" أو "المستند مش موجود لسه". قبل كده ممنوع منعًا باتًا
+// أي رفع (push) للسحابة، حتى لو saveDB اتنادت، عشان منكررش كارثة إن بيانات محلية
+// فاضية أو قديمة تكسب سباق ضد التحميل الحقيقي وتكتب فوق بيانات المستخدم الحقيقية.
+let cloudInitialSyncDone = false;
+let cloudPushWaitRetries = 0; // عداد أمان لمنع لوب لا نهائي لو الاتصال بالسحابة فشل باستمرار
 
 function cloudStatusChanged(){
   const el = document.getElementById('cloudSyncStatusBadge');
@@ -213,6 +219,23 @@ function scheduleCloudPush(){
 
 async function pushToCloud(){
   if(!cloudDb || !db.cloudSync || !db.cloudSync.syncId) return;
+  if(!cloudInitialSyncDone){
+    // لسه ما استلمناش تأكيد حقيقي من السحابة عن الحالة الحالية للمستند
+    // (سواء فيه بيانات، أو المستند مش موجود لسه). الرفع في اللحظة دي خطر —
+    // ممكن يكتب بيانات محلية فاضية/قديمة فوق بيانات حقيقية على السحابة.
+    // بدل ما نرفع بعمى، بنأجل ونحاول تاني بعد شوية لحد ما يوصل أول snapshot حقيقي.
+    if(cloudPushWaitRetries > 20){
+      // اتأخرنا أكتر من كفاية (فيه مشكلة اتصال مستمرة) — بنوقف المحاولة دلوقتي
+      // بدل ما نلف لوب لا نهائي؛ أي تعديل جديد (saveDB) هيعيد المحاولة تلقائي
+      cloudStatusChanged();
+      return;
+    }
+    cloudPushWaitRetries++;
+    clearTimeout(cloudPushTimer);
+    cloudPushTimer = setTimeout(pushToCloud, 400);
+    return;
+  }
+  cloudPushWaitRetries = 0;
   if(!navigator.onLine){
     // محدش نت دلوقتي — نسيب التغيير معلّق، هيتبعت تلقائي أول ما الاتصال يرجع (حدث 'online')
     cloudStatusChanged();
@@ -239,6 +262,10 @@ function initCloudSync(){
     cloudStatusChanged();
     return;
   }
+  // كل محاولة اتصال (بما فيها إعادة الاتصال) لازم تستنى تأكيد جديد من السحابة
+  // قبل ما تسمح بأي رفع — منع الكارثة مش مقصور بس على أول ربط
+  cloudInitialSyncDone = false;
+  cloudPushWaitRetries = 0;
   try{
     cloudStatus='connecting';
     cloudStatusChanged();
@@ -249,9 +276,9 @@ function initCloudSync(){
     cloudUnsub = cloudDb.collection('workshops').doc(db.cloudSync.syncId).onSnapshot(
       snap=>{
         cloudStatus='online';
-        if(!snap.exists){ cloudStatusChanged(); return; }
+        if(!snap.exists){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         const remote = snap.data();
-        if(!remote || typeof remote.updatedAt!=='number'){ cloudStatusChanged(); return; }
+        if(!remote || typeof remote.updatedAt!=='number'){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         if(remote.updatedAt > (Number(db.updatedAt)||0)){
           cloudApplyingRemote = true;
           const myCloudSettings = db.cloudSync; // نحافظ على إعدادات الاتصال بتاعت الجهاز ده بالذات
@@ -263,6 +290,9 @@ function initCloudSync(){
           try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
           cloudApplyingRemote = false;
         }
+        // دلوقتي مؤكد إن db المحلية (سواء فضلت زي ما هي أو اتحدثت من فوق) متزامنة
+        // فعليًا مع آخر حالة معروفة من السحابة — آمن نسمح بالرفع بعد كده
+        cloudInitialSyncDone = true;
         cloudStatusChanged();
       },
       err=>{
@@ -349,6 +379,7 @@ async function disconnectCloudSync(){
   if(!await appConfirm('هل تريد فصل المزامنة السحابية؟ بياناتك المحلية هتفضل موجودة، بس مش هتتحدث لحظيًا مع الجهاز التاني بعد كده.')) return;
   if(cloudUnsub){ cloudUnsub(); cloudUnsub=null; }
   db.cloudSync.enabled = false;
+  cloudPendingChanges = false;
   saveDB();
   cloudStatus='off';
   renderSettings();
