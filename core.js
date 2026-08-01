@@ -2469,9 +2469,11 @@ const RECEIPT_STYLE = `
 
 /* بيبني جسم ورقة الإيصال (نفس التصميم الاحترافي) من غير <html>/<head> عشان
    يتقدر يتحط جوه نافذة طباعة أو جوه عنصر مخفي بيتحول لصورة PNG لواتساب. */
-function buildReceiptBodyHtml(orderId){
-  const o = db.orders.find(x=>x.id===orderId);
-  if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
+function buildReceiptBodyHtml(orderId, opts){
+  opts = opts || {};
+  const o = opts.order || db.orders.find(x=>x.id===orderId);
+  if(!o) return '';
+  if(!opts.preview && !o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
@@ -2495,7 +2497,7 @@ function buildReceiptBodyHtml(orderId){
       </div>
       <div class="inv-titlebar">
         <h1>🧾 إيصال تفصيل جلابة</h1>
-        <span class="inv-badge">رقم ${o.invoiceNumber||'-'}</span>
+        <span class="inv-badge">رقم ${o.invoiceNumber || (opts.preview?'معاينة':'-')}</span>
       </div>
       <div class="inv-body">
         <table>
@@ -2548,6 +2550,65 @@ function printReceipt(orderId){
     </body></html>
   `;
   openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
+}
+
+// بيرجّع أحدث طلب حقيقي في السجل لاستخدامه في معاينة تصميم الفاتورة، ولو مفيش طلبات
+// خالص بيبني طلب وهمي مؤقت (مش بيتحفظ في قاعدة البيانات) بس عشان تتشاف المعاينة
+function sampleOrderForPreview(){
+  if(Array.isArray(db.orders) && db.orders.length) return db.orders[db.orders.length-1];
+  return {
+    id:'__preview__',
+    customerId:null,
+    items:[{type:'جلابة قطن', qty:1, unitPrice:225}],
+    extra:0, paid:0, discountType:'none', taxPercent:0,
+    dateReceived:new Date().toISOString().slice(0,10),
+    dateDelivery:new Date().toISOString().slice(0,10)
+  };
+}
+
+// بيبني (أول مرة بس) بطاقة "شكل الفاتورة" داخل صفحة الإعدادات، وبعد كده بيحدّث محتواها
+// في كل مرة تتفتح فيها الإعدادات — عشان صاحب الورشة يشوف شكل الإيصال فورًا بنفس الألوان
+// والشعار المسجلين، من غير ما يحتاج يطبع أو يبعت واتساب للتجربة
+function renderInvoicePreviewCard(){
+  const page = document.getElementById('page-settings');
+  if(!page) return;
+  let card = document.getElementById('invoicePreviewCard');
+  if(!card){
+    card = document.createElement('div');
+    card.id = 'invoicePreviewCard';
+    card.className = 'card';
+    card.innerHTML = `
+      <h3 style="margin-top:0;">🧾 شكل الفاتورة</h3>
+      <p class="meta" style="margin-top:-6px;">معاينة حية لشكل إيصال الفاتورة بنفس اسم الورشة وشعارها وألوانها — أي تعديل تحفظه بالأعلى هيتحدث هنا فورًا.</p>
+      <div id="invoicePreviewBox" style="background:#f3f1ec;border-radius:12px;padding:16px 8px;overflow:auto;"></div>
+      <div class="row" style="margin-top:10px;">
+        <button class="btn" onclick="printInvoicePreviewSample()">🖨️ تجربة طباعة</button>
+      </div>
+    `;
+    page.appendChild(card);
+  }
+  const box = document.getElementById('invoicePreviewBox');
+  if(box) box.innerHTML = `<style>${RECEIPT_STYLE}</style>` + buildReceiptBodyHtml(null, {order: sampleOrderForPreview(), preview:true});
+}
+
+// يطبع نفس الطلب المعروض في معاينة الإعدادات، للتأكد إن ورقة الطباعة الفعلية مطابقة للمعاينة
+function printInvoicePreviewSample(){
+  const o = sampleOrderForPreview();
+  const c = customerById(o.customerId);
+  const html = `
+    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>معاينة إيصال</title>
+    <style>
+      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;background:#f3f1ec;}
+      ${RECEIPT_STYLE}
+      @media print{
+        body{background:#fff;padding:0;}
+        .inv-card{box-shadow:none;border:1px solid #ddd;}
+      }
+    </style></head><body>
+      ${buildReceiptBodyHtml(null, {order:o, preview:true})}
+    </body></html>
+  `;
+  openPrintWindow(html, 'معاينة_إيصال_'+(c?c.name:'تجربة'));
 }
 
 // يحمّل صورة (زي شعار الورشة) كـ Promise عشان نقدر نرسمها على Canvas بعد ما تخلص تحميل فعليًا
@@ -3520,6 +3581,7 @@ function renderSettings(){
   renderActivityLog();
   renderCloudSyncCard();
   renderPushNotifyCard();
+  renderInvoicePreviewCard();
 }
 
 function renderActivityLog(){
@@ -3551,6 +3613,7 @@ function saveWorkshopInfo(){
   db.workshopAddress = document.getElementById('workshopAddressInput').value.trim();
   saveDB();
   applyWorkshopBranding();
+  renderInvoicePreviewCard();
   toast('تم حفظ بيانات الورشة ✅');
 }
 
@@ -3626,6 +3689,7 @@ function saveTheme(){
   };
   saveDB();
   applyTheme();
+  renderInvoicePreviewCard();
   toast('تم حفظ الألوان ✅');
 }
 
@@ -3634,6 +3698,7 @@ function resetTheme(){
   saveDB();
   applyTheme();
   fillThemeInputs();
+  renderInvoicePreviewCard();
   toast('تم استعادة الألوان الافتراضية ✅');
 }
 
@@ -3652,6 +3717,7 @@ function applyThemePreset(name){
   saveDB();
   applyTheme();
   fillThemeInputs();
+  renderInvoicePreviewCard();
   toast('تم تطبيق الشكل الجديد ✅');
 }
 
