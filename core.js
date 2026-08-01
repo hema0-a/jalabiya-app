@@ -2308,12 +2308,13 @@ async function sendWhatsApp(orderId){
   const c = customerById(o.customerId);
   if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
 
-  // أول محاولة: نبعت الإيصال كصورة بنفس التصميم الاحترافي (زي ورقة الطباعة)
-  // عن طريق نافذة المشاركة الأصلية بالجهاز، فيها يقدر يختار واتساب مباشرة.
-  const shared = await shareReceiptAsImage(orderId, c);
-  if(shared) return;
+  // أول محاولة: نبعت الإيصال كصورة بنفس التصميم الاحترافي (زي ورقة الطباعة).
+  const shareResult = await shareReceiptAsImage(orderId, c);
+  if(shareResult === 'shared') return; // اتبعتت الصورة، خلاص مفيش داعي لرسالة نصية كمان
 
-  // خطة بديلة (لو الجهاز/المتصفح مش بيدعم مشاركة صور): نفس الرسالة النصية زي الأول.
+  // 'saved': اتحفظت الصورة في الجهاز لكن لسه محتاجين نفتح واتساب بنفس الرسالة
+  // النصية (كنسخة احتياطية من التفاصيل) عشان يرفق الصورة يدوي.
+  // 'failed': مقدرناش نجهز صورة خالص، فهنبعت نص عادي زي الأول.
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
   const discount = orderDiscountAmount(o);
@@ -2438,29 +2439,60 @@ function printReceipt(orderId){
   openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
 }
 
-/* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG وبيشاركها مباشرة (بيظهر
-   خيار واتساب في نافذة المشاركة الأصلية بالجهاز). بيرجّع true لو نجح. */
+/* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG.
+   بيرجّع واحدة من:
+   - 'shared'  → اتبعتت الصورة مباشرة عن طريق نافذة مشاركة الجهاز (اختار واتساب منها)
+   - 'saved'   → مقدرناش نفتح نافذة المشاركة، فحفظنا الصورة في جهازه عشان يرفقها يدوي
+   - 'failed'  → مقدرناش نجهز صورة خالص (هنرجع للرسالة النصية القديمة) */
 async function shareReceiptAsImage(orderId, c){
-  if(typeof html2canvas === 'undefined') return false;
-  if(!(navigator.canShare)) return false;
+  if(typeof html2canvas === 'undefined'){
+    console.warn('sendWhatsApp: html2canvas غير متاح (تأكد إن الجهاز متصل بالإنترنت أول مرة لتحميل المكتبة، أو إن الرابط الخارجي مش محظور جوه التطبيق)');
+    return 'failed';
+  }
   let wrap = null;
+  let blob = null;
   try{
     wrap = document.createElement('div');
     wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:520px;background:#fff;padding:24px;color:#222;direction:rtl;font-family:Tahoma,Arial,sans-serif;';
     wrap.innerHTML = `<style>${RECEIPT_STYLE}</style>` + buildReceiptBodyHtml(orderId);
     document.body.appendChild(wrap);
     const canvas = await html2canvas(wrap, {scale:2, backgroundColor:'#ffffff', useCORS:true});
-    const blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
-    if(!blob) return false;
-    const o = db.orders.find(x=>x.id===orderId);
-    const file = new File([blob], 'فاتورة_'+(c?c.name:'طلب')+'.png', {type:'image/png'});
-    if(!navigator.canShare({files:[file]})) return false;
-    await navigator.share({files:[file], title:'فاتورة رقم '+(o.invoiceNumber||'')});
-    return true;
+    blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
   }catch(e){
-    return false;
+    console.warn('sendWhatsApp: فشل تجهيز صورة الإيصال', e);
   }finally{
     if(wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+  }
+  if(!blob) return 'failed';
+
+  const o = db.orders.find(x=>x.id===orderId);
+  const filename = 'فاتورة_'+(c?c.name:'طلب')+'.png';
+  const file = new File([blob], filename, {type:'image/png'});
+
+  // المحاولة المفضّلة: نافذة المشاركة الأصلية بالجهاز (فيها اختيار واتساب مباشرة)
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:'فاتورة رقم '+(o.invoiceNumber||'')});
+      return 'shared';
+    }
+  }catch(e){
+    if(e && e.name==='AbortError') return 'shared'; // المستخدم لغى المشاركة بنفسه، مش خطأ
+    console.warn('sendWhatsApp: فشلت مشاركة الصورة عن طريق navigator.share', e);
+  }
+
+  // خطة بديلة: كتير من تطبيقات الـ WebView (زي WebIntoApp) مبتدعمش مشاركة
+  // الملفات خالص، فبنحفظ الصورة في الجهاز مباشرة عشان يرفقها هو يدوي في واتساب.
+  try{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    toast('📸 تم حفظ صورة الفاتورة في جهازك، هيفتح واتساب دلوقتي — اضغط 📎 وارفق آخر صورة');
+    return 'saved';
+  }catch(e){
+    console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف', e);
+    return 'failed';
   }
 }
 
