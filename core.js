@@ -2570,8 +2570,8 @@ function sampleOrderForPreview(){
 // في كل مرة تتفتح فيها الإعدادات — عشان صاحب الورشة يشوف شكل الإيصال فورًا بنفس الألوان
 // والشعار المسجلين، من غير ما يحتاج يطبع أو يبعت واتساب للتجربة
 function renderInvoicePreviewCard(){
-  const page = document.getElementById('page-settings');
-  if(!page) return;
+  const anchorInput = document.getElementById('workshopNameInput');
+  if(!anchorInput) return;
   let card = document.getElementById('invoicePreviewCard');
   if(!card){
     card = document.createElement('div');
@@ -2585,7 +2585,13 @@ function renderInvoicePreviewCard(){
         <button class="btn" onclick="printInvoicePreviewSample()">🖨️ تجربة طباعة</button>
       </div>
     `;
-    page.appendChild(card);
+    // نحطها بعد أقرب "card" لحقل اسم الورشة مباشرة — بدل الاعتماد على تخمين هوية حاوية صفحة الإعدادات
+    const anchorCard = anchorInput.closest('.card') || anchorInput.closest('section') || anchorInput.parentElement;
+    if(anchorCard && anchorCard.parentNode){
+      anchorCard.parentNode.insertBefore(card, anchorCard.nextSibling);
+    } else {
+      anchorInput.parentElement.appendChild(card);
+    }
   }
   const box = document.getElementById('invoicePreviewBox');
   if(box) box.innerHTML = `<style>${RECEIPT_STYLE}</style>` + buildReceiptBodyHtml(null, {order: sampleOrderForPreview(), preview:true});
