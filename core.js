@@ -60,6 +60,30 @@ function openExternalLink(url){
   }
 }
 
+/* بيفتح شات عميل معين بالتحديد في تطبيق واتساب نفسه (مش رابط wa.me بس).
+   رابط wa.me أحيانًا بيتفتح كصفحة ويب عادية جوه الـ WebView (فبيوديك لصفحة
+   واتساب العامة وتضطر تدور على العميل)، لكن سكيم "whatsapp://" هو رابط
+   التطبيق المباشر، وده اللي بتطبيقات تغليف الـ WebView (زي WebIntoApp)
+   بتلقفه وتحوّله لفتح تطبيق واتساب نفسه على نفس الشات بالظبط.
+   لو السكيم مش مدعوم لأي سبب، بعد لحظة بسيطة (لو الصفحة لسه ظاهرة يعني
+   محصلش تنقّل لتطبيق تاني) بنرجع لرابط wa.me العادي كخطة بديلة. */
+function openWhatsAppChat(phone, text){
+  const encoded = encodeURIComponent(text);
+  const waScheme = phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`;
+  const waWeb = phone ? `https://wa.me/${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  let fallbackDone = false;
+  const tryFallback = ()=>{
+    if(fallbackDone) return;
+    fallbackDone = true;
+    if(!document.hidden) openExternalLink(waWeb);
+  };
+  document.addEventListener('visibilitychange', function onVis(){
+    if(document.hidden){ fallbackDone = true; document.removeEventListener('visibilitychange', onVis); }
+  });
+  setTimeout(tryFallback, 1200);
+  openExternalLink(waScheme);
+}
+
 /* حفظ/مشاركة ملف (نسخة احتياطية، CSV، HTML...) — بعض تطبيقات WebView
    (زي WebIntoApp) لا تدعم تنزيل ملفات blob: بصمت من غير أي رسالة خطأ.
    هنا بنجرب أولاً مشاركة الملف عبر واجهة المشاركة الأصلية بالجهاز
@@ -1698,7 +1722,7 @@ ${c.notes?'\nملاحظات: '+c.notes:''}`;
   let phone = (c.phone||'').replace(/[^0-9]/g,'');
   if(phone){
     if(phone.startsWith('0')) phone = '2'+phone; // مصر
-    openExternalLink(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`);
+    openWhatsAppChat(phone, msg);
   } else {
     openExternalLink(`https://wa.me/?text=${encodeURIComponent(msg)}`);
   }
@@ -2353,8 +2377,7 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
 المتبقي: ${Math.round(remaining).toLocaleString('ar-EG')} ج.م
 
 شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
+  openWhatsAppChat(phone, msg);
   if(imgSaved) toast('📸 صورة الفاتورة جاهزة — في شات العميل اضغط 📎 واختار آخر صورة وابعتها');
 }
 
@@ -2369,8 +2392,7 @@ function sendReminder(orderId){
 حضرتك، جلابيتك (${orderTypeLabel(o)}) هتكون جاهزة يوم ${fmtDate(o.dateDelivery)} إن شاء الله.
 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م
 في انتظار حضرتك 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
+  openWhatsAppChat(phone, msg);
 }
 
 /* أنماط CSS لورقة الإيصال — مستخدمة في نافذة الطباعة وفي نسخة الصورة اللي بتتبعت في واتساب */
@@ -2870,8 +2892,7 @@ function sendDebtReminder(customerId){
 حضرتك، إجمالي المتبقي على حسابك: ${totalRemaining.toLocaleString('ar-EG')} ج.م
 عدد الطلبات غير المسددة بالكامل: ${unpaidOrders.length}
 في انتظار حضرتك 🙏`;
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  openExternalLink(url);
+  openWhatsAppChat(phone, msg);
 }
 
 /* ============================================================
