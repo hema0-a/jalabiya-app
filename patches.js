@@ -2884,5 +2884,104 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 32) تتبع مصدر/محيل العميل (مين جابه) + تقرير أفضل مصادر العملاء
+   بيضيف حقل اختياري في فورم العميل "اتعرف عليك إزاي؟" — ممكن يبقى
+   اسم عميل موجود بالفعل (إحالة)، أو مصدر عام زي إعلان/لافتة المحل.
+   القيمة بتتحفظ في c.referredBy، وبتظهر في كارت العميل، وفوق قائمة
+   العملاء بيظهر تقرير بسيط بأكتر المصادر تكرارًا. */
+(function(){
+  var COMMON_SOURCES = ['إعلان فيسبوك','إعلان انستجرام','لافتة/واجهة المحل','بحث جوجل','توصية صديق/قريب'];
+
+  function referralDatalistOptions(){
+    var names = db.customers.map(function(c){ return c.name; }).filter(Boolean);
+    var all = Array.from(new Set(names.concat(COMMON_SOURCES)));
+    return all.map(function(o){ return '<option value="'+escapeHtml(o)+'">'; }).join('');
+  }
+
+  // إضافة الحقل لفورم العميل، بعد حقل العائلة مباشرة
+  var origOpenCustomerModalRef = openCustomerModal;
+  openCustomerModal = function(id){
+    origOpenCustomerModalRef.apply(this, arguments);
+    var familyField = document.getElementById('f_family');
+    if(!familyField || document.getElementById('f_referredBy')) return;
+    var familyWrap = familyField.closest('.field');
+    if(!familyWrap) return;
+    var c = id ? customerById(id) : null;
+    var wrap = document.createElement('div');
+    wrap.className = 'field';
+    wrap.innerHTML = '<label>🔗 اتعرف عليك إزاي؟ (اختياري)</label>'
+      + '<input id="f_referredBy" list="referredByList" value="'+(c?escapeHtml(c.referredBy||''):'')+'" placeholder="مثال: اسم عميل، أو إعلان فيسبوك...">'
+      + '<datalist id="referredByList">'+referralDatalistOptions()+'</datalist>';
+    familyWrap.insertAdjacentElement('afterend', wrap);
+  };
+
+  // حفظ القيمة بعد ما saveCustomer الأصلية (بكل الطبقات اللي فاتت) تخلص شغلها بنجاح
+  var origSaveCustomerRef = saveCustomer;
+  saveCustomer = async function(id){
+    var input = document.getElementById('f_referredBy');
+    var referredBy = input ? input.value.trim() : '';
+    var prevCount = db.customers.length;
+    var r = await origSaveCustomerRef.apply(this, arguments);
+    var ov = document.getElementById('modalOverlay');
+    var saved = !(ov && ov.classList.contains('active')); // الفورم اتقفل يبقى الحفظ نجح فعليًا
+    if(saved){
+      var target = id ? customerById(id) : db.customers[db.customers.length-1];
+      if(target && db.customers.length>=prevCount){
+        if(referredBy) target.referredBy = referredBy; else delete target.referredBy;
+        saveDB();
+      }
+    }
+    return r;
+  };
+
+  // عرض المصدر في كارت العميل + تقرير أفضل المصادر فوق القائمة
+  function renderReferralReport(){
+    var listEl = document.getElementById('customersList');
+    if(!listEl) return;
+    var box = document.getElementById('referralReportBox');
+    var counts = {};
+    db.customers.forEach(function(c){
+      if(!c.referredBy) return;
+      counts[c.referredBy] = (counts[c.referredBy]||0)+1;
+    });
+    var entries = Object.keys(counts).map(function(k){ return {name:k, count:counts[k]}; }).sort(function(a,b){ return b.count-a.count; });
+    if(!entries.length){ if(box) box.remove(); return; }
+    if(!box){
+      box = document.createElement('div');
+      box.id = 'referralReportBox';
+      box.className = 'card';
+      box.style.marginBottom = '12px';
+      listEl.parentNode.insertBefore(box, listEl);
+    }
+    box.innerHTML = '<h3 style="font-size:14px;">🔗 أفضل مصادر العملاء</h3>'
+      + entries.slice(0,5).map(function(e){ return '<div class="meta">'+escapeHtml(e.name)+': <b>'+e.count+'</b> عميل</div>'; }).join('');
+  }
+
+  var origRenderCustomersRef = renderCustomers;
+  renderCustomers = function(){
+    origRenderCustomersRef.apply(this, arguments);
+    var listEl = document.getElementById('customersList');
+    if(listEl){
+      listEl.querySelectorAll('.card').forEach(function(card){
+        if(card.querySelector('.referred-by-line')) return;
+        var btn = card.querySelector('[onclick^="openCustomerModal("]');
+        if(!btn) return;
+        var m = btn.getAttribute('onclick').match(/openCustomerModal\('([^']+)'/);
+        if(!m) return;
+        var c = db.customers.find(function(x){ return x.id===m[1]; });
+        if(!c || !c.referredBy) return;
+        var phoneLine = card.querySelector('.meta');
+        if(phoneLine){
+          var line = document.createElement('div');
+          line.className = 'meta referred-by-line';
+          line.textContent = '🔗 اتعرف عن طريق: ' + c.referredBy;
+          phoneLine.insertAdjacentElement('afterend', line);
+        }
+      });
+    }
+    renderReferralReport();
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
