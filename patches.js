@@ -1435,6 +1435,7 @@ cloudStatusChanged = function(){
     });
     if(anyInvalid){ toast('⚠️ فيه قيمة أكبر من الكمية المطلوبة'); return; }
 
+    o.updatedAt = Date.now();
     logActivity('📦 تسليم جزئي لطلب '+(customerById(o.customerId)?customerById(o.customerId).name:''));
     saveDB();
     closeModal();
@@ -2298,6 +2299,7 @@ cloudStatusChanged = function(){
     var wasDelivered = (before.status==='تم التسليم');
     o.status = newStatus;
     if(wasDelivered) o.deliveredDate = null;
+    o.updatedAt = Date.now();
     var c = customerById(o.customerId);
     logActivity('🔄 تغيير حالة طلب '+(c?c.name:'')+' إلى "'+newStatus+'"');
     setUndo('تغيير حالة الطلب', function(){
@@ -2385,18 +2387,60 @@ cloudStatusChanged = function(){
 })();
 
 /* 11) نافذة تأكيد قبل حفظ أي تعديل على بيانات عميل موجود بالفعل
+   [تحديث] بدل رسالة عامة "هل تريد حفظ التعديلات؟"، النافذة بقت توضح
+   بالظبط إيه اللي اتغير (حقل حقل، القديم ← الجديد) عشان المستخدم
+   يوافق على التغيير الفعلي مش بس يضغط "تأكيد" عادةً.
    (الإضافة الجديدة مش محتاجة تأكيد لوحدها — أصلاً فيه خطوة "حفظ"
    صريحة، والتأكيد هنا يبقى مخصص للتعديل على بيانات موجودة). */
 (function(){
+  var FIELD_LABELS = {
+    name:'الاسم', phone:'رقم الهاتف', family:'العائلة',
+    chest:'الصدر', waist:'الخزنة', length:'الطول', sleeve:'طول الكم', shoulder:'وسع الكم',
+    notes:'ملاحظات'
+  };
+
+  function readCustomerFormValues(){
+    return {
+      name: (document.getElementById('f_name').value||'').trim(),
+      phone: (document.getElementById('f_phone').value||'').trim(),
+      family: (document.getElementById('f_family').value||'').trim(),
+      chest: document.getElementById('f_chest').value||'',
+      waist: document.getElementById('f_waist').value||'',
+      length: document.getElementById('f_length').value||'',
+      sleeve: document.getElementById('f_sleeve').value||'',
+      shoulder: document.getElementById('f_shoulder').value||'',
+      notes: (document.getElementById('f_notes').value||'').trim()
+    };
+  }
+
+  function buildCustomerDiffLines(c, newData){
+    var lines = [];
+    Object.keys(FIELD_LABELS).forEach(function(key){
+      var oldVal = (c[key]===undefined||c[key]===null||c[key]==='') ? '-' : String(c[key]);
+      var newVal = (newData[key]===undefined||newData[key]===null||newData[key]==='') ? '-' : String(newData[key]);
+      if(oldVal !== newVal){
+        lines.push(FIELD_LABELS[key] + ': ' + oldVal + ' ← ' + newVal);
+      }
+    });
+    return lines;
+  }
+
   var origSaveCustomerConfirm = saveCustomer;
   saveCustomer = async function(id){
     if(id){
       var c = customerById(id);
-      var ok = await appConfirm(
-        'هل تريد حفظ التعديلات على بيانات العميل' + (c?(' "'+c.name+'"'):'') + '؟',
-        {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
-      );
-      if(!ok) return;
+      if(c){
+        var newData = readCustomerFormValues();
+        var diffLines = buildCustomerDiffLines(c, newData);
+        var msg;
+        if(diffLines.length){
+          msg = 'هل تريد حفظ هذه التعديلات على بيانات العميل "' + c.name + '"؟\n\n' + diffLines.join('\n');
+        } else {
+          msg = 'هل تريد حفظ التعديلات على بيانات العميل "' + c.name + '"؟ (لا يوجد تغيير فعلي في البيانات)';
+        }
+        var ok = await appConfirm(msg, {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false});
+        if(!ok) return;
+      }
     }
     __skipUnsavedCheckOnce = true;
     var r = await origSaveCustomerConfirm.apply(this, arguments);
@@ -2408,32 +2452,153 @@ cloudStatusChanged = function(){
 })();
 
 /* 12) نافذة تأكيد قبل حفظ أي تعديل على طلب موجود بالفعل
-   [تم التحديث] لو التعديل بيغيّر حالة الطلب لـ"تم التسليم" (سواء من
-   قائمة الحالة المنسدلة أو غيرها) بيظهر تنبيه مخصص وأوضح، بدل رسالة
-   "حفظ التعديلات" العامة — لأن ده إجراء نهائي وأسهل حاجة تتضغط غلط
-   من قائمة منسدلة أثناء التمرير بالإصبع. */
+   [تحديث] بدل رسالة عامة "هل تريد حفظ التعديلات؟"، النافذة بقت توضح
+   بالظبط إيه اللي اتغير. التغييرات المالية (السعر/الخصم/الضريبة/
+   المصاريف) بتتعرض في قسم منفصل عن باقي التغييرات العادية (الحالة،
+   التواريخ...) عشان توافق على المبلغ الصح فعلاً مش بس تضغط "تأكيد".
+   لو التعديل بيسجل الطلب "تم التسليم" بالكامل بيتعرض تنبيه مخصص فوق كله.
+   [إضافة] برضه بيفحص لو سعر أي صنف (في طلب جديد أو تعديل) بعيد جدًا
+   عن متوسط أسعار نفس النوع في الطلبات السابقة (نفس منطق حاسبة التسعير
+   السريعة الموجودة أصلاً) — عشان يمسك أخطاء كتابية زي 5000 بدل 500. */
 (function(){
+  var FIN_LABELS = {
+    discount:'الخصم', tax:'نسبة الضريبة/الرسوم', extra:'مصاريف إضافية',
+    materialCost:'تكلفة الخامة', total:'الإجمالي النهائي'
+  };
+
+  function readOrderFormItems(){
+    var items = [];
+    document.querySelectorAll('#itemsContainer .item-row').forEach(function(row){
+      var typeSel = row.querySelector('.it-type');
+      var type = '';
+      if(typeSel.value==='__custom__'){
+        var custom = row.querySelector('.it-custom');
+        type = custom ? custom.value.trim() : '';
+      } else {
+        var g = db.garmentTypes.find(function(x){ return x.id===typeSel.value; });
+        type = g ? g.name : '';
+      }
+      var qty = Math.max(1, Number(row.querySelector('.it-qty').value)||1);
+      var unitPrice = Math.max(0, Number(row.querySelector('.it-price').value)||0);
+      if(type) items.push({type:type, qty:qty, unitPrice:unitPrice});
+    });
+    return items;
+  }
+
+  // بيدور على متوسط سعر نفس النوع في الطلبات السابقة (نفس فكرة حاسبة
+  // التسعير السريعة) وبيرجّع تحذير لو السعر الحالي بعيد جدًا عنه
+  function findUnusualPriceItems(items, excludeOrderId){
+    var warnings = [];
+    items.forEach(function(it){
+      if(!it.unitPrice || it.unitPrice<=0) return;
+      var history = [];
+      db.orders.forEach(function(o){
+        if(excludeOrderId && o.id===excludeOrderId) return;
+        var oi = (Array.isArray(o.items)&&o.items.length) ? o.items : [{type:o.type, unitPrice:(o.unitPrice!==undefined?o.unitPrice:o.fee)||0}];
+        oi.forEach(function(x){ if(x.type===it.type && Number(x.unitPrice)>0) history.push(Number(x.unitPrice)); });
+      });
+      if(history.length<3) return; // مفيش بيانات كافية للمقارنة
+      var avg = history.reduce(function(a,b){ return a+b; },0)/history.length;
+      if(avg<=0) return;
+      if(it.unitPrice > avg*2.5 || it.unitPrice < avg*0.35){
+        warnings.push({type:it.type, price:it.unitPrice, avg:Math.round(avg)});
+      }
+    });
+    return warnings;
+  }
+
+  function priceWarningsText(warnings){
+    return warnings.map(function(w){
+      return '💸 سعر غير معتاد: "'+w.type+'" بسعر '+w.price.toLocaleString('ar-EG')+' ج.م، بينما متوسط أسعارك السابقة لنفس النوع ~'+w.avg.toLocaleString('ar-EG')+' ج.م. متأكد إنه مش غلط كتابي؟';
+    }).join('\n');
+  }
+
+  function buildOrderChangeSummary(o){
+    var items = readOrderFormItems();
+    var dateDelivery = document.getElementById('f_dateDelivery').value;
+    var status = document.getElementById('f_status').value;
+    var urgentEl = document.getElementById('f_urgent');
+    var urgent = urgentEl ? urgentEl.checked : !!o.urgent;
+    var extra = Number(document.getElementById('f_extra').value)||0;
+    var materialCost = Number(document.getElementById('f_materialCost').value)||0;
+    var discountType = document.getElementById('f_discountType').value;
+    var discountValue = Number(document.getElementById('f_discountValue').value)||0;
+    var taxPercent = Number(document.getElementById('f_taxPercent').value)||0;
+
+    var newTypeLabel = orderTypeLabel({items:items});
+    var oldTypeLabel = orderTypeLabel(o);
+    var newTotal = orderTotal({items:items, extra:extra, discountType:discountType, discountValue:discountValue, taxPercent:taxPercent});
+    var oldTotal = orderTotal(o);
+
+    var otherLines = [];
+    var finLines = [];
+
+    if(oldTypeLabel !== newTypeLabel) otherLines.push('الأصناف: ' + oldTypeLabel + ' ← ' + newTypeLabel);
+    if((o.status||'') !== status) otherLines.push('الحالة: ' + o.status + ' ← ' + status);
+    if((o.dateDelivery||'') !== dateDelivery) otherLines.push('تاريخ التسليم: ' + fmtDate(o.dateDelivery) + ' ← ' + fmtDate(dateDelivery));
+    if(!!o.urgent !== urgent) otherLines.push('طلب مستعجل: ' + (o.urgent?'نعم':'لا') + ' ← ' + (urgent?'نعم':'لا'));
+
+    var oldDiscLabel = (!o.discountType||o.discountType==='none') ? 'بدون خصم' : ((Number(o.discountValue)||0)+(o.discountType==='percent'?'%':' ج.م'));
+    var newDiscLabel = (discountType==='none') ? 'بدون خصم' : (discountValue+(discountType==='percent'?'%':' ج.م'));
+    if(oldDiscLabel !== newDiscLabel) finLines.push(FIN_LABELS.discount + ': ' + oldDiscLabel + ' ← ' + newDiscLabel);
+
+    if((Number(o.taxPercent)||0) !== taxPercent) finLines.push(FIN_LABELS.tax + ': ' + ((Number(o.taxPercent)||0)) + '% ← ' + taxPercent + '%');
+    if((Number(o.extra)||0) !== extra) finLines.push(FIN_LABELS.extra + ': ' + ((Number(o.extra)||0)).toLocaleString('ar-EG') + ' ج.م ← ' + extra.toLocaleString('ar-EG') + ' ج.م');
+    if((Number(o.materialCost)||0) !== materialCost) finLines.push(FIN_LABELS.materialCost + ': ' + ((Number(o.materialCost)||0)).toLocaleString('ar-EG') + ' ج.م ← ' + materialCost.toLocaleString('ar-EG') + ' ج.م');
+    if(Math.round(oldTotal) !== Math.round(newTotal)) finLines.push(FIN_LABELS.total + ': ' + Math.round(oldTotal).toLocaleString('ar-EG') + ' ج.م ← ' + Math.round(newTotal).toLocaleString('ar-EG') + ' ج.م');
+
+    return {
+      otherLines: otherLines,
+      finLines: finLines,
+      becomingDelivered: (o.status!=='تم التسليم' && status==='تم التسليم'),
+      priceWarnings: findUnusualPriceItems(items, o.id)
+    };
+  }
+
   var origSaveOrderConfirm = saveOrder;
   saveOrder = async function(id){
     if(id){
       var o = db.orders.find(function(x){ return x.id===id; });
       var c = o ? customerById(o.customerId) : null;
-      var statusSel = document.getElementById('f_status');
-      var newStatus = statusSel ? statusSel.value : null;
-      var becomingDelivered = o && o.status!=='تم التسليم' && newStatus==='تم التسليم';
-      var ok;
-      if(becomingDelivered){
-        ok = await appConfirm(
-          '⚠️ هذا التغيير هيسجّل' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + ' كـ"تم التسليم" بالكامل. هل أنت متأكد؟',
-          {okText:'نعم، تم التسليم', cancelText:'إلغاء', danger:false}
-        );
-      } else {
-        ok = await appConfirm(
-          'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟',
-          {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
-        );
+      if(o){
+        var summary = buildOrderChangeSummary(o);
+        var parts = [];
+        if(summary.becomingDelivered){
+          parts.push('⚠️ هذا التغيير هيسجّل' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + ' كـ"تم التسليم" بالكامل.');
+        }
+        if(summary.priceWarnings.length){
+          parts.push(priceWarningsText(summary.priceWarnings));
+        }
+        if(summary.finLines.length){
+          parts.push('💰 تغييرات مالية:\n' + summary.finLines.join('\n'));
+        }
+        if(summary.otherLines.length){
+          parts.push('📝 تغييرات أخرى:\n' + summary.otherLines.join('\n'));
+        }
+
+        var msg;
+        if(parts.length){
+          msg = 'هل تريد حفظ هذه التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟\n\n' + parts.join('\n\n');
+        } else {
+          msg = 'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟ (لا يوجد تغيير فعلي ملحوظ)';
+        }
+
+        var ok = await appConfirm(msg, {
+          okText: summary.becomingDelivered ? 'نعم، تم التسليم' : 'حفظ التعديل',
+          cancelText: 'إلغاء',
+          danger: false
+        });
+        if(!ok) return;
       }
-      if(!ok) return;
+    } else {
+      // طلب جديد: مفيش داعي لتأكيد عام (فيه خطوة "حفظ" صريحة أصلاً)،
+      // لكن لو السعر المكتوب بعيد جدًا عن المعتاد بننبّه قبل ما يتسجل
+      var newItems = readOrderFormItems();
+      var newWarnings = findUnusualPriceItems(newItems, null);
+      if(newWarnings.length){
+        var ok2 = await appConfirm(priceWarningsText(newWarnings), {okText:'نعم، السعر صحيح', cancelText:'تصحيح السعر', danger:false});
+        if(!ok2) return;
+      }
     }
     __skipUnsavedCheckOnce = true;
     var r = await origSaveOrderConfirm.apply(this, arguments);
@@ -2559,6 +2724,52 @@ cloudStatusChanged = function(){
       return '<button class="btn sm outline" style="width:100%;margin-bottom:8px;" onclick="performUndo('+i+')">↩️ تراجع عن: '+escapeHtml(entry.label)+'</button>';
     }).join('');
   };
+})();
+
+/* 16) منع الحفظ المزدوج (Double-submit)
+   لو زرار "حفظ" اتضغط مرتين بسرعة (شائع على الأجهزة البطيئة أو
+   نتيجة لمسة عرضية)، بيبقى فيه خطر إن نفس الطلب/العميل يتسجل مرتين.
+   الحل: أول ما الزرار يتضغط، بيتعطّل فورًا وبيتغيّر نصه لحد ما عملية
+   الحفظ (بما فيها أي نافذة تأكيد قبلها) تخلص. لو الفورم لسه فاتح بعد
+   كده (يعني رفض بسبب تحقق أو إلغاء)، الزرار بيرجع يشتغل تاني.
+   الدالة دي بتلف آخر نسخة من كل دالة حفظ (بعد كل الباتشات اللي فاتت)،
+   عشان تكون هي أول حاجة تتنفذ فعليًا عند الضغط. */
+(function(){
+  function wrapDoubleSubmit(fnName, btnSelector){
+    var orig = window[fnName];
+    if(typeof orig !== 'function') return;
+    window[fnName] = async function(){
+      var btn = document.querySelector(btnSelector);
+      if(btn){
+        if(btn.dataset.submitting === '1'){
+          // ضغطة تانية وصلت أثناء تنفيذ الأولى — نتجاهلها
+          return;
+        }
+        btn.dataset.submitting = '1';
+        if(btn.dataset.origLabel === undefined) btn.dataset.origLabel = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '⏳ جارٍ الحفظ...';
+      }
+      try{
+        return await orig.apply(this, arguments);
+      } finally {
+        // لو الزرار لسه موجود في الصفحة (يعني الفورم لسه فاتح ومحصلش
+        // حفظ فعلي)، نرجّعه شغّال تاني عشان المستخدم يقدر يصحح ويعيد المحاولة
+        if(btn && document.body.contains(btn)){
+          btn.disabled = false;
+          btn.dataset.submitting = '';
+          if(btn.dataset.origLabel !== undefined) btn.innerHTML = btn.dataset.origLabel;
+        }
+      }
+    };
+  }
+
+  wrapDoubleSubmit('saveOrder', '.modal-box button[onclick^="saveOrder("]');
+  wrapDoubleSubmit('saveCustomer', '.modal-box button[onclick^="saveCustomer("]');
+  wrapDoubleSubmit('savePayment', '.modal-box button[onclick^="savePayment("]');
+  wrapDoubleSubmit('saveExpense', '.modal-box button[onclick^="saveExpense("]');
+  wrapDoubleSubmit('saveGarmentType', '.modal-box button[onclick^="saveGarmentType("]');
+  wrapDoubleSubmit('savePartialDelivery', '.modal-box button[onclick^="savePartialDelivery("]');
 })();
 
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */

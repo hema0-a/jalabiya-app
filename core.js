@@ -902,6 +902,7 @@ function startOrderWork(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o || o.workStartedAt) return;
   o.workStartedAt = Date.now();
+  o.updatedAt = Date.now();
   saveDB();
   renderOrders();
   toast('⏱️ بدأ تسجيل وقت الشغل');
@@ -912,6 +913,7 @@ function stopOrderWork(orderId){
   if(!o || !o.workStartedAt) return;
   const elapsedMin = Math.max(0, Math.round((Date.now()-o.workStartedAt)/60000));
   finalizeWorkTimeIfRunning(o);
+  o.updatedAt = Date.now();
   saveDB();
   renderOrders();
   toast(`⏹️ تم تسجيل ${formatMinutesLabel(elapsedMin)} — الإجمالي ${formatMinutesLabel(o.actualMinutes)}`);
@@ -1078,6 +1080,7 @@ function markOrderDelivered(orderId){
   finalizeWorkTimeIfRunning(o);
   o.status = 'تم التسليم';
   if(!o.deliveredDate) o.deliveredDate = todayStr();
+  o.updatedAt = Date.now();
   db.queueManualOrder = (db.queueManualOrder||[]).filter(id=>id!==orderId);
   logActivity(`✅ تسليم طلب ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
   setUndo('تسجيل الطلب كمُنجز', ()=>{
@@ -1493,6 +1496,7 @@ function renderCustomers(){
         <span class="meas-chip m-shoulder">📏 <span class="meas-lbl">وسع الكم</span> ${c.shoulder||'-'}</span>
       </div>
       ${c.notes?`<div class="meta">📝 ${escapeHtml(c.notes)}</div>`:''}
+      ${c.updatedAt?`<div class="meta" style="opacity:.65;font-size:12px;">🕒 آخر تعديل: ${fmtActivityTime(c.updatedAt)}</div>`:''}
       <div class="btn-row">
         <button class="btn sm secondary" onclick="openCustomerModal('${c.id}')">✏️ تعديل</button>
         <button class="btn sm outline" onclick="openOrderModal(null,'${c.id}')">➕ طلب جديد</button>
@@ -1601,6 +1605,7 @@ async function saveCustomer(id){
     sleeve: document.getElementById('f_sleeve').value,
     shoulder: document.getElementById('f_shoulder').value,
     notes: document.getElementById('f_notes').value.trim(),
+    updatedAt: Date.now(),
   };
   if(id){
     const c = customerById(id);
@@ -1749,6 +1754,7 @@ function renderOrders(){
       <div class="meta">📅 الاستلام: ${fmtDate(o.dateReceived)} | التسليم: ${fmtDate(o.dateDelivery)}</div>
       <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
       <div class="meta">⏱️ وقت الشغل الفعلي: ${o.workStartedAt ? `<b style="color:var(--accent);">جاري التسجيل الآن...</b>` : (o.actualMinutes?formatMinutesLabel(o.actualMinutes):'لم يبدأ بعد')}</div>
+      ${o.updatedAt?`<div class="meta" style="opacity:.65;font-size:12px;">🕒 آخر تعديل: ${fmtActivityTime(o.updatedAt)}</div>`:''}
       <div class="btn-row">
         <button class="btn sm secondary" onclick="openOrderModal('${o.id}')">✏️ تعديل</button>
         <button class="btn sm outline" onclick="openPaymentModal('${o.id}')">💵 تسجيل دفعة</button>
@@ -2089,7 +2095,7 @@ function saveOrder(id){
     const o = db.orders.find(x=>x.id===id);
     const before = JSON.parse(JSON.stringify(o));
     const wasDelivered = o.status==='تم التسليم';
-    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent});
+    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent, updatedAt:Date.now()});
     if(status==='تم التسليم' && !wasDelivered && !o.deliveredDate){
       o.deliveredDate = todayStr();
       finalizeWorkTimeIfRunning(o);
@@ -2108,7 +2114,7 @@ function saveOrder(id){
   } else {
     const paid = Number(document.getElementById('f_paid').value)||0;
     if(paid<0){ toast('المبلغ المدفوع لا يمكن أن يكون رقماً سالباً'); return; }
-    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001};
+    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001, updatedAt:Date.now()};
     db.nextInvoiceNumber = (db.nextInvoiceNumber||1001) + 1;
     if(paid>orderTotal(newOrder)){ toast('المبلغ المدفوع أكبر من إجمالي الطلب، تأكد من الرقم'); db.nextInvoiceNumber--; return; }
     db.orders.push(newOrder);
@@ -2271,11 +2277,12 @@ async function savePayment(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   const remaining = orderRemaining(o);
   if(amount>remaining){
-    const ok = await appConfirm(`المبلغ (${amount.toLocaleString('ar-EG')} ج.م) أكبر من المتبقي على الطلب (${remaining.toLocaleString('ar-EG')} ج.م). هل أنت متأكد من المبلغ؟`, {okText:'نعم، تسجيل', danger:false});
+    const ok = await appConfirm(`💰 تنبيه مبلغ الدفعة\nالمتبقي على الطلب: ${remaining.toLocaleString('ar-EG')} ج.م\nالمبلغ المُدخل: ${amount.toLocaleString('ar-EG')} ج.م\n\nالمبلغ أكبر من المتبقي على الطلب. هل أنت متأكد من المبلغ؟`, {okText:'نعم، تسجيل', danger:false});
     if(!ok) return;
   }
   const beforePaid = Number(o.paid)||0;
   o.paid = beforePaid + amount;
+  o.updatedAt = Date.now();
   const paymentRecord = {id:uid(), orderId, amount, date};
   db.payments.push(paymentRecord);
   logActivity(`💵 دفعة ${amount.toLocaleString('ar-EG')} ج.م من ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
@@ -3899,7 +3906,7 @@ function appConfirm(message, opts){
   return new Promise((resolve)=>{
     openModal(`
       <div class="modal-head"><h3>⚠️ تأكيد</h3></div>
-      <div style="padding:4px 2px 14px;font-size:14.5px;line-height:1.7;">${escapeHtml(message)}</div>
+      <div style="padding:4px 2px 14px;font-size:14.5px;line-height:1.7;white-space:pre-line;">${escapeHtml(message)}</div>
       <div class="btn-row">
         <button class="btn outline" id="appConfirmCancel">${escapeHtml(cancelText)}</button>
         <button class="btn ${danger?'danger':''}" id="appConfirmOk">${escapeHtml(okText)}</button>
