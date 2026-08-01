@@ -2299,24 +2299,25 @@ async function savePayment(orderId){
 }
 
 /* ---- فاتورة واتساب ----
-   نفس تفاصيل ورقة الإيصال المطبوعة (printReceipt) بالظبط: بيانات الورشة،
-   بيانات العميل، جدول الأصناف بالعدد وسعر القطعة وإجمالي كل صنف،
-   المصاريف الإضافية، الخصم، الضريبة، ثم الإجمالي والمدفوع والمتبقي. */
+   واتساب (زي أي تطبيق تاني) مابيسمحش لموقع يبعت ملف/صورة لمحادثة شخص معين
+   تلقائيًا من غير تدخل المستخدم — ده قيد أمان من واتساب نفسه ضد السبام،
+   مش قصور في الكود. أقصى حاجة ممكنة تقنيًا وهي اللي بنعملها هنا:
+   1) نجهز صورة الفاتورة الاحترافية ونحفظها في جهاز المستخدم مباشرة.
+   2) نفتح شات العميل ده بالتحديد في واتساب (رابط wa.me بيحدد الشخص بالظبط)
+      ومعاه نفس تفاصيل الفاتورة كنص احتياطي.
+   3) المستخدم يضغط 📎 في نفس الشات ويختار الصورة (هتكون آخر صورة/تنزيل)
+      ويبعتها — ضغطتين بس، ومفيش داعي يدور على العميل أو يكتب حاجة. */
 async function sendWhatsApp(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
   if(!c || !c.phone){ toast('لا يوجد رقم هاتف مسجل لهذا العميل'); return; }
-
-  // أول محاولة: نبعت الإيصال كصورة بنفس التصميم الاحترافي (زي ورقة الطباعة).
-  const shareResult = await shareReceiptAsImage(orderId, c);
-  if(shareResult === 'shared') return; // اتبعتت الصورة، خلاص مفيش داعي لرسالة نصية كمان
-
-  // 'saved': اتحفظت الصورة في الجهاز لكن لسه محتاجين نفتح واتساب بنفس الرسالة
-  // النصية (كنسخة احتياطية من التفاصيل) عشان يرفق الصورة يدوي.
-  // 'failed': مقدرناش نجهز صورة خالص، فهنبعت نص عادي زي الأول.
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
+
+  // نجهز صورة الإيصال ونحفظها في الجهاز قبل ما نفتح واتساب
+  const imgSaved = await saveReceiptImageToDevice(orderId, c);
+
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
@@ -2354,6 +2355,7 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
 شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
   const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
   openExternalLink(url);
+  if(imgSaved) toast('📸 صورة الفاتورة جاهزة — في شات العميل اضغط 📎 واختار آخر صورة وابعتها');
 }
 
 function sendReminder(orderId){
@@ -2587,46 +2589,42 @@ function drawReceiptCanvas(orderId){
    - 'shared'  → اتبعتت الصورة مباشرة عن طريق نافذة مشاركة الجهاز (اختار واتساب منها)
    - 'saved'   → مقدرناش نفتح نافذة المشاركة، فحفظنا الصورة في جهازه عشان يرفقها يدوي
    - 'failed'  → مقدرناش نجهز صورة خالص (هنرجع للرسالة النصية القديمة) */
-async function shareReceiptAsImage(orderId, c){
+/* بيجهز صورة الإيصال الاحترافية ويحفظها في جهاز المستخدم (تنزيل مباشر) عشان
+   تبقى جاهزة يرفقها بضغطة واحدة في شات العميل. بيرجّع true لو نجح الحفظ. */
+async function saveReceiptImageToDevice(orderId, c){
   let blob = null;
   try{
     const canvas = drawReceiptCanvas(orderId);
     blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
   }catch(e){
     console.warn('sendWhatsApp: فشل تجهيز صورة الإيصال', e);
-    toast('تعذر تجهيز صورة الفاتورة، تم إرسالها كنص بدلًا من ذلك');
   }
-  if(!blob) return 'failed';
+  if(!blob) return false;
 
-  const o = db.orders.find(x=>x.id===orderId);
   const filename = 'فاتورة_'+(c?c.name:'طلب')+'.png';
-  const file = new File([blob], filename, {type:'image/png'});
-
-  // المحاولة المفضّلة: نافذة المشاركة الأصلية بالجهاز (فيها اختيار واتساب مباشرة)
-  try{
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:'فاتورة رقم '+(o.invoiceNumber||'')});
-      return 'shared';
-    }
-  }catch(e){
-    if(e && e.name==='AbortError') return 'shared'; // المستخدم لغى المشاركة بنفسه، مش خطأ
-    console.warn('sendWhatsApp: فشلت مشاركة الصورة عن طريق navigator.share', e);
-  }
-
-  // خطة بديلة: كتير من تطبيقات الـ WebView (زي WebIntoApp) مبتدعمش مشاركة
-  // الملفات خالص، فبنحفظ الصورة في الجهاز مباشرة عشان يرفقها هو يدوي في واتساب.
   try{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 60000);
-    toast('📸 تم حفظ صورة الفاتورة في جهازك، هيفتح واتساب دلوقتي — اضغط 📎 وارفق آخر صورة');
-    return 'saved';
+    return true;
   }catch(e){
-    console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف', e);
-    return 'failed';
+    console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف، هنجرب نافذة المشاركة العامة', e);
   }
+  // خطة أخيرة لو التنزيل المباشر اتحظر: نافذة مشاركة عامة (هتفتح قائمة
+  // تطبيقات، مش شات العميل بالتحديد، لكن أحسن من ولا حاجة).
+  try{
+    const file = new File([blob], filename, {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:filename});
+      return true;
+    }
+  }catch(e){
+    if(e && e.name==='AbortError') return true;
+    console.warn('sendWhatsApp: فشلت مشاركة الصورة برضو', e);
+  }
+  return false;
 }
 
 function printOrderLabel(orderId){
