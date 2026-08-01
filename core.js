@@ -2379,8 +2379,8 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
 شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
   openWhatsAppChat(phone, msg);
   if(imgResult==='clipboard') toast('📋 الصورة اتنسخت — في شات العميل دوس مطوّل في خانة الكتابة واختار "لصق" وابعتها');
+  else if(imgResult==='shared') toast('📤 اختار "حفظ في الجهاز" أو ابعتها لواتساب مباشرة من نافذة المشاركة اللي فتحت');
   else if(imgResult==='downloaded') toast('📸 صورة الفاتورة جاهزة — في شات العميل اضغط 📎 واختار آخر صورة وابعتها');
-  else if(imgResult==='shared') toast('📤 تم فتح نافذة المشاركة — اختار واتساب وابعت الصورة للعميل');
 }
 
 function sendReminder(orderId){
@@ -2613,13 +2613,17 @@ function drawReceiptCanvas(orderId){
    ملف/صورة لمحادثة شخص معين تلقائيًا من غير تدخل المستخدم — ده قيد أمان من
    واتساب نفسه ضد السبام، مش قصور في الكود، فمفيش طريقة تقنية تخلي الصورة
    "تتبعت لوحدها". أقصى حاجة ممكنة وهي اللي بنعملها هنا، بالترتيب:
-   1) ننسخ الصورة لذاكرة النسخ (Clipboard) — لو نجحت، المستخدم غير مضطر
-      يدور عليها في المعرض، هيدوس مطولاً في خانة الكتابة في شات واتساب
-      ويختار "لصق" وهتظهر جاهزة للإرسال فورًا.
-   2) لو الـ Clipboard مش مدعومة، نحفظ الصورة في الجهاز (تنزيل مباشر)
-      عشان يرفقها بضغطة 📎 من آخر صورة/تنزيل.
-   3) لو التنزيل اتحظر برضو، نفتح نافذة المشاركة العامة للجهاز.
-   بيرجّع واحدة من: 'clipboard' | 'downloaded' | 'shared' | false */
+   1) ننسخ الصورة لذاكرة النسخ (Clipboard) — لو نجحت، المستخدم هيدوس مطولاً
+      في خانة الكتابة في شات واتساب ويختار "لصق" وهتظهر جاهزة للإرسال فورًا.
+   2) لو الـ Clipboard مش مدعومة، نفتح نافذة المشاركة الأصلية للجهاز
+      (نفس نافذة "مشاركة" اللي فيها أيقونة واتساب) — ده مضمون شغّال في
+      تطبيقات الـ WebView زي اللي بيلف عليه البرنامج ده، عكس تنزيل الـ
+      blob اللي بيتصرف زي إنه نجح من غير ما يحفظ حاجة فعليًا (فشل صامت).
+   3) خطة أخيرة بس: تنزيل الملف مباشرة (a.download) لو الاتنين اللي فوق
+      مش متاحين — ملحوظة: دي الطريقة اللي بتفشل بصمت في بعض تطبيقات الـ
+      WebView (زي WebIntoApp)، يعني ممكن ترجع 'downloaded' بدون ما تحفظ
+      فعليًا حاجة على الجهاز.
+   بيرجّع واحدة من: 'clipboard' | 'shared' | 'downloaded' | false */
 async function saveReceiptImageToDevice(orderId, c){
   let blob = null;
   try{
@@ -2637,22 +2641,13 @@ async function saveReceiptImageToDevice(orderId, c){
       return 'clipboard';
     }
   }catch(e){
-    console.warn('sendWhatsApp: فشل نسخ الصورة لذاكرة النسخ، هنجرب التنزيل', e);
+    console.warn('sendWhatsApp: فشل نسخ الصورة لذاكرة النسخ، هنجرب نافذة المشاركة', e);
   }
 
   const filename = 'فاتورة_'+(c?c.name:'طلب')+'.png';
-  try{
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = filename;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(()=>URL.revokeObjectURL(url), 60000);
-    return 'downloaded';
-  }catch(e){
-    console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف، هنجرب نافذة المشاركة العامة', e);
-  }
-  // خطة أخيرة لو التنزيل المباشر اتحظر: نافذة مشاركة عامة (هتفتح قائمة
-  // تطبيقات، مش شات العميل بالتحديد، لكن أحسن من ولا حاجة).
+
+  // 2) نافذة المشاركة الأصلية — مضمونة الشغل في الـ WebView، وبتدي خيار حفظ
+  // في الجهاز أو إرسال مباشرة لواتساب من نفسها
   try{
     const file = new File([blob], filename, {type:'image/png'});
     if(navigator.canShare && navigator.canShare({files:[file]})){
@@ -2661,7 +2656,19 @@ async function saveReceiptImageToDevice(orderId, c){
     }
   }catch(e){
     if(e && e.name==='AbortError') return 'shared';
-    console.warn('sendWhatsApp: فشلت مشاركة الصورة برضو', e);
+    console.warn('sendWhatsApp: فشلت نافذة المشاركة، هنجرب التنزيل المباشر', e);
+  }
+
+  // 3) خطة أخيرة: تنزيل مباشر (ملحوظة: ممكن يفشل بصمت في بعض تطبيقات WebView)
+  try{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    return 'downloaded';
+  }catch(e){
+    console.warn('sendWhatsApp: فشل حفظ صورة الفاتورة كملف', e);
   }
   return false;
 }
