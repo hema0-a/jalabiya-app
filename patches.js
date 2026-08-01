@@ -2772,5 +2772,117 @@ cloudStatusChanged = function(){
   wrapDoubleSubmit('savePartialDelivery', '.modal-box button[onclick^="savePartialDelivery("]');
 })();
 
+/* 30) عداد التعديلات المعلّقة اللي لسه ما اتزامنتش مع السحابة
+   الشارة الأصلية (باتش 25) كانت بتقول بس "في انتظار المزامنة" من
+   غير ما توضح العدد. هنا بنعد كل مرة يتحفظ فيها تعديل محلي والمزامنة
+   السحابية مفعّلة، ونصفّر العداد أول ما الرفع للسحابة ينجح، ونعرض
+   الرقم في شارة الاتصال بالهيدر وفي كارت المزامنة بصفحة الإعدادات. */
+(function(){
+  window.cloudPendingCount = 0;
+
+  const origSaveDB = saveDB;
+  saveDB = function(){
+    const r = origSaveDB.apply(this, arguments);
+    if(db && db.cloudSync && db.cloudSync.enabled) window.cloudPendingCount++;
+    return r;
+  };
+
+  const origPushToCloud = pushToCloud;
+  pushToCloud = async function(){
+    const r = await origPushToCloud.apply(this, arguments);
+    if(!cloudPendingChanges) window.cloudPendingCount = 0; // الرفع نجح فعليًا
+    return r;
+  };
+
+  const origDisconnect = disconnectCloudSync;
+  disconnectCloudSync = async function(){
+    const r = await origDisconnect.apply(this, arguments);
+    window.cloudPendingCount = 0;
+    return r;
+  };
+
+  // إضافة العدد لشارة حالة المزامنة في كارت الإعدادات
+  const origRenderBadge = renderCloudSyncStatusBadge;
+  renderCloudSyncStatusBadge = function(){
+    origRenderBadge.apply(this, arguments);
+    const el = document.getElementById('cloudSyncStatusBadge');
+    if(!el) return;
+    const pending = db && db.cloudSync && db.cloudSync.enabled && (!navigator.onLine || cloudPendingChanges);
+    if(pending && window.cloudPendingCount>0){
+      const n = window.cloudPendingCount;
+      const label = n===1 ? 'تعديل واحد' : (n===2 ? 'تعديلين' : n+' تعديلات');
+      el.innerHTML += ` <span style="opacity:.85;font-weight:600;">(${label} لسه ما اتزامنوش)</span>`;
+    }
+  };
+
+  // إضافة العدد لبادچ الاتصال في الهيدر (المضافة في باتش 25)
+  const origRefresh = window.refreshConnectivityBadge;
+  window.refreshConnectivityBadge = function(){
+    if(typeof origRefresh==='function') origRefresh.apply(this, arguments);
+    const badge = document.getElementById('offlineBadge');
+    if(badge && db && db.cloudSync && db.cloudSync.enabled && window.cloudPendingCount>0){
+      badge.innerHTML += ` · ${window.cloudPendingCount}`;
+    }
+  };
+})();
+
+/* 31) استيراد رقم هاتف العميل من جهات اتصال الموبايل (Contact Picker API)
+   بيظهر زرار "📇 من جهات الاتصال" جنب حقل رقم الهاتف في فورم إضافة/تعديل
+   عميل. الخاصية دي مدعومة بشكل أساسي على أندرويد كروم/إيدج داخل PWA أو
+   المتصفح؛ لو الجهاز أو المتصفح مش بيدعمها (زي الآيفون حاليًا)، الزرار
+   بيختفي تلقائيًا والحقل بيفضل شغال عادي بالكتابة اليدوية. */
+(function(){
+  const supported = ('contacts' in navigator) && ('ContactsManager' in window);
+
+  window.importPhoneFromContacts = async function(){
+    if(!supported){ toast('الاستيراد من جهات الاتصال غير مدعوم على هذا الجهاز/المتصفح'); return; }
+    try{
+      const contacts = await navigator.contacts.select(['name','tel'], {multiple:false});
+      if(!contacts || !contacts.length) return; // المستخدم لغى الاختيار
+      const picked = contacts[0];
+      const rawTel = (picked.tel && picked.tel.length) ? picked.tel[0] : '';
+      if(!rawTel){ toast('لا يوجد رقم هاتف محفوظ لجهة الاتصال دي'); return; }
+      // تنضيف الرقم من رمز الدولة (+20) والمسافات/الشرطات، ورجوعه لصيغة 01xxxxxxxxx المصرية
+      let digits = rawTel.replace(/[^\d]/g,'');
+      if(digits.startsWith('20') && digits.length>11) digits = '0'+digits.slice(2);
+      else if(digits.startsWith('2') && digits.length===12) digits = '0'+digits.slice(1);
+      const phoneInput = document.getElementById('f_phone');
+      if(phoneInput) phoneInput.value = digits;
+      const nameInput = document.getElementById('f_name');
+      if(nameInput && !nameInput.value.trim() && picked.name && picked.name.length){
+        nameInput.value = picked.name[0];
+      }
+      toast('تم استيراد الرقم ✅ راجعه قبل الحفظ');
+    }catch(e){
+      if(e && e.name==='SecurityError') return; // المستخدم رفض الإذن أو لغى الاختيار
+      console.warn('تعذر استيراد جهة الاتصال:', e);
+      toast('تعذر فتح جهات الاتصال');
+    }
+  };
+
+  const origOpenCustomerModal = openCustomerModal;
+  openCustomerModal = function(){
+    origOpenCustomerModal.apply(this, arguments);
+    if(!supported) return;
+    const input = document.getElementById('f_phone');
+    if(!input || document.getElementById('importContactBtn')) return;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:8px;align-items:stretch;';
+    input.parentNode.insertBefore(wrap, input);
+    input.style.flex = '1';
+    input.style.width = 'auto';
+    input.style.minWidth = '0';
+    wrap.appendChild(input);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'importContactBtn';
+    btn.className = 'btn sm outline';
+    btn.style.cssText = 'flex-shrink:0;white-space:nowrap;';
+    btn.textContent = '📇 من جهات الاتصال';
+    btn.onclick = window.importPhoneFromContacts;
+    wrap.appendChild(btn);
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
