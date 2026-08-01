@@ -2439,29 +2439,162 @@ function printReceipt(orderId){
   openPrintWindow(html, 'إيصال_'+(c?c.name:'طلب'));
 }
 
+/* بيرسم إيصال الفاتورة بنفس التصميم الاحترافي مباشرة على Canvas — من غير أي
+   مكتبة خارجية أو اتصال إنترنت، عشان يشتغل 100% جوه أي WebView/تطبيق.
+   بيرجّع الـ canvas الجاهز. */
+function drawReceiptCanvas(orderId){
+  const o = db.orders.find(x=>x.id===orderId);
+  if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
+  const c = customerById(o.customerId);
+  const discount = orderDiscountAmount(o);
+  const tax = orderTaxAmount(o);
+  const total = orderTotal(o);
+  const remaining = orderRemaining(o);
+  const items = (Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]);
+
+  const brandLines = [db.workshopName||'ورشة تفصيل الجلابيب'];
+  if(db.ownerName) brandLines.push(db.ownerName);
+  if(db.ownerPhone) brandLines.push('📞 '+db.ownerPhone);
+  if(db.workshopAddress) brandLines.push('📍 '+db.workshopAddress);
+
+  const infoRows = [
+    ['العميل', c?c.name:'-'],
+    ['الهاتف', c?(c.phone||'-'):'-'],
+    ['تاريخ الاستلام', fmtDate(o.dateReceived)],
+    ['تاريخ التسليم المتوقع', fmtDate(o.dateDelivery)]
+  ];
+  const totalsRows = [['مصاريف إضافية', (o.extra||0)+' ج.م', false]];
+  if(discount>0) totalsRows.push(['الخصم', '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false]);
+  if(tax>0) totalsRows.push(['الضريبة/الرسوم', '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false]);
+  totalsRows.push(['الإجمالي', Math.round(total).toLocaleString('ar-EG')+' ج.م', true]);
+  totalsRows.push(['المدفوع', (o.paid||0)+' ج.م', false]);
+  totalsRows.push(['المتبقي', Math.round(remaining).toLocaleString('ar-EG')+' ج.م', false]);
+
+  const FONT = 'Tahoma, Arial, sans-serif';
+  const W = 580, PAD = 28, ROW_H = 38;
+  const brandH = 30 + (brandLines.length-1)*20 + 16;
+  const titleH = 46;
+  const infoH = infoRows.length*ROW_H;
+  const itemHeadH = 30, itemRowH = 34;
+  const itemsH = itemHeadH + items.length*itemRowH;
+  const totalsH = totalsRows.length*ROW_H;
+  const GAP = 16;
+  const H = PAD + brandH + titleH + infoH + GAP + itemsH + GAP + totalsH + PAD;
+
+  const scale = 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = W*scale; canvas.height = H*scale;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(scale, scale);
+  ctx.direction = 'rtl';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0,0,W,H);
+
+  const dashedLine = (y)=>{
+    ctx.save();
+    ctx.strokeStyle = '#ccc'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(PAD,y); ctx.lineTo(W-PAD,y); ctx.stroke();
+    ctx.restore();
+  };
+  const solidLine = (y, color, width)=>{
+    ctx.save();
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(PAD,y); ctx.lineTo(W-PAD,y); ctx.stroke();
+    ctx.restore();
+  };
+  const labelValueRow = (y, label, value, big)=>{
+    ctx.textAlign = 'right';
+    ctx.fillStyle = big ? '#1F6D57' : '#666';
+    ctx.font = (big?'bold 17px ':'14px ')+FONT;
+    ctx.fillText(label, W-PAD, y+ROW_H/2);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = big ? '#1F6D57' : '#222';
+    ctx.font = (big?'bold 17px ':'bold 14px ')+FONT;
+    ctx.fillText(String(value), PAD, y+ROW_H/2);
+    solidLine(y+ROW_H, '#e5e5e5', 1);
+  };
+
+  let y = PAD;
+  // اسم الورشة وبيانات التواصل
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#1F6D57';
+  ctx.font = '900 19px '+FONT;
+  ctx.fillText(brandLines[0], W/2, y+10);
+  y += 28;
+  ctx.font = '13px '+FONT;
+  ctx.fillStyle = '#666';
+  for(let i=1;i<brandLines.length;i++){
+    ctx.fillText(brandLines[i], W/2, y+8);
+    y += 20;
+  }
+  y += 6;
+  dashedLine(y);
+  y += 20;
+
+  // عنوان الإيصال
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#222';
+  ctx.font = '900 19px '+FONT;
+  ctx.fillText('🧾 إيصال تفصيل جلابة', W-PAD, y+8);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#888';
+  ctx.font = '12px '+FONT;
+  ctx.fillText('رقم '+(o.invoiceNumber||'-'), PAD, y+8);
+  y += 18;
+  solidLine(y, '#1F6D57', 2);
+  y += 22;
+
+  // صفوف بيانات العميل
+  infoRows.forEach(([lbl,val])=>{ labelValueRow(y, lbl, val, false); y += ROW_H; });
+  y += GAP;
+
+  // جدول الأصناف
+  const totalColRight = PAD+90;
+  const priceColRight = totalColRight+120;
+  const qtyColRight = priceColRight+64;
+  const nameColRight = W-PAD;
+  ctx.font = '12.5px '+FONT;
+  ctx.fillStyle = '#666';
+  ctx.textAlign='right'; ctx.fillText('الصنف', nameColRight, y+itemHeadH/2);
+  ctx.textAlign='center'; ctx.fillText('العدد', qtyColRight-32, y+itemHeadH/2);
+  ctx.textAlign='center'; ctx.fillText('سعر القطعة', priceColRight-60, y+itemHeadH/2);
+  ctx.textAlign='left'; ctx.fillText('الإجمالي', PAD, y+itemHeadH/2);
+  y += itemHeadH;
+  solidLine(y, '#ddd', 2);
+  items.forEach(it=>{
+    const qty = it.qty||1;
+    const price = Number(it.unitPrice)||0;
+    ctx.font = '13.5px '+FONT;
+    ctx.fillStyle = '#222';
+    ctx.textAlign='right'; ctx.fillText(String(it.type||''), nameColRight, y+itemRowH/2);
+    ctx.textAlign='center'; ctx.fillText(String(qty), qtyColRight-32, y+itemRowH/2);
+    ctx.textAlign='center'; ctx.fillText(price.toLocaleString('ar-EG')+' ج.م', priceColRight-60, y+itemRowH/2);
+    ctx.textAlign='left'; ctx.fillText((qty*price).toLocaleString('ar-EG')+' ج.م', PAD, y+itemRowH/2);
+    y += itemRowH;
+    solidLine(y, '#eee', 1);
+  });
+  y += GAP;
+
+  // المصاريف والإجمالي والمدفوع والمتبقي
+  totalsRows.forEach(([lbl,val,big])=>{ labelValueRow(y, lbl, val, big); y += ROW_H; });
+
+  return canvas;
+}
+
 /* بيحوّل ورقة الإيصال بتصميمها الاحترافي لصورة PNG.
    بيرجّع واحدة من:
    - 'shared'  → اتبعتت الصورة مباشرة عن طريق نافذة مشاركة الجهاز (اختار واتساب منها)
    - 'saved'   → مقدرناش نفتح نافذة المشاركة، فحفظنا الصورة في جهازه عشان يرفقها يدوي
    - 'failed'  → مقدرناش نجهز صورة خالص (هنرجع للرسالة النصية القديمة) */
 async function shareReceiptAsImage(orderId, c){
-  if(typeof html2canvas === 'undefined'){
-    console.warn('sendWhatsApp: html2canvas غير متاح (تأكد إن الجهاز متصل بالإنترنت أول مرة لتحميل المكتبة، أو إن الرابط الخارجي مش محظور جوه التطبيق)');
-    return 'failed';
-  }
-  let wrap = null;
   let blob = null;
   try{
-    wrap = document.createElement('div');
-    wrap.style.cssText = 'position:fixed;left:-9999px;top:0;width:520px;background:#fff;padding:24px;color:#222;direction:rtl;font-family:Tahoma,Arial,sans-serif;';
-    wrap.innerHTML = `<style>${RECEIPT_STYLE}</style>` + buildReceiptBodyHtml(orderId);
-    document.body.appendChild(wrap);
-    const canvas = await html2canvas(wrap, {scale:2, backgroundColor:'#ffffff', useCORS:true});
+    const canvas = drawReceiptCanvas(orderId);
     blob = await new Promise(res=>canvas.toBlob(res, 'image/png'));
   }catch(e){
     console.warn('sendWhatsApp: فشل تجهيز صورة الإيصال', e);
-  }finally{
-    if(wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+    toast('تعذر تجهيز صورة الفاتورة، تم إرسالها كنص بدلًا من ذلك');
   }
   if(!blob) return 'failed';
 
