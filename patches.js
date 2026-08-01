@@ -9,7 +9,46 @@
 if(window.__workshopPatchesLoaded) { return; }
 window.__workshopPatchesLoaded = true;
 
-/* 1) زر اتصال + واتساب جنب أي رقم هاتف يظهر بالتطبيق */
+/* علم مشترك: بيتحط true قبل ما نكمل حفظ ناجح (بعد تأكيد المستخدم)،
+   عشان نافذة "عندك تعديلات لم تُحفظ" متظهرش وهي بتتقفل بسبب الحفظ نفسه. */
+var __skipUnsavedCheckOnce = false;
+
+/* 0-ب) [إصلاح مهم] appConfirm الأصلية بتكتب فوق محتوى المودال الحالي
+   (modalBox.innerHTML) عشان تعرض رسالة التأكيد. ده معناه إن أي appConfirm
+   بيتفتح والمستخدم لسه فاتح فورم (تعديل عميل/طلب) بيمسح كل حقول الفورم
+   من الـ DOM فعليًا. لو المستخدم ضغط "تأكيد"، الكود اللي بعد appConfirm
+   بيحاول يقرأ نفس الحقول (زي f_name) فيلاقيها اتمسحت ويفشل الحفظ بصمت —
+   وده كان موجود بالفعل في الكود الأصلي (تأكيد رقم الهاتف المكرر) وكمان
+   كان هيبوّظ نوافذ التأكيد الجديدة اللي بنضيفها هنا على التعديل.
+   الحل: نافذة تأكيد مستقلة تتظهر فوق المودال الحالي من غير ما تمسح
+   محتواه، فالفورم يفضل سليم لحد ما فعليًا نكمل الحفظ. */
+(function(){
+  window.appConfirm = function(message, opts){
+    opts = opts || {};
+    var okText = opts.okText || 'تأكيد';
+    var cancelText = opts.cancelText || 'إلغاء';
+    var danger = opts.danger !== false;
+    return new Promise(function(resolve){
+      var ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:20px;';
+      var box = document.createElement('div');
+      box.style.cssText = 'background:var(--card,#fff);color:inherit;border-radius:14px;max-width:380px;width:100%;padding:16px 16px 14px;box-shadow:0 10px 30px rgba(0,0,0,.35);';
+      box.innerHTML =
+        '<div style="font-weight:800;font-size:15px;margin-bottom:10px;">⚠️ تأكيد</div>'+
+        '<div style="font-size:14.5px;line-height:1.7;margin-bottom:16px;">'+escapeHtml(message)+'</div>'+
+        '<div style="display:flex;gap:8px;">'+
+          '<button type="button" data-a="cancel" class="btn outline" style="flex:1;">'+escapeHtml(cancelText)+'</button>'+
+          '<button type="button" data-a="ok" class="btn '+(danger?'danger':'')+'" style="flex:1;">'+escapeHtml(okText)+'</button>'+
+        '</div>';
+      ov.appendChild(box);
+      document.body.appendChild(ov);
+      function cleanup(result){ ov.remove(); resolve(result); }
+      box.querySelector('[data-a="ok"]').onclick = function(){ cleanup(true); };
+      box.querySelector('[data-a="cancel"]').onclick = function(){ cleanup(false); };
+      ov.addEventListener('click', function(e){ if(e.target===ov) cleanup(false); });
+    });
+  };
+})();
 (function(){
   function enhancePhones(){
     document.querySelectorAll('.meta').forEach(function(el){
@@ -374,66 +413,124 @@ setTimeout(function(){
   if(localStorage.getItem('highContrast')==='1') document.documentElement.classList.add('high-contrast');
 })();
 
-/* 12) سحب بطاقة الطلب: يمين = تم الإنجاز، يسار = فتح التعديل
-   [تم الإصلاح] إضافة معالجة touchcancel عشان الكارت يرجع لوضعه الطبيعي
-   لو النظام قاطع اللمسة (إشعار داخل أو تنبيه فجأة مثلاً) */
+/* 12) سحب بطاقة الطلب: يمين = يكشف زر "تم التسليم"، يسار = فتح التعديل
+   [تم الإصلاح] كان السحب بينفّذ "تم التسليم" فورًا بمجرد رفع الإصبع،
+   وده كان بيتفعّل غلط أثناء تمرير عادي (سكرول) لو الإصبع اتحرك بزاوية
+   بسيطة. دلوقتي السحب لليمين بيكشف زر واضح تحت الكارت، والتنفيذ الفعلي
+   بيحصل بس لو المستخدم ضغط الزر عمدًا (مع نافذة تأكيد كمان). */
 (function(){
-  var startX=0, startY=0, activeCard=null;
+  var startX=0, startY=0, activeCard=null, openCard=null, dragging=false;
+
+  function closeOpenCard(){
+    if(openCard){
+      openCard.style.transform='';
+      var reveal = openCard.__revealEl;
+      if(reveal) reveal.remove();
+      openCard.__revealEl = null;
+    }
+    openCard = null;
+  }
 
   function resetCard(){
-    if(activeCard){
+    if(activeCard && activeCard!==openCard){
       activeCard.style.transform='';
       activeCard.style.opacity='';
     }
     activeCard=null;
+    dragging=false;
   }
 
-  document.addEventListener('touchstart', function(e){
-    var card = e.target.closest('#ordersList .card');
-    if(!card) return;
+  function ensureCardId(card){
+    if(card.dataset.orderId) return;
     var btn = card.querySelector('[onclick*="openOrderModal("]');
     if(btn){
       var m = btn.getAttribute('onclick').match(/openOrderModal\('([^']+)'/);
       if(m) card.dataset.orderId = m[1];
     }
+  }
+
+  // زر التسليم اللي بيتكشف تحت الكارت وقت السحب لليمين
+  function revealDeliverButton(card, id){
+    var wrap = card.parentElement;
+    if(!wrap) return null;
+    if(getComputedStyle(wrap).position==='static') wrap.style.position='relative';
+    var el = document.createElement('div');
+    el.className='swipe-reveal-deliver';
+    el.style.cssText = 'position:absolute;border-radius:inherit;background:var(--ok,#1F6D57);color:#fff;display:flex;align-items:center;padding-inline-start:18px;font-weight:800;font-size:14px;z-index:0;box-sizing:border-box;';
+    el.style.top = card.offsetTop+'px';
+    el.style.left = card.offsetLeft+'px';
+    el.style.width = card.offsetWidth+'px';
+    el.style.height = card.offsetHeight+'px';
+    el.textContent = '✅ اضغط لتسجيل تم التسليم';
+    el.addEventListener('click', function(){
+      var o = db.orders.find(function(x){ return x.id===id; });
+      var custName = o ? ((customerById(o.customerId)||{}).name||'') : '';
+      appConfirm('هل تريد تسجيل طلب' + (custName?(' "'+custName+'"'):'') + ' كـ"تم التسليم"؟', {okText:'تم التسليم', cancelText:'إلغاء', danger:false}).then(function(ok){
+        closeOpenCard();
+        if(ok){
+          if(navigator.vibrate) navigator.vibrate(30);
+          markOrderDelivered(id);
+        }
+      });
+    });
+    wrap.insertBefore(el, card);
+    card.style.position='relative'; card.style.zIndex='1';
+    if(!card.style.background) card.style.background = 'var(--card)';
+    return el;
+  }
+
+  document.addEventListener('touchstart', function(e){
+    if(e.target.closest('.swipe-reveal-deliver')) return; // سيب الزر المكشوف يستقبل الضغطة من غير ما نقفله تحته
+    var card = e.target.closest('#ordersList .card');
+    if(!card){
+      // لمسة برّه أي كارت مفتوح تقفله
+      if(openCard) closeOpenCard();
+      return;
+    }
+    if(openCard && openCard!==card){ closeOpenCard(); }
+    ensureCardId(card);
     activeCard = card;
+    dragging=false;
     startX = e.touches[0].clientX; startY = e.touches[0].clientY;
   }, {passive:true});
+
   document.addEventListener('touchmove', function(e){
     if(!activeCard) return;
     var dx = e.touches[0].clientX-startX, dy = e.touches[0].clientY-startY;
-    if(Math.abs(dx)>Math.abs(dy)){
-      activeCard.style.transform='translateX('+dx+'px)';
-      activeCard.style.opacity = Math.max(0.4, 1-Math.abs(dx)/250);
+    if(Math.abs(dx)>Math.abs(dy) && Math.abs(dx)>8){
+      dragging = true;
+      var clamped = Math.max(-90, Math.min(90, dx));
+      activeCard.style.transform='translateX('+clamped+'px)';
+      activeCard.style.opacity = Math.max(0.6, 1-Math.abs(clamped)/250);
     }
   }, {passive:true});
+
   document.addEventListener('touchend', function(e){
-    if(!activeCard) return;
+    if(!activeCard){ return; }
+    if(!dragging){ activeCard=null; return; }
     var dx = e.changedTouches[0].clientX-startX;
     var dy = e.changedTouches[0].clientY-startY;
     var id = activeCard.dataset.orderId;
-    var cardRef = activeCard;
-    resetCard();
-    /* [تم الإصلاح] كان بيتأكد بس إن dx>90 من غير ما يقارنها بـ dy، فأي
-       سكرول عادي لأسفل بزاوية بسيطة (شائع جدًا على الموبايل) كان بيتحسب
-       "سحب لليمين" ويسجّل الطلب "تم التسليم" لوحده. دلوقتي لازم يكون
-       الإزاحة الأفقية أكبر بوضوح من الرأسية عشان نعتبرها سحب فعلي. */
-    if(Math.abs(dx)>90 && Math.abs(dx)>Math.abs(dy)*1.5 && id){
+    var card = activeCard;
+    var opened = false;
+    if(Math.abs(dx)>60 && Math.abs(dx)>Math.abs(dy)*1.5 && id){
       var o = db.orders.find(function(x){ return x.id===id; });
       if(dx>0 && o && o.status!=='تم التسليم'){
-        var custName = (customerById(o.customerId)||{}).name || '';
-        appConfirm('هل تريد تسجيل طلب' + (custName?(' "'+custName+'"'):'') + ' كـ"تم التسليم"؟', {okText:'تم التسليم', cancelText:'إلغاء', danger:false}).then(function(ok){
-          if(ok){
-            if(navigator.vibrate) navigator.vibrate(30);
-            markOrderDelivered(id);
-          }
-        });
+        // اكشف الزر واستقر الكارت في وضع مفتوح، من غير أي تنفيذ فوري
+        card.style.transform='translateX(70px)';
+        card.__revealEl = revealDeliverButton(card, id);
+        openCard = card;
+        opened = true;
       } else if(dx<0){
         if(navigator.vibrate) navigator.vibrate(20);
         openOrderModal(id);
       }
     }
+    if(!opened){ card.style.transform=''; card.style.opacity=''; }
+    activeCard = null;
+    dragging = false;
   });
+
   document.addEventListener('touchcancel', function(){
     resetCard();
   });
@@ -2301,24 +2398,166 @@ cloudStatusChanged = function(){
       );
       if(!ok) return;
     }
-    return origSaveCustomerConfirm.apply(this, arguments);
+    __skipUnsavedCheckOnce = true;
+    var r = await origSaveCustomerConfirm.apply(this, arguments);
+    // لو الفورم لسه فاتح (يعني الحفظ فشل في تحقق ما ورجع بدري)، نلغي التجاوز
+    var ov = document.getElementById('modalOverlay');
+    if(ov && ov.classList.contains('active')) __skipUnsavedCheckOnce = false;
+    return r;
   };
 })();
 
-/* 12) نافذة تأكيد قبل حفظ أي تعديل على طلب موجود بالفعل */
+/* 12) نافذة تأكيد قبل حفظ أي تعديل على طلب موجود بالفعل
+   [تم التحديث] لو التعديل بيغيّر حالة الطلب لـ"تم التسليم" (سواء من
+   قائمة الحالة المنسدلة أو غيرها) بيظهر تنبيه مخصص وأوضح، بدل رسالة
+   "حفظ التعديلات" العامة — لأن ده إجراء نهائي وأسهل حاجة تتضغط غلط
+   من قائمة منسدلة أثناء التمرير بالإصبع. */
 (function(){
   var origSaveOrderConfirm = saveOrder;
   saveOrder = async function(id){
     if(id){
       var o = db.orders.find(function(x){ return x.id===id; });
       var c = o ? customerById(o.customerId) : null;
-      var ok = await appConfirm(
-        'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟',
-        {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
-      );
+      var statusSel = document.getElementById('f_status');
+      var newStatus = statusSel ? statusSel.value : null;
+      var becomingDelivered = o && o.status!=='تم التسليم' && newStatus==='تم التسليم';
+      var ok;
+      if(becomingDelivered){
+        ok = await appConfirm(
+          '⚠️ هذا التغيير هيسجّل' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + ' كـ"تم التسليم" بالكامل. هل أنت متأكد؟',
+          {okText:'نعم، تم التسليم', cancelText:'إلغاء', danger:false}
+        );
+      } else {
+        ok = await appConfirm(
+          'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟',
+          {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
+        );
+      }
       if(!ok) return;
     }
-    return origSaveOrderConfirm.apply(this, arguments);
+    __skipUnsavedCheckOnce = true;
+    var r = await origSaveOrderConfirm.apply(this, arguments);
+    var ov = document.getElementById('modalOverlay');
+    if(ov && ov.classList.contains('active')) __skipUnsavedCheckOnce = false;
+    return r;
+  };
+})();
+
+/* 13) تحذير عند إغلاق فورم فيه تعديلات لم تُحفظ
+   بيقارن قيم كل حقول المودال وقت ما اتفتح بقيمها وقت ما حد حاول يقفله.
+   لو مختلفة، بيسأل قبل ما يقفل فعليًا. الحفظ الناجح (عبر saveCustomer/
+   saveOrder) بيتخطى السؤال ده لأنه مش "إغلاق بدون حفظ". */
+(function(){
+  var snapshot = null;
+
+  function snapshotModal(){
+    var box = document.getElementById('modalBox');
+    if(!box) return null;
+    var els = box.querySelectorAll('input, textarea, select');
+    if(!els.length) return null; // مفيش حقول = مفيش حاجة نراقبها (مودال معلومات/تأكيد)
+    var parts = [];
+    els.forEach(function(el){
+      if(el.type==='checkbox' || el.type==='radio'){ parts.push(el.checked?'1':'0'); }
+      else { parts.push(el.value); }
+    });
+    return parts.join('\u0001');
+  }
+
+  var origOpenModalDirty = openModal;
+  openModal = function(html){
+    var r = origOpenModalDirty.apply(this, arguments);
+    snapshot = snapshotModal();
+    return r;
+  };
+
+  var origCloseModalDirty = closeModal;
+  closeModal = function(){
+    if(__skipUnsavedCheckOnce){
+      __skipUnsavedCheckOnce = false;
+      snapshot = null;
+      return origCloseModalDirty.apply(this, arguments);
+    }
+    if(snapshot!==null && snapshotModal()!==snapshot){
+      appConfirm('عندك تعديلات لم تُحفظ. هل تريد الإغلاق من غير حفظها؟', {okText:'إغلاق من غير حفظ', cancelText:'متابعة التعديل', danger:true}).then(function(ok){
+        if(ok){
+          snapshot = null;
+          origCloseModalDirty.apply(null, []);
+        }
+      });
+      return; // منع الإغلاق الفوري لحد ما المستخدم يرد
+    }
+    snapshot = null;
+    return origCloseModalDirty.apply(this, arguments);
+  };
+})();
+
+/* 14) قفل الطلبات "تم التسليم" من التعديل العرضي
+   فتح طلب مُسلَّم بالفعل بيعرض شاشة تنبيه بدل الفورم مباشرة، وتعديله
+   الفعلي محتاج ضغطة واعية على "فتح للتعديل رغم كده". القفل بيترجع
+   تلقائيًا في المرة الجاية اللي تتفتح فيها المودال (مش فضّال مفتوح
+   لبقية الجلسة) لأننا بنصفّر unlockedOrderId كل ما المودال يتقفل فعليًا. */
+(function(){
+  var unlockedOrderId = null;
+
+  var origOpenOrderModalLock = openOrderModal;
+  openOrderModal = function(id, presetCustomerId){
+    if(id && id!==unlockedOrderId){
+      var o = db.orders.find(function(x){ return x.id===id; });
+      if(o && o.status==='تم التسليم'){
+        var c = customerById(o.customerId);
+        openModal(
+          '<div class="modal-head"><h3>🔒 طلب مُسلَّم بالفعل</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+          + '<p class="meta">طلب' + (c?(' "'+escapeHtml(c.name)+'"'):'') + ' متسجل "تم التسليم" بالفعل. الفورم مقفول تلقائيًا لمنع أي تعديل غير مقصود عليه.</p>'
+          + '<button class="btn outline" onclick="window.__unlockOrderForEdit(\''+id+'\')">✏️ فتح للتعديل رغم كده</button>'
+        );
+        return;
+      }
+    }
+    return origOpenOrderModalLock.apply(this, arguments);
+  };
+  window.__unlockOrderForEdit = function(id){
+    unlockedOrderId = id;
+    openOrderModal(id);
+  };
+
+  // أي إغلاق فعلي للمودال يصفّر القفل، عشان فتح نفس الطلب تاني يتطلب فتح واعٍ من جديد
+  var origCloseModalLock = closeModal;
+  closeModal = function(){
+    unlockedOrderId = null;
+    return origCloseModalLock.apply(this, arguments);
+  };
+})();
+
+/* 15) شريط تراجع بأكثر من خطوة (بدل خطوة واحدة بس)
+   بيحتفظ بآخر 5 إجراءات قابلة للتراجع بدل ما يفقد الإجراء اللي قبل
+   الأخير بمجرد ما تعمل حاجة تانية بعده. */
+(function(){
+  var MAX_UNDO = 5;
+  window.__undoStack = [];
+
+  setUndo = function(label, restoreFn){
+    window.__undoStack.unshift({label:label, restoreFn:restoreFn});
+    if(window.__undoStack.length>MAX_UNDO) window.__undoStack.length = MAX_UNDO;
+    renderUndoBar();
+  };
+
+  performUndo = function(idx){
+    idx = idx||0;
+    var entry = window.__undoStack[idx];
+    if(!entry){ toast('لا يوجد إجراء حديث للتراجع عنه'); return; }
+    window.__undoStack.splice(idx,1);
+    entry.restoreFn();
+    renderUndoBar();
+    toast('تم التراجع عن: '+entry.label+' ↩️');
+  };
+
+  renderUndoBar = function(){
+    var box = document.getElementById('undoBarWrap');
+    if(!box) return;
+    if(!window.__undoStack.length){ box.innerHTML=''; return; }
+    box.innerHTML = window.__undoStack.map(function(entry, i){
+      return '<button class="btn sm outline" style="width:100%;margin-bottom:8px;" onclick="performUndo('+i+')">↩️ تراجع عن: '+escapeHtml(entry.label)+'</button>';
+    }).join('');
   };
 })();
 
