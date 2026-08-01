@@ -68,9 +68,11 @@ function openExternalLink(url){
    لو السكيم مش مدعوم لأي سبب، بعد لحظة بسيطة (لو الصفحة لسه ظاهرة يعني
    محصلش تنقّل لتطبيق تاني) بنرجع لرابط wa.me العادي كخطة بديلة. */
 function openWhatsAppChat(phone, text){
-  const encoded = encodeURIComponent(text);
-  const waScheme = phone ? `whatsapp://send?phone=${phone}&text=${encoded}` : `whatsapp://send?text=${encoded}`;
-  const waWeb = phone ? `https://wa.me/${phone}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+  const encoded = text ? encodeURIComponent(text) : '';
+  const textParam = text ? `&text=${encoded}` : '';
+  const textParamOnly = text ? `?text=${encoded}` : '';
+  const waScheme = phone ? `whatsapp://send?phone=${phone}${textParam}` : `whatsapp://send${textParamOnly}`;
+  const waWeb = phone ? `https://wa.me/${phone}${text?`?text=${encoded}`:''}` : `https://wa.me/${textParamOnly}`;
   let fallbackDone = false;
   const tryFallback = ()=>{
     if(fallbackDone) return;
@@ -2344,42 +2346,6 @@ async function sendWhatsApp(orderId){
   let phone = c.phone.replace(/[^0-9]/g,'');
   if(phone.startsWith('0')) phone = '2'+phone; // مصر
 
-  const discount = orderDiscountAmount(o);
-  const tax = orderTaxAmount(o);
-  const total = orderTotal(o);
-  const remaining = orderRemaining(o);
-  const extraLines = [];
-  if(discount>0) extraLines.push(`الخصم: -${Math.round(discount).toLocaleString('ar-EG')} ج.م`);
-  if(tax>0) extraLines.push(`الضريبة/الرسوم: +${Math.round(tax).toLocaleString('ar-EG')} ج.م`);
-  const itemsList = (Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}])
-    .map(it=>`- ${it.type} | العدد: ${it.qty||1} | سعر القطعة: ${(Number(it.unitPrice)||0).toLocaleString('ar-EG')} ج.م | الإجمالي: ${((it.qty||1)*(Number(it.unitPrice)||0)).toLocaleString('ar-EG')} ج.م`)
-    .join('\n');
-  const brandLines = [db.workshopName||'ورشة تفصيل الجلابيب'];
-  if(db.ownerName) brandLines.push(db.ownerName);
-  if(db.ownerPhone) brandLines.push('📞 '+db.ownerPhone);
-  if(db.workshopAddress) brandLines.push('📍 '+db.workshopAddress);
-  const msg =
-`${brandLines.join('\n')}
-—————————————
-🧾 فاتورة تفصيل جلابة
-رقم الفاتورة: ${o.invoiceNumber}
-
-👤 العميل: ${c.name}
-📞 الهاتف: ${c.phone}
-📅 تاريخ الاستلام: ${fmtDate(o.dateReceived)}
-📅 تاريخ التسليم المتوقع: ${fmtDate(o.dateDelivery)}
-
-🧵 الأصناف:
-${itemsList}
-
-مصاريف إضافية: ${o.extra||0} ج.م
-${extraLines.length?extraLines.join('\n')+'\n':''}—————————————
-الإجمالي: ${Math.round(total).toLocaleString('ar-EG')} ج.م
-المدفوع: ${o.paid||0} ج.م
-المتبقي: ${Math.round(remaining).toLocaleString('ar-EG')} ج.م
-
-شكراً لتعاملكم مع ${db.workshopName||'ورشتنا'} 🙏`;
-
   let dataUrl = null, blob = null;
   try{
     const canvas = drawReceiptCanvas(orderId);
@@ -2389,7 +2355,7 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
     console.warn('sendWhatsApp: فشل تجهيز صورة الإيصال', e);
   }
   const filename = 'فاتورة_'+(c.name||'طلب')+'.png';
-  _waReceiptCtx = {phone, msg, dataUrl, blob, filename, customerName: c.name};
+  _waReceiptCtx = {phone, dataUrl, blob, filename, customerName: c.name};
 
   // محاولة تلقائية لحفظ الصورة في المعرض فور الضغط على الزر. ملحوظة مهمة:
   // أندرويد WebView (اللي بيلف عليه التطبيق ده كتطبيق مش متصفح) بيمنع تنزيل
@@ -2420,7 +2386,7 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
         📥 حاولنا نحفظ الصورة تلقائي في المعرض. لو لقيتها موجودة، اضغط 📎 في شات العميل واختارها وابعتها.<br>
         📌 لو مش لاقيها: اضغط <b>مطوّلاً على الصورة فوق</b> واختار <b>"تنزيل الصورة" / "حفظ الصورة"</b> (مش نسخ) — طريقة مضمونة الشغل 100%.
       </div>
-    `:`<div class="hint" style="margin-bottom:12px;">تعذر تجهيز صورة الإيصال، هتقدر تبعت النص بس</div>`}
+    `:`<div class="hint" style="margin-bottom:12px;">تعذر تجهيز صورة الإيصال</div>`}
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn accent" onclick="waOpenCustomerChat()">💬 افتح شات ${escapeHtml(c.name)}</button>
       ${blob?`<button class="btn outline" onclick="waShareImage()">📤 مشاركة سريعة ⚠️ (تأكد تختار شات ${escapeHtml(c.name)})</button>`:''}
@@ -2428,13 +2394,13 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
     </div>
   `);
 
-  // نفتح شات العميل في نفس اللحظة زي ما طلبت
-  openWhatsAppChat(phone, msg);
+  // نفتح شات العميل في نفس اللحظة، من غير نص جاهز — الصورة بس
+  openWhatsAppChat(phone);
 }
 
 function waOpenCustomerChat(){
   if(!_waReceiptCtx) return;
-  openWhatsAppChat(_waReceiptCtx.phone, _waReceiptCtx.msg);
+  openWhatsAppChat(_waReceiptCtx.phone);
 }
 
 async function waShareImage(){
