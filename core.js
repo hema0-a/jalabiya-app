@@ -2391,40 +2391,50 @@ ${extraLines.length?extraLines.join('\n')+'\n':''}——————————
   const filename = 'فاتورة_'+(c.name||'طلب')+'.png';
   _waReceiptCtx = {phone, msg, dataUrl, blob, filename, customerName: c.name};
 
+  // محاولة تلقائية لحفظ الصورة في المعرض فور الضغط على الزر. ملحوظة مهمة:
+  // أندرويد WebView (اللي بيلف عليه التطبيق ده كتطبيق مش متصفح) بيمنع تنزيل
+  // ملفات blob: بصمت من غير أي رسالة خطأ — يعني المحاولة ممكن "تنجح" من غير
+  // ما تحفظ حاجة فعليًا على الجهاز. ده قيد من أندرويد نفسه على تطبيقات الـ
+  // WebView (زي WebIntoApp) مش قصور في الكود، ومفيش طريقة نضمن بيها إنها
+  // تنجح 100% غير لو التطبيق الملفوف بيه فيه صلاحية/دعم تنزيل ملفات مفعّلة
+  // من إعدادات لوحة تحكم WebIntoApp نفسها. عشان كده سايبين نافذة المودال
+  // تحت فيها الصورة ظاهرة بشكل مباشر + طريقة الحفظ اليدوي (الضغط المطوّل)
+  // كخطة مضمونة الشغل لو المحاولة التلقائية دي متأثرتش فعليًا.
+  if(blob){
+    try{
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 60000);
+    }catch(e){
+      console.warn('sendWhatsApp: فشلت محاولة التنزيل التلقائي', e);
+    }
+  }
+
   openModal(`
     <h3 style="margin-top:0;">🧾 فاتورة واتساب — ${escapeHtml(c.name)}</h3>
     ${dataUrl?`
       <img src="${dataUrl}" style="width:100%;border:1px solid #ddd;border-radius:8px;margin:6px 0 10px;display:block;" />
       <div style="font-size:13px;color:#666;margin-bottom:12px;line-height:1.6;">
-        📌 الطريقة الأضمن: اضغط <b>مطوّلاً على الصورة فوق</b> واختار "مشاركة" ثم واتساب — هتشتغل أكيد على أي جهاز.
+        📥 حاولنا نحفظ الصورة تلقائي في المعرض. لو لقيتها موجودة، اضغط 📎 في شات العميل واختارها وابعتها.<br>
+        📌 لو مش لاقيها: اضغط <b>مطوّلاً على الصورة فوق</b> واختار <b>"تنزيل الصورة" / "حفظ الصورة"</b> (مش نسخ) — طريقة مضمونة الشغل 100%.
       </div>
     `:`<div class="hint" style="margin-bottom:12px;">تعذر تجهيز صورة الإيصال، هتقدر تبعت النص بس</div>`}
     <div style="display:flex;flex-direction:column;gap:8px;">
       <button class="btn accent" onclick="waOpenCustomerChat()">💬 افتح شات ${escapeHtml(c.name)}</button>
-      ${blob?`<button class="btn" onclick="waCopyImage()">📋 انسخ الصورة (وألصقها جوه الشات)</button>`:''}
       ${blob?`<button class="btn outline" onclick="waShareImage()">📤 مشاركة سريعة ⚠️ (تأكد تختار شات ${escapeHtml(c.name)})</button>`:''}
       <button class="btn secondary" onclick="closeModal()">إغلاق</button>
     </div>
   `);
+
+  // نفتح شات العميل في نفس اللحظة زي ما طلبت
+  openWhatsAppChat(phone, msg);
 }
 
 function waOpenCustomerChat(){
   if(!_waReceiptCtx) return;
   openWhatsAppChat(_waReceiptCtx.phone, _waReceiptCtx.msg);
-}
-
-async function waCopyImage(){
-  if(!_waReceiptCtx || !_waReceiptCtx.blob) return;
-  try{
-    if(navigator.clipboard && window.ClipboardItem){
-      await navigator.clipboard.write([new window.ClipboardItem({'image/png': _waReceiptCtx.blob})]);
-      toast('📋 اتنسخت — روح لشات العميل ودوس مطوّل في خانة الكتابة واختار "لصق"');
-      return;
-    }
-  }catch(e){
-    console.warn('waCopyImage: فشل النسخ', e);
-  }
-  toast('تعذر النسخ على هذا الجهاز — استخدم زر المشاركة أو اضغط مطولاً على الصورة فوق');
 }
 
 async function waShareImage(){
@@ -2439,7 +2449,7 @@ async function waShareImage(){
     if(e && e.name==='AbortError') return;
     console.warn('waShareImage: فشلت المشاركة', e);
   }
-  toast('المشاركة مش مدعومة هنا — اضغط مطولاً على الصورة فوق واختار مشاركة');
+  toast('المشاركة مش مدعومة هنا — اضغط مطولاً على الصورة فوق واختار حفظ الصورة');
 }
 
 function sendReminder(orderId){
