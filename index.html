@@ -998,6 +998,67 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         </div>
       </div>
       <div class="card">
+        <h3>🧾 تخصيص نصوص وألوان الفاتورة</h3>
+        <p class="meta">عدّل نص وألوان أي سطر في إيصال الفاتورة (اللي بيتطبع أو يتبعت واتساب). أي سطر تسيبه فاضي بيرجع لشكله الافتراضي. المعاينة الحية فوق بتتحدث فور الحفظ.</p>
+        <div class="field"><label>عنوان الإيصال</label><input id="invText_title" placeholder="🧾 إيصال تفصيل جلابة"></div>
+        <div class="field"><label>كلمة "رقم" (قبل رقم الفاتورة)</label><input id="invText_badgePrefix" placeholder="رقم"></div>
+        <div class="field-row2">
+          <div class="field"><label>سطر: العميل</label><input id="invText_clientLabel" placeholder="العميل"></div>
+          <div class="field"><label>سطر: الهاتف</label><input id="invText_phoneLabel" placeholder="الهاتف"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>سطر: تاريخ الاستلام</label><input id="invText_receivedLabel" placeholder="تاريخ الاستلام"></div>
+          <div class="field"><label>سطر: تاريخ التسليم المتوقع</label><input id="invText_deliveryLabel" placeholder="تاريخ التسليم المتوقع"></div>
+        </div>
+        <p class="meta" style="margin-top:10px;">عناوين جدول الأصناف</p>
+        <div class="field-row2">
+          <div class="field"><label>عمود: الصنف</label><input id="invText_colType" placeholder="الصنف"></div>
+          <div class="field"><label>عمود: العدد</label><input id="invText_colQty" placeholder="العدد"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>عمود: سعر القطعة</label><input id="invText_colUnitPrice" placeholder="سعر القطعة"></div>
+          <div class="field"><label>عمود: الإجمالي</label><input id="invText_colTotal" placeholder="الإجمالي"></div>
+        </div>
+        <p class="meta" style="margin-top:10px;">صندوق الإجمالي</p>
+        <div class="field-row2">
+          <div class="field"><label>سطر: مصاريف إضافية</label><input id="invText_extraLabel" placeholder="مصاريف إضافية"></div>
+          <div class="field"><label>سطر: الخصم</label><input id="invText_discountLabel" placeholder="الخصم"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>سطر: الضريبة/الرسوم</label><input id="invText_taxLabel" placeholder="الضريبة/الرسوم"></div>
+          <div class="field"><label>سطر: الإجمالي</label><input id="invText_totalLabel" placeholder="الإجمالي"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>سطر: المدفوع</label><input id="invText_paidLabel" placeholder="المدفوع"></div>
+          <div class="field"><label>سطر: المتبقي</label><input id="invText_remainingLabel" placeholder="المتبقي"></div>
+        </div>
+        <div class="field"><label>سطر الختام أسفل الإيصال</label><input id="invText_footerText" placeholder="شكرًا لثقتكم بنا 🌿"></div>
+
+        <p class="meta" style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px;">ألوان كل جزء في الإيصال</p>
+        <div class="field-row2">
+          <div class="field"><label>لون البيانات الفرعية (اسم صاحب الورشة/الهاتف)</label><input type="color" id="invColor_subText"></div>
+          <div class="field"><label>لون نص شريط العنوان ورقم الفاتورة</label><input type="color" id="invColor_titleText"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>لون أسماء الحقول (العميل، الهاتف...)</label><input type="color" id="invColor_labelText"></div>
+          <div class="field"><label>لون قيم الحقول</label><input type="color" id="invColor_valueText"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>خلفية عناوين جدول الأصناف</label><input type="color" id="invColor_itemsHeadBg"></div>
+          <div class="field"><label>لون نص عناوين جدول الأصناف</label><input type="color" id="invColor_itemsHeadText"></div>
+        </div>
+        <div class="field-row2">
+          <div class="field"><label>لون خلفية الصفوف الفردية بالجدول</label><input type="color" id="invColor_rowAltBg"></div>
+          <div class="field"><label>لون خلفية صندوق الإجمالي</label><input type="color" id="invColor_totalsBg"></div>
+        </div>
+        <div class="field"><label>لون سطر الختام أسفل الإيصال</label><input type="color" id="invColor_footerText"></div>
+
+        <div class="btn-row" style="margin-top:12px;">
+          <button class="btn" onclick="saveInvoiceCustom()">💾 حفظ نصوص وألوان الفاتورة</button>
+          <button class="btn outline" onclick="resetInvoiceCustom()">↩️ استعادة الافتراضي</button>
+        </div>
+      </div>
+      <div class="card">
         <h3>🔘 شكل الأزرار</h3>
         <p class="meta">اختار الشكل اللي يريحك للأزرار في كل التطبيق.</p>
         <div class="field">

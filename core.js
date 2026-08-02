@@ -26,6 +26,7 @@ function defaultDB(){
     workshopAddress:'',
     workshopLogo:null,
     theme:{primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'},
+    invoiceCustom:{},
     btnRadius:12,
     fontSettings:{family:'default', size:'1'},
     skeletonLoading:false,
@@ -138,6 +139,7 @@ function loadDB(){
       if(db.workshopAddress===undefined) db.workshopAddress='';
       if(db.workshopLogo===undefined) db.workshopLogo=null;
       if(!db.theme) db.theme={primary:'#1F6D57', primaryDark:'#123C2F', accent:'#B8863B', bg:'#F6F1E6'};
+      if(!db.invoiceCustom) db.invoiceCustom={};
       if(!db.btnRadius) db.btnRadius=12;
       if(db.customCSS===undefined) db.customCSS='';
       if(db.customJS===undefined) db.customJS='';
@@ -2470,6 +2472,52 @@ function sendReminder(orderId){
    جدول أصناف مقسّم بألوان متبادلة + صندوق إجمالي مميز + خاتمة شكر. الألوان بتتاخد من
    ثيم التطبيق (db.theme) عن طريق متغيرات CSS --pc/--pd عشان الفاتورة تفضل متناسقة مع
    هوية الورشة لو اتغيرت الألوان من الإعدادات. */
+/* النصوص والألوان الافتراضية لكل سطر في إيصال الفاتورة — أي سطر مش موجود في
+   db.invoiceCustom بيرجع لقيمته الافتراضية هنا، عشان الفاتورة تفضل شغالة حتى
+   لو المستخدم عدّل جزء بسيط بس. */
+const DEFAULT_INVOICE_CUSTOM = {
+  labels: {
+    title: '🧾 إيصال تفصيل جلابة',
+    badgePrefix: 'رقم',
+    clientLabel: 'العميل',
+    phoneLabel: 'الهاتف',
+    receivedLabel: 'تاريخ الاستلام',
+    deliveryLabel: 'تاريخ التسليم المتوقع',
+    colType: 'الصنف',
+    colQty: 'العدد',
+    colUnitPrice: 'سعر القطعة',
+    colTotal: 'الإجمالي',
+    extraLabel: 'مصاريف إضافية',
+    discountLabel: 'الخصم',
+    taxLabel: 'الضريبة/الرسوم',
+    totalLabel: 'الإجمالي',
+    paidLabel: 'المدفوع',
+    remainingLabel: 'المتبقي',
+    footerText: 'شكرًا لثقتكم بنا 🌿'
+  },
+  colors: {
+    subText: '#777777',
+    titleText: '#ffffff',
+    labelText: '#888888',
+    valueText: '#222222',
+    itemsHeadBg: '',
+    itemsHeadText: '#ffffff',
+    rowAltBg: '#faf9f6',
+    totalsBg: '#f8f6f1',
+    footerText: '#999999'
+  }
+};
+
+// بيدمج تخصيصات المستخدم (db.invoiceCustom) فوق القيم الافتراضية — أي سطر المستخدم
+// مسّاش (لسه فاضي) بيفضل ياخد القيمة الافتراضية بدل ما يبوّظ شكل الفاتورة
+function getInvoiceCustom(){
+  const uc = (db && db.invoiceCustom) || {};
+  return {
+    labels: {...DEFAULT_INVOICE_CUSTOM.labels, ...(uc.labels||{})},
+    colors: {...DEFAULT_INVOICE_CUSTOM.colors, ...(uc.colors||{})}
+  };
+}
+
 const RECEIPT_STYLE = `
   .inv-card{max-width:480px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;
     box-shadow:0 3px 20px rgba(0,0,0,.09);border:1px solid #ececec;}
@@ -2477,25 +2525,25 @@ const RECEIPT_STYLE = `
   .inv-header{text-align:center;padding:20px 20px 14px;}
   .inv-logo{width:58px;height:58px;border-radius:50%;object-fit:cover;margin:0 auto 8px;display:block;border:2px solid var(--pc,#1F6D57);}
   .inv-brand{font-size:19px;font-weight:900;color:var(--pc,#1F6D57);}
-  .inv-sub{font-size:12.5px;color:#777;margin-top:3px;}
-  .inv-titlebar{display:flex;align-items:center;justify-content:space-between;background:var(--pd,#123C2F);color:#fff;padding:12px 20px;}
-  .inv-titlebar h1{font-size:16.5px;margin:0;border:none;padding:0;color:#fff;font-weight:900;}
-  .inv-badge{background:rgba(255,255,255,.16);padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
+  .inv-sub{font-size:12.5px;color:var(--subc,#777);margin-top:3px;}
+  .inv-titlebar{display:flex;align-items:center;justify-content:space-between;background:var(--pd,#123C2F);color:var(--ttlc,#fff);padding:12px 20px;}
+  .inv-titlebar h1{font-size:16.5px;margin:0;border:none;padding:0;color:var(--ttlc,#fff);font-weight:900;}
+  .inv-badge{background:rgba(255,255,255,.16);color:var(--ttlc,#fff);padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;}
   .inv-body{padding:18px 20px 6px;}
   table{width:100%;border-collapse:collapse;}
   td{padding:9px 4px;border-bottom:1px solid #f0f0f0;font-size:14px;}
-  td.lbl{color:#888;width:45%;}
-  td.val{font-weight:700;color:#222;}
+  td.lbl{color:var(--lblc,#888);width:45%;}
+  td.val{font-weight:700;color:var(--valc,#222);}
   .items-table{margin-top:8px;border:1px solid #ececec;border-radius:10px;overflow:hidden;border-collapse:separate;border-spacing:0;}
-  .items-table th{text-align:right;font-size:11.5px;color:#fff;background:var(--pc,#1F6D57);padding:9px 8px;font-weight:700;border:none;}
+  .items-table th{text-align:right;font-size:11.5px;color:var(--ihtext,#fff);background:var(--ihbg,var(--pc,#1F6D57));padding:9px 8px;font-weight:700;border:none;}
   .items-table td{font-size:13px;padding:8px;border-bottom:1px solid #f2f2f2;}
   .items-table tr:last-child td{border-bottom:none;}
-  .items-table tr:nth-child(even) td{background:#faf9f6;}
-  .totals-box{margin-top:14px;background:#f8f6f1;border-radius:10px;padding:2px 12px;}
+  .items-table tr:nth-child(even) td{background:var(--rowalt,#faf9f6);}
+  .totals-box{margin-top:14px;background:var(--totbg,#f8f6f1);border-radius:10px;padding:2px 12px;}
   .total-row td{font-size:16.5px;color:var(--pc,#1F6D57);border-top:2px solid var(--pc,#1F6D57);border-bottom:none;padding-top:12px;}
   .remaining-ok{color:#1F6D57!important;}
   .remaining-due{color:#B03A2E!important;}
-  .inv-footer{text-align:center;padding:14px 20px 18px;font-size:12px;color:#999;border-top:1px dashed #e2e2e2;margin-top:8px;}
+  .inv-footer{text-align:center;padding:14px 20px 18px;font-size:12px;color:var(--ftc,#999);border-top:1px dashed #e2e2e2;margin-top:8px;}
 `;
 
 /* بيبني جسم ورقة الإيصال (نفس التصميم الاحترافي) من غير <html>/<head> عشان
@@ -2518,8 +2566,17 @@ function buildReceiptBodyHtml(orderId, opts){
   if(db.ownerName) contactLines.push(escapeHtml(db.ownerName));
   if(db.ownerPhone) contactLines.push('📞 '+escapeHtml(db.ownerPhone));
   if(db.workshopAddress) contactLines.push('📍 '+escapeHtml(db.workshopAddress));
+  const ic = getInvoiceCustom();
+  const L = ic.labels, K = ic.colors;
+  const cardVars = [
+    `--pc:${primary}`, `--pd:${primaryDark}`,
+    `--subc:${K.subText}`, `--ttlc:${K.titleText}`,
+    `--lblc:${K.labelText}`, `--valc:${K.valueText}`,
+    `--ihbg:${K.itemsHeadBg||primary}`, `--ihtext:${K.itemsHeadText}`,
+    `--rowalt:${K.rowAltBg}`, `--totbg:${K.totalsBg}`, `--ftc:${K.footerText}`
+  ].join(';');
   return `
-    <div class="inv-card" style="--pc:${primary};--pd:${primaryDark};">
+    <div class="inv-card" style="${cardVars};">
       <div class="inv-topbar"></div>
       <div class="inv-header">
         ${db.workshopLogo?`<img src="${db.workshopLogo}" class="inv-logo">`:''}
@@ -2527,18 +2584,18 @@ function buildReceiptBodyHtml(orderId, opts){
         ${contactLines.map(l=>`<div class="inv-sub">${l}</div>`).join('')}
       </div>
       <div class="inv-titlebar">
-        <h1>🧾 إيصال تفصيل جلابة</h1>
-        <span class="inv-badge">رقم ${o.invoiceNumber || (opts.preview?'معاينة':'-')}</span>
+        <h1>${escapeHtml(L.title)}</h1>
+        <span class="inv-badge">${escapeHtml(L.badgePrefix)} ${o.invoiceNumber || (opts.preview?'معاينة':'-')}</span>
       </div>
       <div class="inv-body">
         <table>
-          <tr><td class="lbl">العميل</td><td class="val">${escapeHtml(c?c.name:'-')}</td></tr>
-          <tr><td class="lbl">الهاتف</td><td class="val">${escapeHtml(c?c.phone||'-':'-')}</td></tr>
-          <tr><td class="lbl">تاريخ الاستلام</td><td class="val">${fmtDate(o.dateReceived)}</td></tr>
-          <tr><td class="lbl">تاريخ التسليم المتوقع</td><td class="val">${fmtDate(o.dateDelivery)}</td></tr>
+          <tr><td class="lbl">${escapeHtml(L.clientLabel)}</td><td class="val">${escapeHtml(c?c.name:'-')}</td></tr>
+          <tr><td class="lbl">${escapeHtml(L.phoneLabel)}</td><td class="val">${escapeHtml(c?c.phone||'-':'-')}</td></tr>
+          <tr><td class="lbl">${escapeHtml(L.receivedLabel)}</td><td class="val">${fmtDate(o.dateReceived)}</td></tr>
+          <tr><td class="lbl">${escapeHtml(L.deliveryLabel)}</td><td class="val">${fmtDate(o.dateDelivery)}</td></tr>
         </table>
         <table class="items-table">
-          <tr><th>الصنف</th><th>العدد</th><th>سعر القطعة</th><th>الإجمالي</th></tr>
+          <tr><th>${escapeHtml(L.colType)}</th><th>${escapeHtml(L.colQty)}</th><th>${escapeHtml(L.colUnitPrice)}</th><th>${escapeHtml(L.colTotal)}</th></tr>
           ${(Array.isArray(o.items)&&o.items.length?o.items:[{type:o.type,qty:o.qty||1,unitPrice:o.unitPrice||o.fee||0}]).map(it=>`
             <tr>
               <td>${escapeHtml(it.type)}</td>
@@ -2550,16 +2607,16 @@ function buildReceiptBodyHtml(orderId, opts){
         </table>
         <div class="totals-box">
           <table>
-            <tr><td class="lbl">مصاريف إضافية</td><td class="val">${o.extra||0} ج.م</td></tr>
-            ${discount>0?`<tr><td class="lbl">الخصم</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-            ${tax>0?`<tr><td class="lbl">الضريبة/الرسوم</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
-            <tr class="total-row"><td class="lbl">الإجمالي</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
-            <tr><td class="lbl">المدفوع</td><td class="val">${o.paid||0} ج.م</td></tr>
-            <tr><td class="lbl">المتبقي</td><td class="val ${remaining>0?'remaining-due':'remaining-ok'}">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
+            <tr><td class="lbl">${escapeHtml(L.extraLabel)}</td><td class="val">${o.extra||0} ج.م</td></tr>
+            ${discount>0?`<tr><td class="lbl">${escapeHtml(L.discountLabel)}</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
+            ${tax>0?`<tr><td class="lbl">${escapeHtml(L.taxLabel)}</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
+            <tr class="total-row"><td class="lbl">${escapeHtml(L.totalLabel)}</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
+            <tr><td class="lbl">${escapeHtml(L.paidLabel)}</td><td class="val">${o.paid||0} ج.م</td></tr>
+            <tr><td class="lbl">${escapeHtml(L.remainingLabel)}</td><td class="val ${remaining>0?'remaining-due':'remaining-ok'}">${Math.round(remaining).toLocaleString('ar-EG')} ج.م</td></tr>
           </table>
         </div>
       </div>
-      <div class="inv-footer">شكرًا لثقتكم بنا 🌿</div>
+      <div class="inv-footer">${escapeHtml(L.footerText)}</div>
     </div>
   `;
 }
@@ -2691,6 +2748,9 @@ async function drawReceiptCanvas(orderId){
   const theme = db.theme||{};
   const primary = theme.primary || '#1F6D57';
   const primaryDark = theme.primaryDark || '#123C2F';
+  const ic = getInvoiceCustom();
+  const L = ic.labels, K = ic.colors;
+  const itemsHeadBg = K.itemsHeadBg || primary;
 
   const brandLines = [db.workshopName||'ورشة تفصيل الجلابيب'];
   if(db.ownerName) brandLines.push(db.ownerName);
@@ -2698,17 +2758,17 @@ async function drawReceiptCanvas(orderId){
   if(db.workshopAddress) brandLines.push('📍 '+db.workshopAddress);
 
   const infoRows = [
-    ['العميل', c?c.name:'-'],
-    ['الهاتف', c?(c.phone||'-'):'-'],
-    ['تاريخ الاستلام', fmtDate(o.dateReceived)],
-    ['تاريخ التسليم المتوقع', fmtDate(o.dateDelivery)]
+    [L.clientLabel, c?c.name:'-'],
+    [L.phoneLabel, c?(c.phone||'-'):'-'],
+    [L.receivedLabel, fmtDate(o.dateReceived)],
+    [L.deliveryLabel, fmtDate(o.dateDelivery)]
   ];
-  const totalsRows = [['مصاريف إضافية', (o.extra||0)+' ج.م', false, false]];
-  if(discount>0) totalsRows.push(['الخصم', '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false, false]);
-  if(tax>0) totalsRows.push(['الضريبة/الرسوم', '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false, false]);
-  totalsRows.push(['الإجمالي', Math.round(total).toLocaleString('ar-EG')+' ج.م', true, false]);
-  totalsRows.push(['المدفوع', (o.paid||0)+' ج.م', false, false]);
-  totalsRows.push(['المتبقي', Math.round(remaining).toLocaleString('ar-EG')+' ج.م', false, remaining>0]);
+  const totalsRows = [[L.extraLabel, (o.extra||0)+' ج.م', false, false]];
+  if(discount>0) totalsRows.push([L.discountLabel, '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false, false]);
+  if(tax>0) totalsRows.push([L.taxLabel, '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false, false]);
+  totalsRows.push([L.totalLabel, Math.round(total).toLocaleString('ar-EG')+' ج.م', true, false]);
+  totalsRows.push([L.paidLabel, (o.paid||0)+' ج.م', false, false]);
+  totalsRows.push([L.remainingLabel, Math.round(remaining).toLocaleString('ar-EG')+' ج.م', false, remaining>0]);
 
   const logoImg = db.workshopLogo ? await loadImageAsync(db.workshopLogo) : null;
 
@@ -2786,7 +2846,7 @@ async function drawReceiptCanvas(orderId){
   ctx.fillText(brandLines[0], OM+CW/2, y+10);
   y += 26;
   ctx.font = '13px '+FONT;
-  ctx.fillStyle = '#777';
+  ctx.fillStyle = K.subText;
   for(let i=1;i<brandLines.length;i++){
     ctx.fillText(brandLines[i], OM+CW/2, y+8);
     y += 18;
@@ -2797,10 +2857,10 @@ async function drawReceiptCanvas(orderId){
   ctx.fillStyle = primaryDark;
   ctx.fillRect(X0, y, CW, titleBarH);
   ctx.textAlign = 'right';
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = K.titleText;
   ctx.font = '900 17px '+FONT;
-  ctx.fillText('🧾 إيصال تفصيل جلابة', X1-PAD, y+titleBarH/2);
-  const badgeText = 'رقم '+(o.invoiceNumber||'-');
+  ctx.fillText(L.title, X1-PAD, y+titleBarH/2);
+  const badgeText = L.badgePrefix+' '+(o.invoiceNumber||'-');
   ctx.font = '12px '+FONT;
   const badgeW = ctx.measureText(badgeText).width + 20;
   const badgeH = 24;
@@ -2811,7 +2871,7 @@ async function drawReceiptCanvas(orderId){
   ctx.fill();
   ctx.restore();
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = K.titleText;
   ctx.fillText(badgeText, badgeX+badgeW/2, badgeY+badgeH/2);
   y += titleBarH + PAD;
 
@@ -2829,11 +2889,11 @@ async function drawReceiptCanvas(orderId){
   };
   const labelValueRow = (yy, label, value, big, danger)=>{
     ctx.textAlign = 'right';
-    ctx.fillStyle = big ? primary : '#888';
+    ctx.fillStyle = big ? primary : K.labelText;
     ctx.font = (big?'bold 17px ':'14px ')+FONT;
     ctx.fillText(label, X1-PAD, yy+ROW_H/2);
     ctx.textAlign = 'left';
-    ctx.fillStyle = big ? primary : (danger ? '#B03A2E' : '#222');
+    ctx.fillStyle = big ? primary : (danger ? '#B03A2E' : K.valueText);
     ctx.font = (big?'bold 17px ':'bold 14px ')+FONT;
     ctx.fillText(String(value), X0+PAD, yy+ROW_H/2);
     if(!big) solidLine(yy+ROW_H, '#f0f0f0', 1);
@@ -2849,21 +2909,21 @@ async function drawReceiptCanvas(orderId){
   const qtyColRight = priceColRight+64;
   const nameColRight = X1-PAD;
 
-  ctx.fillStyle = primary;
+  ctx.fillStyle = itemsHeadBg;
   ctx.fillRect(X0+PAD, y, CW-2*PAD, itemHeadH);
   ctx.font = '12px '+FONT;
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign='right'; ctx.fillText('الصنف', nameColRight, y+itemHeadH/2);
-  ctx.textAlign='center'; ctx.fillText('العدد', qtyColRight-32, y+itemHeadH/2);
-  ctx.textAlign='center'; ctx.fillText('سعر القطعة', priceColRight-60, y+itemHeadH/2);
-  ctx.textAlign='left'; ctx.fillText('الإجمالي', totalColLeft-90, y+itemHeadH/2);
+  ctx.fillStyle = K.itemsHeadText;
+  ctx.textAlign='right'; ctx.fillText(L.colType, nameColRight, y+itemHeadH/2);
+  ctx.textAlign='center'; ctx.fillText(L.colQty, qtyColRight-32, y+itemHeadH/2);
+  ctx.textAlign='center'; ctx.fillText(L.colUnitPrice, priceColRight-60, y+itemHeadH/2);
+  ctx.textAlign='left'; ctx.fillText(L.colTotal, totalColLeft-90, y+itemHeadH/2);
   y += itemHeadH;
   const itemsTopY = y;
   items.forEach((it,idx)=>{
     const qty = it.qty||1;
     const price = Number(it.unitPrice)||0;
     if(idx%2===1){
-      ctx.fillStyle = '#faf9f5';
+      ctx.fillStyle = K.rowAltBg;
       ctx.fillRect(X0+PAD, y, CW-2*PAD, itemRowH);
     }
     ctx.font = '13px '+FONT;
@@ -2884,7 +2944,7 @@ async function drawReceiptCanvas(orderId){
   // صندوق المصاريف والإجمالي (خلفية مميزة)
   ctx.save();
   roundRectPath(ctx, X0+PAD, y, CW-2*PAD, totalsH, 10);
-  ctx.fillStyle = '#f8f6f1';
+  ctx.fillStyle = K.totalsBg;
   ctx.fill();
   ctx.restore();
   y += totalsPadV;
@@ -2896,9 +2956,9 @@ async function drawReceiptCanvas(orderId){
   dashedLine(y);
   y += 22;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#999';
+  ctx.fillStyle = K.footerText;
   ctx.font = '13px '+FONT;
-  ctx.fillText('شكرًا لثقتكم بنا 🌿', OM+CW/2, y);
+  ctx.fillText(L.footerText, OM+CW/2, y);
 
   ctx.restore(); // فك القص عن حدود البطاقة
 
@@ -3596,6 +3656,7 @@ function renderSettings(){
   document.getElementById('ownerPhoneInput').value = db.ownerPhone||'';
   document.getElementById('workshopAddressInput').value = db.workshopAddress||'';
   fillThemeInputs();
+  fillInvoiceCustomInputs();
   fillFontInputs();
   fillSkeletonInput();
   fillWideModeInput();
@@ -3756,6 +3817,69 @@ function applyThemePreset(name){
   fillThemeInputs();
   renderInvoicePreviewCard();
   toast('تم تطبيق الشكل الجديد ✅');
+}
+
+/* ============================================================
+   تخصيص نصوص وألوان كل سطر في الفاتورة
+   ============================================================ */
+// أزواج [id عنصر الإدخال، اسم الحقل] — نفس القائمة بتتستخدم في التعبئة والحفظ عشان لو
+// أضفنا سطر جديد نضيفه هنا مرة واحدة بس
+const INVOICE_TEXT_FIELDS = [
+  ['invText_title','title'], ['invText_badgePrefix','badgePrefix'],
+  ['invText_clientLabel','clientLabel'], ['invText_phoneLabel','phoneLabel'],
+  ['invText_receivedLabel','receivedLabel'], ['invText_deliveryLabel','deliveryLabel'],
+  ['invText_colType','colType'], ['invText_colQty','colQty'],
+  ['invText_colUnitPrice','colUnitPrice'], ['invText_colTotal','colTotal'],
+  ['invText_extraLabel','extraLabel'], ['invText_discountLabel','discountLabel'],
+  ['invText_taxLabel','taxLabel'], ['invText_totalLabel','totalLabel'],
+  ['invText_paidLabel','paidLabel'], ['invText_remainingLabel','remainingLabel'],
+  ['invText_footerText','footerText']
+];
+const INVOICE_COLOR_FIELDS = [
+  ['invColor_subText','subText'], ['invColor_titleText','titleText'],
+  ['invColor_labelText','labelText'], ['invColor_valueText','valueText'],
+  ['invColor_itemsHeadBg','itemsHeadBg'], ['invColor_itemsHeadText','itemsHeadText'],
+  ['invColor_rowAltBg','rowAltBg'], ['invColor_totalsBg','totalsBg'],
+  ['invColor_footerText','footerText']
+];
+
+function fillInvoiceCustomInputs(){
+  const ic = getInvoiceCustom();
+  INVOICE_TEXT_FIELDS.forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    if(el) el.value = ic.labels[key]||'';
+  });
+  INVOICE_COLOR_FIELDS.forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    // لون "خلفية عناوين جدول الأصناف" ممكن يكون فاضي (يعني ياخد اللون الأساسي تلقائيًا)
+    if(el) el.value = ic.colors[key] || (key==='itemsHeadBg' ? (db.theme&&db.theme.primary||'#1F6D57') : '#000000');
+  });
+}
+
+function saveInvoiceCustom(){
+  const labels = {};
+  INVOICE_TEXT_FIELDS.forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    const v = el ? el.value.trim() : '';
+    if(v) labels[key] = v;
+  });
+  const colors = {};
+  INVOICE_COLOR_FIELDS.forEach(([id,key])=>{
+    const el = document.getElementById(id);
+    if(el && el.value) colors[key] = el.value;
+  });
+  db.invoiceCustom = {labels, colors};
+  saveDB();
+  renderInvoicePreviewCard();
+  toast('تم حفظ نصوص وألوان الفاتورة ✅');
+}
+
+function resetInvoiceCustom(){
+  db.invoiceCustom = {};
+  saveDB();
+  fillInvoiceCustomInputs();
+  renderInvoicePreviewCard();
+  toast('تم استعادة نصوص وألوان الفاتورة الافتراضية ✅');
 }
 
 function saveButtonRadius(){
