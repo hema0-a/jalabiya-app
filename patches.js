@@ -1435,7 +1435,6 @@ cloudStatusChanged = function(){
     });
     if(anyInvalid){ toast('⚠️ فيه قيمة أكبر من الكمية المطلوبة'); return; }
 
-    o.updatedAt = Date.now();
     logActivity('📦 تسليم جزئي لطلب '+(customerById(o.customerId)?customerById(o.customerId).name:''));
     saveDB();
     closeModal();
@@ -2299,7 +2298,6 @@ cloudStatusChanged = function(){
     var wasDelivered = (before.status==='تم التسليم');
     o.status = newStatus;
     if(wasDelivered) o.deliveredDate = null;
-    o.updatedAt = Date.now();
     var c = customerById(o.customerId);
     logActivity('🔄 تغيير حالة طلب '+(c?c.name:'')+' إلى "'+newStatus+'"');
     setUndo('تغيير حالة الطلب', function(){
@@ -2387,60 +2385,18 @@ cloudStatusChanged = function(){
 })();
 
 /* 11) نافذة تأكيد قبل حفظ أي تعديل على بيانات عميل موجود بالفعل
-   [تحديث] بدل رسالة عامة "هل تريد حفظ التعديلات؟"، النافذة بقت توضح
-   بالظبط إيه اللي اتغير (حقل حقل، القديم ← الجديد) عشان المستخدم
-   يوافق على التغيير الفعلي مش بس يضغط "تأكيد" عادةً.
    (الإضافة الجديدة مش محتاجة تأكيد لوحدها — أصلاً فيه خطوة "حفظ"
    صريحة، والتأكيد هنا يبقى مخصص للتعديل على بيانات موجودة). */
 (function(){
-  var FIELD_LABELS = {
-    name:'الاسم', phone:'رقم الهاتف', family:'العائلة',
-    chest:'الصدر', waist:'الخزنة', length:'الطول', sleeve:'طول الكم', shoulder:'وسع الكم',
-    notes:'ملاحظات'
-  };
-
-  function readCustomerFormValues(){
-    return {
-      name: (document.getElementById('f_name').value||'').trim(),
-      phone: (document.getElementById('f_phone').value||'').trim(),
-      family: (document.getElementById('f_family').value||'').trim(),
-      chest: document.getElementById('f_chest').value||'',
-      waist: document.getElementById('f_waist').value||'',
-      length: document.getElementById('f_length').value||'',
-      sleeve: document.getElementById('f_sleeve').value||'',
-      shoulder: document.getElementById('f_shoulder').value||'',
-      notes: (document.getElementById('f_notes').value||'').trim()
-    };
-  }
-
-  function buildCustomerDiffLines(c, newData){
-    var lines = [];
-    Object.keys(FIELD_LABELS).forEach(function(key){
-      var oldVal = (c[key]===undefined||c[key]===null||c[key]==='') ? '-' : String(c[key]);
-      var newVal = (newData[key]===undefined||newData[key]===null||newData[key]==='') ? '-' : String(newData[key]);
-      if(oldVal !== newVal){
-        lines.push(FIELD_LABELS[key] + ': ' + oldVal + ' ← ' + newVal);
-      }
-    });
-    return lines;
-  }
-
   var origSaveCustomerConfirm = saveCustomer;
   saveCustomer = async function(id){
     if(id){
       var c = customerById(id);
-      if(c){
-        var newData = readCustomerFormValues();
-        var diffLines = buildCustomerDiffLines(c, newData);
-        var msg;
-        if(diffLines.length){
-          msg = 'هل تريد حفظ هذه التعديلات على بيانات العميل "' + c.name + '"؟\n\n' + diffLines.join('\n');
-        } else {
-          msg = 'هل تريد حفظ التعديلات على بيانات العميل "' + c.name + '"؟ (لا يوجد تغيير فعلي في البيانات)';
-        }
-        var ok = await appConfirm(msg, {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false});
-        if(!ok) return;
-      }
+      var ok = await appConfirm(
+        'هل تريد حفظ التعديلات على بيانات العميل' + (c?(' "'+c.name+'"'):'') + '؟',
+        {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
+      );
+      if(!ok) return;
     }
     __skipUnsavedCheckOnce = true;
     var r = await origSaveCustomerConfirm.apply(this, arguments);
@@ -2452,153 +2408,32 @@ cloudStatusChanged = function(){
 })();
 
 /* 12) نافذة تأكيد قبل حفظ أي تعديل على طلب موجود بالفعل
-   [تحديث] بدل رسالة عامة "هل تريد حفظ التعديلات؟"، النافذة بقت توضح
-   بالظبط إيه اللي اتغير. التغييرات المالية (السعر/الخصم/الضريبة/
-   المصاريف) بتتعرض في قسم منفصل عن باقي التغييرات العادية (الحالة،
-   التواريخ...) عشان توافق على المبلغ الصح فعلاً مش بس تضغط "تأكيد".
-   لو التعديل بيسجل الطلب "تم التسليم" بالكامل بيتعرض تنبيه مخصص فوق كله.
-   [إضافة] برضه بيفحص لو سعر أي صنف (في طلب جديد أو تعديل) بعيد جدًا
-   عن متوسط أسعار نفس النوع في الطلبات السابقة (نفس منطق حاسبة التسعير
-   السريعة الموجودة أصلاً) — عشان يمسك أخطاء كتابية زي 5000 بدل 500. */
+   [تم التحديث] لو التعديل بيغيّر حالة الطلب لـ"تم التسليم" (سواء من
+   قائمة الحالة المنسدلة أو غيرها) بيظهر تنبيه مخصص وأوضح، بدل رسالة
+   "حفظ التعديلات" العامة — لأن ده إجراء نهائي وأسهل حاجة تتضغط غلط
+   من قائمة منسدلة أثناء التمرير بالإصبع. */
 (function(){
-  var FIN_LABELS = {
-    discount:'الخصم', tax:'نسبة الضريبة/الرسوم', extra:'مصاريف إضافية',
-    materialCost:'تكلفة الخامة', total:'الإجمالي النهائي'
-  };
-
-  function readOrderFormItems(){
-    var items = [];
-    document.querySelectorAll('#itemsContainer .item-row').forEach(function(row){
-      var typeSel = row.querySelector('.it-type');
-      var type = '';
-      if(typeSel.value==='__custom__'){
-        var custom = row.querySelector('.it-custom');
-        type = custom ? custom.value.trim() : '';
-      } else {
-        var g = db.garmentTypes.find(function(x){ return x.id===typeSel.value; });
-        type = g ? g.name : '';
-      }
-      var qty = Math.max(1, Number(row.querySelector('.it-qty').value)||1);
-      var unitPrice = Math.max(0, Number(row.querySelector('.it-price').value)||0);
-      if(type) items.push({type:type, qty:qty, unitPrice:unitPrice});
-    });
-    return items;
-  }
-
-  // بيدور على متوسط سعر نفس النوع في الطلبات السابقة (نفس فكرة حاسبة
-  // التسعير السريعة) وبيرجّع تحذير لو السعر الحالي بعيد جدًا عنه
-  function findUnusualPriceItems(items, excludeOrderId){
-    var warnings = [];
-    items.forEach(function(it){
-      if(!it.unitPrice || it.unitPrice<=0) return;
-      var history = [];
-      db.orders.forEach(function(o){
-        if(excludeOrderId && o.id===excludeOrderId) return;
-        var oi = (Array.isArray(o.items)&&o.items.length) ? o.items : [{type:o.type, unitPrice:(o.unitPrice!==undefined?o.unitPrice:o.fee)||0}];
-        oi.forEach(function(x){ if(x.type===it.type && Number(x.unitPrice)>0) history.push(Number(x.unitPrice)); });
-      });
-      if(history.length<3) return; // مفيش بيانات كافية للمقارنة
-      var avg = history.reduce(function(a,b){ return a+b; },0)/history.length;
-      if(avg<=0) return;
-      if(it.unitPrice > avg*2.5 || it.unitPrice < avg*0.35){
-        warnings.push({type:it.type, price:it.unitPrice, avg:Math.round(avg)});
-      }
-    });
-    return warnings;
-  }
-
-  function priceWarningsText(warnings){
-    return warnings.map(function(w){
-      return '💸 سعر غير معتاد: "'+w.type+'" بسعر '+w.price.toLocaleString('ar-EG')+' ج.م، بينما متوسط أسعارك السابقة لنفس النوع ~'+w.avg.toLocaleString('ar-EG')+' ج.م. متأكد إنه مش غلط كتابي؟';
-    }).join('\n');
-  }
-
-  function buildOrderChangeSummary(o){
-    var items = readOrderFormItems();
-    var dateDelivery = document.getElementById('f_dateDelivery').value;
-    var status = document.getElementById('f_status').value;
-    var urgentEl = document.getElementById('f_urgent');
-    var urgent = urgentEl ? urgentEl.checked : !!o.urgent;
-    var extra = Number(document.getElementById('f_extra').value)||0;
-    var materialCost = Number(document.getElementById('f_materialCost').value)||0;
-    var discountType = document.getElementById('f_discountType').value;
-    var discountValue = Number(document.getElementById('f_discountValue').value)||0;
-    var taxPercent = Number(document.getElementById('f_taxPercent').value)||0;
-
-    var newTypeLabel = orderTypeLabel({items:items});
-    var oldTypeLabel = orderTypeLabel(o);
-    var newTotal = orderTotal({items:items, extra:extra, discountType:discountType, discountValue:discountValue, taxPercent:taxPercent});
-    var oldTotal = orderTotal(o);
-
-    var otherLines = [];
-    var finLines = [];
-
-    if(oldTypeLabel !== newTypeLabel) otherLines.push('الأصناف: ' + oldTypeLabel + ' ← ' + newTypeLabel);
-    if((o.status||'') !== status) otherLines.push('الحالة: ' + o.status + ' ← ' + status);
-    if((o.dateDelivery||'') !== dateDelivery) otherLines.push('تاريخ التسليم: ' + fmtDate(o.dateDelivery) + ' ← ' + fmtDate(dateDelivery));
-    if(!!o.urgent !== urgent) otherLines.push('طلب مستعجل: ' + (o.urgent?'نعم':'لا') + ' ← ' + (urgent?'نعم':'لا'));
-
-    var oldDiscLabel = (!o.discountType||o.discountType==='none') ? 'بدون خصم' : ((Number(o.discountValue)||0)+(o.discountType==='percent'?'%':' ج.م'));
-    var newDiscLabel = (discountType==='none') ? 'بدون خصم' : (discountValue+(discountType==='percent'?'%':' ج.م'));
-    if(oldDiscLabel !== newDiscLabel) finLines.push(FIN_LABELS.discount + ': ' + oldDiscLabel + ' ← ' + newDiscLabel);
-
-    if((Number(o.taxPercent)||0) !== taxPercent) finLines.push(FIN_LABELS.tax + ': ' + ((Number(o.taxPercent)||0)) + '% ← ' + taxPercent + '%');
-    if((Number(o.extra)||0) !== extra) finLines.push(FIN_LABELS.extra + ': ' + ((Number(o.extra)||0)).toLocaleString('ar-EG') + ' ج.م ← ' + extra.toLocaleString('ar-EG') + ' ج.م');
-    if((Number(o.materialCost)||0) !== materialCost) finLines.push(FIN_LABELS.materialCost + ': ' + ((Number(o.materialCost)||0)).toLocaleString('ar-EG') + ' ج.م ← ' + materialCost.toLocaleString('ar-EG') + ' ج.م');
-    if(Math.round(oldTotal) !== Math.round(newTotal)) finLines.push(FIN_LABELS.total + ': ' + Math.round(oldTotal).toLocaleString('ar-EG') + ' ج.م ← ' + Math.round(newTotal).toLocaleString('ar-EG') + ' ج.م');
-
-    return {
-      otherLines: otherLines,
-      finLines: finLines,
-      becomingDelivered: (o.status!=='تم التسليم' && status==='تم التسليم'),
-      priceWarnings: findUnusualPriceItems(items, o.id)
-    };
-  }
-
   var origSaveOrderConfirm = saveOrder;
   saveOrder = async function(id){
     if(id){
       var o = db.orders.find(function(x){ return x.id===id; });
       var c = o ? customerById(o.customerId) : null;
-      if(o){
-        var summary = buildOrderChangeSummary(o);
-        var parts = [];
-        if(summary.becomingDelivered){
-          parts.push('⚠️ هذا التغيير هيسجّل' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + ' كـ"تم التسليم" بالكامل.');
-        }
-        if(summary.priceWarnings.length){
-          parts.push(priceWarningsText(summary.priceWarnings));
-        }
-        if(summary.finLines.length){
-          parts.push('💰 تغييرات مالية:\n' + summary.finLines.join('\n'));
-        }
-        if(summary.otherLines.length){
-          parts.push('📝 تغييرات أخرى:\n' + summary.otherLines.join('\n'));
-        }
-
-        var msg;
-        if(parts.length){
-          msg = 'هل تريد حفظ هذه التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟\n\n' + parts.join('\n\n');
-        } else {
-          msg = 'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟ (لا يوجد تغيير فعلي ملحوظ)';
-        }
-
-        var ok = await appConfirm(msg, {
-          okText: summary.becomingDelivered ? 'نعم، تم التسليم' : 'حفظ التعديل',
-          cancelText: 'إلغاء',
-          danger: false
-        });
-        if(!ok) return;
+      var statusSel = document.getElementById('f_status');
+      var newStatus = statusSel ? statusSel.value : null;
+      var becomingDelivered = o && o.status!=='تم التسليم' && newStatus==='تم التسليم';
+      var ok;
+      if(becomingDelivered){
+        ok = await appConfirm(
+          '⚠️ هذا التغيير هيسجّل' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + ' كـ"تم التسليم" بالكامل. هل أنت متأكد؟',
+          {okText:'نعم، تم التسليم', cancelText:'إلغاء', danger:false}
+        );
+      } else {
+        ok = await appConfirm(
+          'هل تريد حفظ التعديلات على' + (c?(' طلب "'+c.name+'"'):' هذا الطلب') + '؟',
+          {okText:'حفظ التعديل', cancelText:'إلغاء', danger:false}
+        );
       }
-    } else {
-      // طلب جديد: مفيش داعي لتأكيد عام (فيه خطوة "حفظ" صريحة أصلاً)،
-      // لكن لو السعر المكتوب بعيد جدًا عن المعتاد بننبّه قبل ما يتسجل
-      var newItems = readOrderFormItems();
-      var newWarnings = findUnusualPriceItems(newItems, null);
-      if(newWarnings.length){
-        var ok2 = await appConfirm(priceWarningsText(newWarnings), {okText:'نعم، السعر صحيح', cancelText:'تصحيح السعر', danger:false});
-        if(!ok2) return;
-      }
+      if(!ok) return;
     }
     __skipUnsavedCheckOnce = true;
     var r = await origSaveOrderConfirm.apply(this, arguments);
@@ -2726,260 +2561,104 @@ cloudStatusChanged = function(){
   };
 })();
 
-/* 16) منع الحفظ المزدوج (Double-submit)
-   لو زرار "حفظ" اتضغط مرتين بسرعة (شائع على الأجهزة البطيئة أو
-   نتيجة لمسة عرضية)، بيبقى فيه خطر إن نفس الطلب/العميل يتسجل مرتين.
-   الحل: أول ما الزرار يتضغط، بيتعطّل فورًا وبيتغيّر نصه لحد ما عملية
-   الحفظ (بما فيها أي نافذة تأكيد قبلها) تخلص. لو الفورم لسه فاتح بعد
-   كده (يعني رفض بسبب تحقق أو إلغاء)، الزرار بيرجع يشتغل تاني.
-   الدالة دي بتلف آخر نسخة من كل دالة حفظ (بعد كل الباتشات اللي فاتت)،
-   عشان تكون هي أول حاجة تتنفذ فعليًا عند الضغط. */
+/* 16) [إصلاح حرج] كان فيه سباق بين "تحميل البيانات من السحابة" و"رفع
+   البيانات المحلية" لحظة الاتصال بمساحة مزامنة — لو كان فيه اتصال سابق
+   في نفس الجلسة، استدعاء saveDB() جوه دالة الاتصال كان بيجدول رفع تلقائي
+   بعد أقل من ثانية، وده كان بيكتب فوق بيانات السحابة الحقيقية ببيانات
+   الجهاز المحلية (اللي بتكون فاضية وقت الاتصال) قبل ما التحميل يخلص.
+   الحل: منع أي رفع للسحابة تمامًا لمدة كافية بعد أي محاولة اتصال/إنشاء
+   مساحة مزامنة، لحد ما يتضمن وصول أول تحديث حقيقي من السحابة. */
 (function(){
-  function wrapDoubleSubmit(fnName, btnSelector){
-    var orig = window[fnName];
-    if(typeof orig !== 'function') return;
-    window[fnName] = async function(){
-      var btn = document.querySelector(btnSelector);
-      if(btn){
-        if(btn.dataset.submitting === '1'){
-          // ضغطة تانية وصلت أثناء تنفيذ الأولى — نتجاهلها
-          return;
-        }
-        btn.dataset.submitting = '1';
-        if(btn.dataset.origLabel === undefined) btn.dataset.origLabel = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '⏳ جارٍ الحفظ...';
-      }
+  var blockPush = false;
+  if(typeof pushToCloud==='function'){
+    var origPushToCloudGuard = pushToCloud;
+    pushToCloud = async function(){
+      if(blockPush) return; // ممنوع الرفع لحد ما ناخد فرصة كافية للتحميل الأول
+      return origPushToCloudGuard.apply(this, arguments);
+    };
+  }
+  function guardConnect(fn){
+    return async function(){
+      blockPush = true;
       try{
-        return await orig.apply(this, arguments);
+        return await fn.apply(this, arguments);
       } finally {
-        // لو الزرار لسه موجود في الصفحة (يعني الفورم لسه فاتح ومحصلش
-        // حفظ فعلي)، نرجّعه شغّال تاني عشان المستخدم يقدر يصحح ويعيد المحاولة
-        if(btn && document.body.contains(btn)){
-          btn.disabled = false;
-          btn.dataset.submitting = '';
-          if(btn.dataset.origLabel !== undefined) btn.innerHTML = btn.dataset.origLabel;
-        }
+        setTimeout(function(){ blockPush = false; }, 8000);
       }
     };
   }
-
-  wrapDoubleSubmit('saveOrder', '.modal-box button[onclick^="saveOrder("]');
-  wrapDoubleSubmit('saveCustomer', '.modal-box button[onclick^="saveCustomer("]');
-  wrapDoubleSubmit('savePayment', '.modal-box button[onclick^="savePayment("]');
-  wrapDoubleSubmit('saveExpense', '.modal-box button[onclick^="saveExpense("]');
-  wrapDoubleSubmit('saveGarmentType', '.modal-box button[onclick^="saveGarmentType("]');
-  wrapDoubleSubmit('savePartialDelivery', '.modal-box button[onclick^="savePartialDelivery("]');
+  if(typeof connectCloudSyncSpace==='function') connectCloudSyncSpace = guardConnect(connectCloudSyncSpace);
+  if(typeof createCloudSyncSpace==='function') createCloudSyncSpace = guardConnect(createCloudSyncSpace);
 })();
 
-/* 30) عداد التعديلات المعلّقة اللي لسه ما اتزامنتش مع السحابة
-   الشارة الأصلية (باتش 25) كانت بتقول بس "في انتظار المزامنة" من
-   غير ما توضح العدد. هنا بنعد كل مرة يتحفظ فيها تعديل محلي والمزامنة
-   السحابية مفعّلة، ونصفّر العداد أول ما الرفع للسحابة ينجح، ونعرض
-   الرقم في شارة الاتصال بالهيدر وفي كارت المزامنة بصفحة الإعدادات. */
+/* 17) [تنظيم داخلي] تبسيط صفوف الأزرار في كروت العملاء والطلبات
+   بدل ما كل كارت يعرض 6-7 زراير في صف واحد مزدحم، بنسيب أهم زرارين
+   ظاهرين، والباقي يتجمع في قائمة "⋮ المزيد" منسدلة ونضيفة —
+   مستوحاة من قائمة الثلاث نقاط في تطبيق "مقاس". */
 (function(){
-  window.cloudPendingCount = 0;
-
-  const origSaveDB = saveDB;
-  saveDB = function(){
-    const r = origSaveDB.apply(this, arguments);
-    if(db && db.cloudSync && db.cloudSync.enabled) window.cloudPendingCount++;
-    return r;
-  };
-
-  const origPushToCloud = pushToCloud;
-  pushToCloud = async function(){
-    const r = await origPushToCloud.apply(this, arguments);
-    if(!cloudPendingChanges) window.cloudPendingCount = 0; // الرفع نجح فعليًا
-    return r;
-  };
-
-  const origDisconnect = disconnectCloudSync;
-  disconnectCloudSync = async function(){
-    const r = await origDisconnect.apply(this, arguments);
-    window.cloudPendingCount = 0;
-    return r;
-  };
-
-  // إضافة العدد لشارة حالة المزامنة في كارت الإعدادات
-  const origRenderBadge = renderCloudSyncStatusBadge;
-  renderCloudSyncStatusBadge = function(){
-    origRenderBadge.apply(this, arguments);
-    const el = document.getElementById('cloudSyncStatusBadge');
-    if(!el) return;
-    const pending = db && db.cloudSync && db.cloudSync.enabled && (!navigator.onLine || cloudPendingChanges);
-    if(pending && window.cloudPendingCount>0){
-      const n = window.cloudPendingCount;
-      const label = n===1 ? 'تعديل واحد' : (n===2 ? 'تعديلين' : n+' تعديلات');
-      el.innerHTML += ` <span style="opacity:.85;font-weight:600;">(${label} لسه ما اتزامنوش)</span>`;
-    }
-  };
-
-  // إضافة العدد لبادچ الاتصال في الهيدر (المضافة في باتش 25)
-  const origRefresh = window.refreshConnectivityBadge;
-  window.refreshConnectivityBadge = function(){
-    if(typeof origRefresh==='function') origRefresh.apply(this, arguments);
-    const badge = document.getElementById('offlineBadge');
-    if(badge && db && db.cloudSync && db.cloudSync.enabled && window.cloudPendingCount>0){
-      badge.innerHTML += ` · ${window.cloudPendingCount}`;
-    }
-  };
-})();
-
-/* 31) استيراد رقم هاتف العميل من جهات اتصال الموبايل (Contact Picker API)
-   بيظهر زرار "📇 من جهات الاتصال" جنب حقل رقم الهاتف في فورم إضافة/تعديل
-   عميل. الخاصية دي مدعومة بشكل أساسي على أندرويد كروم/إيدج داخل PWA أو
-   المتصفح؛ لو الجهاز أو المتصفح مش بيدعمها (زي الآيفون حاليًا)، الزرار
-   بيختفي تلقائيًا والحقل بيفضل شغال عادي بالكتابة اليدوية. */
-(function(){
-  const supported = ('contacts' in navigator) && ('ContactsManager' in window);
-
-  window.importPhoneFromContacts = async function(){
-    if(!supported){ toast('الاستيراد من جهات الاتصال غير مدعوم على هذا الجهاز/المتصفح'); return; }
-    try{
-      const contacts = await navigator.contacts.select(['name','tel'], {multiple:false});
-      if(!contacts || !contacts.length) return; // المستخدم لغى الاختيار
-      const picked = contacts[0];
-      const rawTel = (picked.tel && picked.tel.length) ? picked.tel[0] : '';
-      if(!rawTel){ toast('لا يوجد رقم هاتف محفوظ لجهة الاتصال دي'); return; }
-      // تنضيف الرقم من رمز الدولة (+20) والمسافات/الشرطات، ورجوعه لصيغة 01xxxxxxxxx المصرية
-      let digits = rawTel.replace(/[^\d]/g,'');
-      if(digits.startsWith('20') && digits.length>11) digits = '0'+digits.slice(2);
-      else if(digits.startsWith('2') && digits.length===12) digits = '0'+digits.slice(1);
-      const phoneInput = document.getElementById('f_phone');
-      if(phoneInput) phoneInput.value = digits;
-      const nameInput = document.getElementById('f_name');
-      if(nameInput && !nameInput.value.trim() && picked.name && picked.name.length){
-        nameInput.value = picked.name[0];
-      }
-      toast('تم استيراد الرقم ✅ راجعه قبل الحفظ');
-    }catch(e){
-      if(e && e.name==='SecurityError') return; // المستخدم رفض الإذن أو لغى الاختيار
-      console.warn('تعذر استيراد جهة الاتصال:', e);
-      toast('تعذر فتح جهات الاتصال');
-    }
-  };
-
-  const origOpenCustomerModal = openCustomerModal;
-  openCustomerModal = function(){
-    origOpenCustomerModal.apply(this, arguments);
-    if(!supported) return;
-    const input = document.getElementById('f_phone');
-    if(!input || document.getElementById('importContactBtn')) return;
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;gap:8px;align-items:stretch;';
-    input.parentNode.insertBefore(wrap, input);
-    input.style.flex = '1';
-    input.style.width = 'auto';
-    input.style.minWidth = '0';
-    wrap.appendChild(input);
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'importContactBtn';
-    btn.className = 'btn sm outline';
-    btn.style.cssText = 'flex-shrink:0;white-space:nowrap;';
-    btn.textContent = '📇 من جهات الاتصال';
-    btn.onclick = window.importPhoneFromContacts;
-    wrap.appendChild(btn);
-  };
-})();
-
-/* 32) تتبع مصدر/محيل العميل (مين جابه) + تقرير أفضل مصادر العملاء
-   بيضيف حقل اختياري في فورم العميل "اتعرف عليك إزاي؟" — ممكن يبقى
-   اسم عميل موجود بالفعل (إحالة)، أو مصدر عام زي إعلان/لافتة المحل.
-   القيمة بتتحفظ في c.referredBy، وبتظهر في كارت العميل، وفوق قائمة
-   العملاء بيظهر تقرير بسيط بأكتر المصادر تكرارًا. */
-(function(){
-  var COMMON_SOURCES = ['إعلان فيسبوك','إعلان انستجرام','لافتة/واجهة المحل','بحث جوجل','توصية صديق/قريب'];
-
-  function referralDatalistOptions(){
-    var names = db.customers.map(function(c){ return c.name; }).filter(Boolean);
-    var all = Array.from(new Set(names.concat(COMMON_SOURCES)));
-    return all.map(function(o){ return '<option value="'+escapeHtml(o)+'">'; }).join('');
-  }
-
-  // إضافة الحقل لفورم العميل، بعد حقل العائلة مباشرة
-  var origOpenCustomerModalRef = openCustomerModal;
-  openCustomerModal = function(id){
-    origOpenCustomerModalRef.apply(this, arguments);
-    var familyField = document.getElementById('f_family');
-    if(!familyField || document.getElementById('f_referredBy')) return;
-    var familyWrap = familyField.closest('.field');
-    if(!familyWrap) return;
-    var c = id ? customerById(id) : null;
-    var wrap = document.createElement('div');
-    wrap.className = 'field';
-    wrap.innerHTML = '<label>🔗 اتعرف عليك إزاي؟ (اختياري)</label>'
-      + '<input id="f_referredBy" list="referredByList" value="'+(c?escapeHtml(c.referredBy||''):'')+'" placeholder="مثال: اسم عميل، أو إعلان فيسبوك...">'
-      + '<datalist id="referredByList">'+referralDatalistOptions()+'</datalist>';
-    familyWrap.insertAdjacentElement('afterend', wrap);
-  };
-
-  // حفظ القيمة بعد ما saveCustomer الأصلية (بكل الطبقات اللي فاتت) تخلص شغلها بنجاح
-  var origSaveCustomerRef = saveCustomer;
-  saveCustomer = async function(id){
-    var input = document.getElementById('f_referredBy');
-    var referredBy = input ? input.value.trim() : '';
-    var prevCount = db.customers.length;
-    var r = await origSaveCustomerRef.apply(this, arguments);
-    var ov = document.getElementById('modalOverlay');
-    var saved = !(ov && ov.classList.contains('active')); // الفورم اتقفل يبقى الحفظ نجح فعليًا
-    if(saved){
-      var target = id ? customerById(id) : db.customers[db.customers.length-1];
-      if(target && db.customers.length>=prevCount){
-        if(referredBy) target.referredBy = referredBy; else delete target.referredBy;
-        saveDB();
-      }
-    }
-    return r;
-  };
-
-  // عرض المصدر في كارت العميل + تقرير أفضل المصادر فوق القائمة
-  function renderReferralReport(){
-    var listEl = document.getElementById('customersList');
-    if(!listEl) return;
-    var box = document.getElementById('referralReportBox');
-    var counts = {};
-    db.customers.forEach(function(c){
-      if(!c.referredBy) return;
-      counts[c.referredBy] = (counts[c.referredBy]||0)+1;
-    });
-    var entries = Object.keys(counts).map(function(k){ return {name:k, count:counts[k]}; }).sort(function(a,b){ return b.count-a.count; });
-    if(!entries.length){ if(box) box.remove(); return; }
-    if(!box){
-      box = document.createElement('div');
-      box.id = 'referralReportBox';
-      box.className = 'card';
-      box.style.marginBottom = '12px';
-      listEl.parentNode.insertBefore(box, listEl);
-    }
-    box.innerHTML = '<h3 style="font-size:14px;">🔗 أفضل مصادر العملاء</h3>'
-      + entries.slice(0,5).map(function(e){ return '<div class="meta">'+escapeHtml(e.name)+': <b>'+e.count+'</b> عميل</div>'; }).join('');
-  }
-
-  var origRenderCustomersRef = renderCustomers;
-  renderCustomers = function(){
-    origRenderCustomersRef.apply(this, arguments);
-    var listEl = document.getElementById('customersList');
-    if(listEl){
-      listEl.querySelectorAll('.card').forEach(function(card){
-        if(card.querySelector('.referred-by-line')) return;
-        var btn = card.querySelector('[onclick^="openCustomerModal("]');
-        if(!btn) return;
-        var m = btn.getAttribute('onclick').match(/openCustomerModal\('([^']+)'/);
-        if(!m) return;
-        var c = db.customers.find(function(x){ return x.id===m[1]; });
-        if(!c || !c.referredBy) return;
-        var phoneLine = card.querySelector('.meta');
-        if(phoneLine){
-          var line = document.createElement('div');
-          line.className = 'meta referred-by-line';
-          line.textContent = '🔗 اتعرف عن طريق: ' + c.referredBy;
-          phoneLine.insertAdjacentElement('afterend', line);
-        }
+  function consolidateCardActions(containerId, primaryLabels){
+    var container = document.getElementById(containerId);
+    if(!container) return;
+    container.querySelectorAll('.card').forEach(function(card){
+      var row = card.querySelector('.btn-row');
+      if(!row) return;
+      var buttons = Array.prototype.slice.call(row.children).filter(function(el){ return el.tagName==='BUTTON'; });
+      if(buttons.length <= primaryLabels.length) return;
+      var isPrimary = buttons.map(function(b){
+        return primaryLabels.some(function(l){ return b.textContent.trim()===l; });
       });
-    }
-    renderReferralReport();
+      var secondary = buttons.filter(function(b,i){ return !isPrimary[i]; });
+      if(!secondary.length) return;
+      row.style.position = 'relative';
+
+      var menu = document.createElement('div');
+      menu.className = 'card-more-menu';
+      menu.style.cssText = 'display:none;position:absolute;top:100%;inset-inline-start:0;margin-top:6px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-lift);z-index:20;overflow:hidden;min-width:180px;';
+
+      secondary.forEach(function(b, i){
+        b.classList.remove('sm','outline','secondary','accent','danger');
+        b.style.cssText = 'display:block;width:100%;text-align:start;background:none;border:none;'
+          + (i<secondary.length-1 ? 'border-bottom:1px solid var(--border);' : '')
+          + 'padding:11px 14px;font-size:14px;color:var(--text);cursor:pointer;border-radius:0;flex:none;';
+        menu.appendChild(b);
+      });
+
+      var moreBtn = document.createElement('button');
+      moreBtn.type = 'button';
+      moreBtn.className = 'btn sm outline';
+      moreBtn.textContent = '⋮ المزيد';
+      moreBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        document.querySelectorAll('.card-more-menu.open').forEach(function(m){
+          if(m!==menu){ m.classList.remove('open'); m.style.display='none'; }
+        });
+        var isOpen = menu.classList.toggle('open');
+        menu.style.display = isOpen ? 'block' : 'none';
+      });
+      row.appendChild(moreBtn);
+      row.appendChild(menu);
+    });
+  }
+
+  if(!window.__cardMoreMenuDocClick){
+    window.__cardMoreMenuDocClick = true;
+    document.addEventListener('click', function(){
+      document.querySelectorAll('.card-more-menu.open').forEach(function(m){
+        m.classList.remove('open'); m.style.display='none';
+      });
+    });
+  }
+
+  var origRenderOrdersUI = renderOrders;
+  renderOrders = function(){
+    origRenderOrdersUI.apply(this, arguments);
+    consolidateCardActions('ordersList', ['✏️ تعديل', '📲 فاتورة واتساب']);
+  };
+
+  var origRenderCustomersUI = renderCustomers;
+  renderCustomers = function(){
+    origRenderCustomersUI.apply(this, arguments);
+    consolidateCardActions('customersList', ['✏️ تعديل', '➕ طلب جديد']);
   };
 })();
 
