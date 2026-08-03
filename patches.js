@@ -2662,5 +2662,139 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 18) [ضمان استرجاع دائم] حارس أمان قبل الرفع + نسخ احتياطية سحابية
+   بتاريخ منفصلة عن مستند المزامنة الحي — عشان لو حصل أي خطأ (حتى لو
+   خطأ مستقبلي غير اللي أصلحناه) يفضل عندك تاريخ نقاط استرجاع تقدر
+   ترجع لأي يوم منها بدل ما تعتمد بس على نسخة حية واحدة ممكن تتكتب
+   فوقها غلط. */
+(function(){
+  // أ) قبل أي رفع فعلي، اتأكد إن البيانات المحلية مش أقل بشكل مريب من
+  // اللي على السحابة حاليًا — لو كده امنع الرفع بدل ما يحصل استبدال كارثي
+  var origPushToCloudSafe = pushToCloud;
+  pushToCloud = async function(){
+    try{
+      if(cloudDb && db && db.cloudSync && db.cloudSync.enabled && db.cloudSync.syncId){
+        var ref = cloudDb.collection('workshops').doc(db.cloudSync.syncId);
+        var snap = await ref.get();
+        if(snap.exists){
+          var remote = snap.data() || {};
+          var remoteC = (remote.customers||[]).length;
+          var remoteO = (remote.orders||[]).length;
+          var localC = (db.customers||[]).length;
+          var localO = (db.orders||[]).length;
+          var suspicious = (remoteC>0 && localC===0) || (remoteO>0 && localO===0)
+                         || (remoteC - localC > 5) || (remoteO - localO > 5);
+          if(suspicious){
+            console.warn('⛔ تم إيقاف الرفع للسحابة وقائيًا — البيانات المحلية أقل بكثير من السحابة (سحابة: '+remoteC+' عميل/'+remoteO+' طلب، جهاز: '+localC+' عميل/'+localO+' طلب).');
+            return;
+          }
+        }
+      }
+    }catch(e){ return; } // لو التحقق فشل، الأسلم إننا مانرفعش من غير ما نتأكد
+    var r = await origPushToCloudSafe.apply(this, arguments);
+    scheduleDailyCloudBackup();
+    return r;
+  };
+
+  // ب) نسخة احتياطية سحابية تلقائية مرة كل يوم، في مستند منفصل بتاريخه
+  function scheduleDailyCloudBackup(){
+    try{
+      if(!cloudDb || !db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.syncId) return;
+      var today = new Date().toISOString().slice(0,10);
+      if(db.__lastCloudBackupDate === today) return;
+      var safeData = JSON.parse(JSON.stringify(db));
+      cloudDb.collection('workshops').doc(db.cloudSync.syncId).collection('backups').doc(today).set(safeData)
+        .then(function(){
+          db.__lastCloudBackupDate = today;
+          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
+        }).catch(function(){});
+    }catch(e){}
+  }
+
+  // ج) نسخة احتياطية سحابية يدوية فورية
+  window.backupNowToCloud = async function(){
+    if(!cloudDb || !db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.syncId){
+      toast('المزامنة السحابية لازم تكون مفعّلة الأول');
+      return;
+    }
+    try{
+      var key = new Date().toISOString().replace(/[:.]/g,'-');
+      var safeData = JSON.parse(JSON.stringify(db));
+      await cloudDb.collection('workshops').doc(db.cloudSync.syncId).collection('backups').doc(key).set(safeData);
+      toast('✅ اتحفظت نسخة احتياطية سحابية دلوقتي');
+    }catch(e){
+      toast('⚠️ فشل حفظ النسخة الاحتياطية — تأكد من الاتصال بالنت');
+    }
+  };
+
+  // د) عرض النسخ السحابية السابقة واسترجاع أي واحدة منها
+  window.listCloudBackups = async function(){
+    if(!cloudDb || !db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.syncId){
+      toast('المزامنة السحابية لازم تكون مفعّلة الأول');
+      return;
+    }
+    var box = document.getElementById('cloudBackupsListBox');
+    if(!box) return;
+    box.innerHTML = '<p class="meta">⏳ جاري التحميل...</p>';
+    try{
+      var qs = await cloudDb.collection('workshops').doc(db.cloudSync.syncId).collection('backups').orderBy('updatedAt','desc').limit(30).get();
+      if(qs.empty){
+        box.innerHTML = '<p class="meta">لا توجد نسخ احتياطية سحابية بعد.</p>';
+        return;
+      }
+      var rows = [];
+      qs.forEach(function(doc){
+        var d = doc.data();
+        var custN = (d.customers||[]).length;
+        var ordN = (d.orders||[]).length;
+        var dt = d.updatedAt ? new Date(d.updatedAt).toLocaleString('ar-EG') : doc.id;
+        rows.push('<div class="card" style="padding:10px;margin-bottom:8px;">'
+          + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+          + '<div><b>'+doc.id+'</b><br><span class="meta">'+dt+' — '+custN+' عميل / '+ordN+' طلب</span></div>'
+          + '<button class="btn sm outline" onclick="restoreCloudBackup(\''+doc.id+'\')">استرجاع</button>'
+          + '</div></div>');
+      });
+      box.innerHTML = rows.join('');
+    }catch(e){
+      box.innerHTML = '<p class="meta">⚠️ تعذر تحميل القائمة — تأكد من الاتصال بالنت.</p>';
+    }
+  };
+
+  window.restoreCloudBackup = async function(backupId){
+    var ok = await appConfirm('هل تريد استرجاع النسخة الاحتياطية بتاريخ '+backupId+'؟ سيتم استبدال كل البيانات الحالية على هذا الجهاز بها.', {okText:'استرجاع', cancelText:'إلغاء', danger:true});
+    if(!ok) return;
+    try{
+      var docSnap = await cloudDb.collection('workshops').doc(db.cloudSync.syncId).collection('backups').doc(backupId).get();
+      if(!docSnap.exists){ toast('⚠️ النسخة دي مش موجودة'); return; }
+      var restored = docSnap.data();
+      var mySettings = db.cloudSync;
+      db = restored;
+      db.cloudSync = mySettings;
+      fillMissingDefaults();
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
+      renderAll();
+      toast('✅ تم استرجاع النسخة الاحتياطية بنجاح');
+    }catch(e){
+      toast('⚠️ فشل الاسترجاع');
+    }
+  };
+
+  // هـ) إضافة قسم النسخ الاحتياطية السحابية تحت كارت المزامنة في الإعدادات
+  var origRenderCloudSyncCardBackup = renderCloudSyncCard;
+  renderCloudSyncCard = function(){
+    origRenderCloudSyncCardBackup.apply(this, arguments);
+    var box = document.getElementById('cloudSyncCardWrap');
+    if(!box || !(db.cloudSync && db.cloudSync.enabled && db.cloudSync.syncId)) return;
+    if(box.querySelector('#cloudBackupsSection')) return; // متتكررش لو اتنادت تاني
+    box.insertAdjacentHTML('beforeend', ''
+      + '<div id="cloudBackupsSection" style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">'
+      + '<p class="meta">نسخة احتياطية سحابية يومية تلقائية، منفصلة عن بيانات المزامنة الحية — لو أي مشكلة حصلت، تقدر ترجع لأي يوم سابق من غير ما تعتمد على النسخة الحية بس.</p>'
+      + '<div class="btn-row"><button class="btn sm outline" onclick="backupNowToCloud()">🗄️ احفظ نسخة الآن</button>'
+      + '<button class="btn sm outline" onclick="listCloudBackups()">📜 عرض النسخ السابقة</button></div>'
+      + '<div id="cloudBackupsListBox" style="margin-top:10px;"></div>'
+      + '</div>');
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
