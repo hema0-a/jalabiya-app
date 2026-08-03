@@ -2723,7 +2723,7 @@ cloudStatusChanged = function(){
       await cloudDb.collection('workshops').doc(db.cloudSync.syncId).collection('backups').doc(key).set(safeData);
       toast('✅ اتحفظت نسخة احتياطية سحابية دلوقتي');
     }catch(e){
-      toast('⚠️ فشل حفظ النسخة الاحتياطية — تأكد من الاتصال بالنت');
+      toast('⚠️ فشل حفظ النسخة الاحتياطية: '+(e && (e.code||e.message)||'خطأ غير معروف'));
     }
   };
 
@@ -2756,7 +2756,7 @@ cloudStatusChanged = function(){
       });
       box.innerHTML = rows.join('');
     }catch(e){
-      box.innerHTML = '<p class="meta">⚠️ تعذر تحميل القائمة — تأكد من الاتصال بالنت.</p>';
+      box.innerHTML = '<p class="meta">⚠️ تعذر تحميل القائمة: '+(e && (e.code||e.message)||'خطأ غير معروف')+'</p>';
     }
   };
 
@@ -2775,7 +2775,7 @@ cloudStatusChanged = function(){
       renderAll();
       toast('✅ تم استرجاع النسخة الاحتياطية بنجاح');
     }catch(e){
-      toast('⚠️ فشل الاسترجاع');
+      toast('⚠️ فشل الاسترجاع: '+(e && (e.code||e.message)||'خطأ غير معروف'));
     }
   };
 
