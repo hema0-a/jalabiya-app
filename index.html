@@ -1170,6 +1170,17 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <div id="holidaysList" style="margin-top:12px;"></div>
       </div>
       <div class="card">
+        <h3>📢 تقويم مناسبات مسبق (تنبيه استعداد)</h3>
+        <p class="meta">أضف المواسم اللي بتزيد فيها الطلبات عادةً (زي عيد الفطر، عيد الأضحى، المولد، بداية المدارس...). التطبيق هينبهك في الصفحة الرئيسية قبل المناسبة بالمدة اللي تحددها، عشان تستعد بدري (تراجع طاقتك اليومية أو تأجل استلام طلبات بعيدة).</p>
+        <div class="field-row2">
+          <div class="field"><label>التاريخ</label><input id="occasionDateInput" type="date"></div>
+          <div class="field"><label>اسم المناسبة</label><input id="occasionNameInput" placeholder="مثال: عيد الفطر"></div>
+        </div>
+        <div class="field"><label>تنبهني قبلها بكام يوم؟</label><input id="occasionAlertDaysInput" type="number" min="1" value="14"></div>
+        <button class="btn" onclick="addOccasion()">➕ إضافة</button>
+        <div id="occasionsList" style="margin-top:12px;"></div>
+      </div>
+      <div class="card">
         <h3>👗 أنواع التفصيل والأسعار</h3>
         <p class="meta">أضف أنواع الجلابيب اللي بتفصلها مع سعرها الأساسي، وهتظهر لك جاهزة عند إنشاء أي طلب جديد.</p>
         <div id="garmentTypesList"></div>
@@ -1179,6 +1190,8 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <h3>⭐ عملاء VIP</h3>
         <p class="meta">أي عميل يوصل عدد طلباته للرقم ده، هيظهر عليه شارة VIP في صفحة العملاء.</p>
         <div class="field"><label>عدد الطلبات لاعتبار العميل VIP</label><input id="vipThresholdInput" type="number" placeholder="3"></div>
+        <div class="field"><label>خصم تلقائي مقترح لعملاء VIP (%) <span class="meta">— سيبه 0 لو مش عايز خصم تلقائي</span></label><input id="vipDiscountInput" type="number" min="0" max="100" placeholder="0"></div>
+        <p class="meta" style="margin-top:-4px;">لما تفتح طلب جديد لعميل وصل لعتبة الـ VIP، هيتقترح عليه الخصم ده تلقائيًا في حقول الخصم — وتقدر تغيّره أو تلغيه وانت بتسجل الطلب.</p>
         <button class="btn" onclick="saveVipThreshold()">💾 حفظ</button>
       </div>
       <div class="card">
@@ -1231,11 +1244,13 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       </div>
       <div class="card">
         <h3>📊 تصدير تقارير Excel</h3>
-        <p class="meta">ملفات جدولية (CSV) تتفتح مباشرة في Excel أو Google Sheets — مفيدة للمراجعة والمحاسبة، عكس النسخة الاحتياطية اللي مش سهلة القراءة.</p>
+        <p class="meta">ملف إكسل حقيقي (بيتفتح مباشرة بتنسيقه في Excel أو WPS أو Google Sheets) فيه 3 شيتات: الطلبات، العملاء، المصروفات — في ملف واحد.</p>
+        <button class="btn" onclick="exportAllExcel()">📊 تصدير ملف Excel شامل</button>
+        <p class="meta" style="margin-top:12px;">أو لو عايز CSV بسيط لكل جدول لوحده (لبرامج محاسبة تانية):</p>
         <div class="btn-row">
-          <button class="btn secondary" onclick="exportOrdersCSV()">📋 تصدير الطلبات</button>
-          <button class="btn secondary" onclick="exportCustomersCSV()">👥 تصدير العملاء</button>
-          <button class="btn secondary" onclick="exportExpensesCSV()">🧵 تصدير المصروفات</button>
+          <button class="btn secondary outline" onclick="exportOrdersCSV()">📋 تصدير الطلبات CSV</button>
+          <button class="btn secondary outline" onclick="exportCustomersCSV()">👥 تصدير العملاء CSV</button>
+          <button class="btn secondary outline" onclick="exportExpensesCSV()">🧵 تصدير المصروفات CSV</button>
         </div>
       </div>
       <div class="card">

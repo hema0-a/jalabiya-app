@@ -16,6 +16,7 @@ function defaultDB(){
     dailyCapacity:500,
     garmentTypes:[],
     vipThreshold:3,
+    vipDiscountPercent:0,
     idleLockMinutes:3,
     debtThreshold:2000,
     lastBackupDate:null,
@@ -42,6 +43,7 @@ function defaultDB(){
     nextInvoiceNumber:1001,
     taxDefaultPercent:0,
     holidays:[],
+    occasions:[],
     activityLog:[],
     updatedAt: 0,
     cloudSync: {enabled:false, syncId:null, firebaseConfig:null},
@@ -129,6 +131,7 @@ function loadDB(){
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
       if(!db.vipThreshold) db.vipThreshold=3;
+      if(db.vipDiscountPercent===undefined || db.vipDiscountPercent===null) db.vipDiscountPercent=0;
       if(!db.idleLockMinutes) db.idleLockMinutes=3;
       if(!db.debtThreshold) db.debtThreshold=2000;
       if(db.lastBackupDate===undefined) db.lastBackupDate=null;
@@ -151,6 +154,7 @@ function loadDB(){
       if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
       if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
       if(!db.holidays) db.holidays=[];
+      if(!db.occasions) db.occasions=[];
       if(!db.activityLog) db.activityLog=[];
       if(db.updatedAt===undefined) db.updatedAt=0;
       if(!db.cloudSync) db.cloudSync={enabled:false, syncId:null, firebaseConfig:null};
@@ -992,6 +996,40 @@ function itemsBreakdownLines(o){
 function isOverdue(o){ return o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery < todayStr(); }
 function customerById(id){ return db.customers.find(c=>c.id===id); }
 
+// عدد طلبات العميل الفعلي (مش مخزّن على العميل نفسه — بيتحسب من سجل الطلبات في كل مرة)
+function customerOrdersCount(customerId){
+  if(!customerId) return 0;
+  return db.orders.filter(o=>o.customerId===customerId).length;
+}
+function isCustomerVip(customerId){
+  if(!customerId) return false;
+  return customerOrdersCount(customerId) >= (Number(db.vipThreshold)||3);
+}
+
+// لو العميل المختار في طلب جديد وصل لعتبة الـ VIP، وفيه نسبة خصم VIP مفعّلة من الإعدادات،
+// يقترحها تلقائيًا في حقول الخصم (من غير ما يبوّظ خصم دخله المستخدم بنفسه بالفعل).
+// بيشتغل بس مع الطلبات الجديدة — مش وقت تعديل طلب قديم محفوظ بخصمه الأصلي.
+function maybeApplyVipDiscount(){
+  const badge = document.getElementById('vipDiscountBadge');
+  if(currentEditingOrderId){ if(badge) badge.style.display='none'; return; }
+  const pct = Number(db.vipDiscountPercent)||0;
+  const sel = document.getElementById('f_customer');
+  const cid = sel ? sel.value : '';
+  if(pct<=0 || !isCustomerVip(cid)){
+    if(badge) badge.style.display='none';
+    return;
+  }
+  const typeEl = document.getElementById('f_discountType');
+  const valEl = document.getElementById('f_discountValue');
+  if(typeEl && valEl && typeEl.value==='none'){
+    typeEl.value = 'percent';
+    valEl.value = pct;
+    onDiscountTypeChange();
+    recalcItemsTotal();
+  }
+  if(badge) badge.style.display='block';
+}
+
 function statusBadge(o){
   const urgentTag = (o.urgent && o.status!=='تم التسليم') ? '<span class="badge" style="background:var(--danger-light);color:var(--danger);" title="طلب مستعجل">🔥 مستعجل</span> ' : '';
   if(isOverdue(o)) return urgentTag+'<span class="badge late">متأخر</span>';
@@ -1050,6 +1088,17 @@ function renderHomeAlerts(){
   if(debtors.length>0){
     const names = debtors.slice(0,3).map(d=>d.customer.name).join('، ');
     html += `<div class="alert-banner danger"><span class="ic">💸</span><div><b>${debtors.length} عميل تجاوز حد المديونية (${Number(db.debtThreshold).toLocaleString('ar-EG')} ج.م)</b>${escapeHtml(names)}${debtors.length>3?' وآخرون...':''}</div></div>`;
+  }
+
+  const upcomingOccasions = (db.occasions||[]).map(occ=>{
+    const diff = Math.round((new Date(occ.date)-new Date(todayStr()))/86400000);
+    return {occ, diff};
+  }).filter(x=>x.diff>=0 && x.diff<=(Number(x.occ.alertDays)||14)).sort((a,b)=>a.diff-b.diff);
+  if(upcomingOccasions.length>0){
+    upcomingOccasions.forEach(({occ,diff})=>{
+      const when = diff===0 ? 'النهاردة' : (diff===1?'بكرة':`بعد ${diff} يوم`);
+      html += `<div class="alert-banner warn"><span class="ic">🎉</span><div><b>${escapeHtml(occ.name)} ${when} (${fmtDate(occ.date)})</b>موسم زي ده غالبًا بتزيد فيه الطلبات — استعد بدري (راجع طاقتك اليومية وجدول التسليم).</div></div>`;
+    });
   }
 
   if(db.lastBackupDate){
@@ -1972,7 +2021,7 @@ function openOrderModal(id, presetCustomerId){
 
   const html = `
     <div class="modal-head"><h3>${o?'✏️ تعديل طلب':'➕ طلب جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>العميل</label><select id="f_customer" onchange="renderOrderCustomerMeasurements()">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
+    <div class="field"><label>العميل</label><select id="f_customer" onchange="renderOrderCustomerMeasurements();maybeApplyVipDiscount();">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
     <div id="orderCustomerMeasurements" style="margin:-6px 0 12px;"></div>
     <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">👗 أصناف الطلب</div>
     <div id="itemsContainer">${items.map(it=>itemRowHtml(it)).join('') || itemRowHtml()}</div>
@@ -2000,6 +2049,7 @@ function openOrderModal(id, presetCustomerId){
       </div>
       <div class="field"><label id="f_discountValueLabel">قيمة الخصم</label><input id="f_discountValue" type="number" min="0" value="${o&&o.discountValue?o.discountValue:0}" oninput="recalcItemsTotal()"></div>
     </div>
+    <div id="vipDiscountBadge" class="meta" style="display:none;color:#9a6b00;margin:-6px 0 6px;">⭐ العميل ده VIP — تم اقتراح خصم تلقائي، وتقدر تغيّره أو تلغيه من فوق</div>
     <div class="field"><label>نسبة ضريبة/رسوم إضافية على هذا الطلب (%)</label><input id="f_taxPercent" type="number" min="0" step="0.1" value="${o?(o.taxPercent!==undefined?o.taxPercent:0):(db.taxDefaultPercent||0)}" oninput="recalcItemsTotal()"></div>
     <div class="card" id="orderTotalsBox" style="margin:4px 0 14px;padding:12px;background:var(--card-alt);">
       <div class="row"><span class="meta">الإجمالي الفرعي</span><b id="sumSubtotal">0 ج.م</b></div>
@@ -2024,6 +2074,7 @@ function openOrderModal(id, presetCustomerId){
   onDiscountTypeChange();
   checkDeliveryDateWarning();
   renderOrderCustomerMeasurements();
+  maybeApplyVipDiscount();
 }
 
 // يعرض مقاسات العميل المختار كمرجع سريع أثناء إنشاء/تعديل الطلب، بدون الحاجة للرجوع لملفه
@@ -3667,6 +3718,7 @@ function renderSettings(){
   document.getElementById('workStartHourInput').value = db.workStartHour;
   document.getElementById('workEndHourInput').value = db.workEndHour;
   document.getElementById('vipThresholdInput').value = db.vipThreshold;
+  document.getElementById('vipDiscountInput').value = db.vipDiscountPercent||0;
   document.getElementById('idleLockInput').value = db.idleLockMinutes;
   document.getElementById('debtThresholdInput').value = db.debtThreshold;
   document.getElementById('dayOffInput').value = String(db.dayOffWeekday ?? 0);
@@ -3676,6 +3728,7 @@ function renderSettings(){
   renderTrash();
   renderGarmentTypes();
   renderHolidaysList();
+  renderOccasionsList();
   renderActivityLog();
   renderCloudSyncCard();
   renderPushNotifyCard();
@@ -4188,6 +4241,51 @@ function renderHolidaysList(){
   `).join('');
 }
 
+/* ============================================================
+   تقويم المناسبات المسبق (تنبيه استعداد قبل مواسم الذروة)
+   بخلاف "مواعيد الأعياد والإجازات" اللي بتوقف حساب أيام الشغل،
+   المناسبات دي غرضها بس تنبيهك بدري إن الطلبات المتوقعة هتزيد
+   ============================================================ */
+function addOccasion(){
+  const date = document.getElementById('occasionDateInput').value;
+  const name = document.getElementById('occasionNameInput').value.trim();
+  const alertDays = Number(document.getElementById('occasionAlertDaysInput').value)||14;
+  if(!date){ toast('اختر تاريخ المناسبة'); return; }
+  if(!name){ toast('أدخل اسم المناسبة'); return; }
+  if(!db.occasions) db.occasions=[];
+  db.occasions.push({id:uid(), date, name, alertDays});
+  saveDB();
+  document.getElementById('occasionDateInput').value='';
+  document.getElementById('occasionNameInput').value='';
+  document.getElementById('occasionAlertDaysInput').value='14';
+  renderOccasionsList();
+  if(currentPage==='home') renderHome();
+  toast('تمت الإضافة ✅');
+}
+
+async function deleteOccasion(id){
+  if(!await appConfirm('حذف هذه المناسبة؟')) return;
+  db.occasions = (db.occasions||[]).filter(o=>o.id!==id);
+  saveDB();
+  renderOccasionsList();
+  if(currentPage==='home') renderHome();
+  toast('تم الحذف');
+}
+
+function renderOccasionsList(){
+  const box = document.getElementById('occasionsList');
+  if(!box) return;
+  const list = (db.occasions||[]).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  if(!list.length){ box.innerHTML = '<div class="empty-msg">لا يوجد مناسبات مضافة بعد</div>'; return; }
+  const today = todayStr();
+  box.innerHTML = list.map(o=>`
+    <div class="row" style="padding:8px 0;border-bottom:1px dashed var(--stitch);">
+      <span style="${o.date<today?'color:var(--muted);':''}">🎉 ${fmtDate(o.date)} — ${escapeHtml(o.name)} <span class="meta">(تنبيه قبلها بـ${o.alertDays||14} يوم)</span></span>
+      <button class="btn sm danger" onclick="deleteOccasion('${o.id}')">🗑️</button>
+    </div>
+  `).join('');
+}
+
 function saveDebtThreshold(){
   const val = Number(document.getElementById('debtThresholdInput').value);
   if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
@@ -4259,7 +4357,10 @@ function saveInvoiceTaxSettings(){
 function saveVipThreshold(){
   const val = Number(document.getElementById('vipThresholdInput').value);
   if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
+  const discPct = Number(document.getElementById('vipDiscountInput').value)||0;
+  if(discPct<0 || discPct>100){ toast('نسبة الخصم لازم تكون بين 0 و100'); return; }
   db.vipThreshold = val;
+  db.vipDiscountPercent = discPct;
   saveDB();
   toast('تم الحفظ ✅');
 }
@@ -4356,6 +4457,74 @@ async function downloadCSV(rows, filename){
   if(ok) toast('تم حفظ الملف ✅');
 }
 
+/* ============================================================
+   تصدير Excel حقيقي (SpreadsheetML) — من غير أي مكتبة خارجية أو
+   اتصال إنترنت (زي رسم الفاتورة بالظبط)، عشان يشتغل جوه أي WebView
+   حتى من غير نت. الملف بيتفتح مباشرة في Excel/WPS/Google Sheets
+   بتنسيق حقيقي (أعمدة، شيتات متعددة) مش مجرد نص مفصول بفواصل.
+   ============================================================ */
+function xmlEscape(s){
+  return String(s===null||s===undefined?'':s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// sheets: [{name, headers:['عمود1',...], rows:[[قيمة1,...], ...]}]
+function buildExcelXml(sheets){
+  const sheetsXml = sheets.map(sheet=>{
+    const headerCells = sheet.headers.map(h=>`<Cell ss:StyleID="hdr"><Data ss:Type="String">${xmlEscape(h)}</Data></Cell>`).join('');
+    const dataRows = sheet.rows.map(r=>{
+      const cells = r.map(v=>{
+        const isNum = typeof v==='number' && isFinite(v);
+        return `<Cell><Data ss:Type="${isNum?'Number':'String'}">${xmlEscape(v)}</Data></Cell>`;
+      }).join('');
+      return `<Row>${cells}</Row>`;
+    }).join('');
+    return `<Worksheet ss:Name="${xmlEscape(sheet.name)}"><Table>${`<Row>${headerCells}</Row>`}${dataRows}</Table></Worksheet>`;
+  }).join('');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles><Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1F6D57" ss:Pattern="Solid"/></Style></Styles>
+${sheetsXml}
+</Workbook>`;
+}
+
+async function downloadExcel(sheets, filename){
+  const xml = buildExcelXml(sheets);
+  const blob = new Blob(['\uFEFF'+xml], {type:'application/vnd.ms-excel;charset=utf-8;'});
+  const ok = await saveOrShareFile(blob, filename);
+  if(ok) toast('تم حفظ ملف الإكسل ✅');
+}
+
+// شيت واحد بس (طلبات، أو عملاء، أو مصروفات) — لو حبيت تصدير جدول لوحده كإكسل حقيقي
+function ordersExcelSheet(){
+  const headers = ['رقم الفاتورة','اسم العميل','رقم الهاتف','نوع الجلابية','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي'];
+  const rows = db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||'')).map(o=>{
+    const c = customerById(o.customerId);
+    return [o.invoiceNumber||'', c?c.name:'عميل محذوف', c?(c.phone||''):'', orderTypeLabel(o),
+      fmtDate(o.dateReceived), fmtDate(o.dateDelivery), o.status||'',
+      orderTotal(o), Number(o.paid)||0, orderRemaining(o)];
+  });
+  return {name:'الطلبات', headers, rows};
+}
+function customersExcelSheet(){
+  const headers = ['اسم العميل','رقم الهاتف','الطول','طول الكم','الصدر','الخزنة','وسع الكم','ملاحظات'];
+  const rows = db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(c=>
+    [c.name, c.phone||'', c.length||'', c.sleeve||'', c.chest||'', c.waist||'', c.shoulder||'', c.notes||'']);
+  return {name:'العملاء', headers, rows};
+}
+function expensesExcelSheet(){
+  const headers = ['الوصف','المبلغ','التاريخ'];
+  const rows = db.expenses.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>
+    [e.desc||'', Number(e.amount)||0, fmtDate(e.date)]);
+  return {name:'المصروفات', headers, rows};
+}
+
+// الزرار الرئيسي: ملف Excel واحد فيه 3 شيتات (الطلبات + العملاء + المصروفات)
+function exportAllExcel(){
+  downloadExcel([ordersExcelSheet(), customersExcelSheet(), expensesExcelSheet()], 'تقرير_الورشة_شامل_'+todayStr()+'.xls');
+}
+
 function exportOrdersCSV(){
   const rows = [['رقم الفاتورة','اسم العميل','رقم الهاتف','نوع الجلابية','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي']];
   db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||'')).forEach(o=>{
@@ -4414,6 +4583,7 @@ function importBackup(event){
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
       if(!db.vipThreshold) db.vipThreshold=3;
+      if(db.vipDiscountPercent===undefined || db.vipDiscountPercent===null) db.vipDiscountPercent=0;
       if(!db.idleLockMinutes) db.idleLockMinutes=3;
       if(!db.debtThreshold) db.debtThreshold=2000;
       if(db.lastBackupDate===undefined) db.lastBackupDate=null;
@@ -4435,6 +4605,7 @@ function importBackup(event){
       if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
       if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
       if(!db.holidays) db.holidays=[];
+      if(!db.occasions) db.occasions=[];
       if(!db.activityLog) db.activityLog=[];
       if(db.updatedAt===undefined) db.updatedAt=0;
       if(!db.cloudSync) db.cloudSync={enabled:false, syncId:null, firebaseConfig:null};
