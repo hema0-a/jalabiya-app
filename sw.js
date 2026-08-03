@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v2'; // غيّرت الرقم عمداً عشان يجبر التطبيق يمسح أي كاش قديم فورًا
+const CACHE_NAME = 'workshop-app-v3'; // غيّرت الرقم عمداً عشان يجبر التطبيق يمسح أي كاش قديم فورًا
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',
