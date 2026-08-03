@@ -270,16 +270,8 @@
      بطاقة إعدادات المساعد في صفحة الإعدادات
      ============================================================ */
   function ensureSupabaseEnv(){
-    // قراءة متغيرات Supabase من البيئة المتاحة
-    if(!window.__SUPABASE_URL || !window.__SUPABASE_ANON_KEY){
-      // محاولة قراءتها من أي script tag أو env موجود
-      try{
-        if(typeof import.meta !== 'undefined' && import.meta.env){
-          window.__SUPABASE_URL = window.__SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
-          window.__SUPABASE_ANON_KEY = window.__SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
-        }
-      }catch(e){}
-    }
+    // متغيرات Supabase بتتعمل inline في index.html قبل الملف ده
+    // فمش محتاجين نعمل أي حاجة هنا — بس بنسيب الدالة للتوافق
   }
 
   function renderAssistantSettingsCard(){
@@ -364,23 +356,9 @@
   /* ============================================================
      تفعيل متغيرات Supabase تلقائيًا
      ============================================================ */
-  // قراءة متغيرات البيئة من script tags أو window
-  function initSupabaseEnv(){
-    // لو في متغيرات في .env متاحة عبر Vite
-    try{
-      if(typeof import !== 'undefined' && import.meta && import.meta.env){
-        window.__SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || window.__SUPABASE_URL;
-        window.__SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || window.__SUPABASE_ANON_KEY;
-      }
-    }catch(e){}
-    // لو في script inline فيه تعريف
-    try{
-      if(typeof SUPABASE_URL !== 'undefined') window.__SUPABASE_URL = SUPABASE_URL;
-      if(typeof SUPABASE_ANON_KEY !== 'undefined') window.__SUPABASE_ANON_KEY = SUPABASE_ANON_KEY;
-    }catch(e){}
-  }
-
-  initSupabaseEnv();
+  // متغيرات Supabase بتتعمل inline في index.html قبل الملف ده مباشرة
+  // (window.__SUPABASE_URL و window.__SUPABASE_ANON_KEY)
+  // فمش محتاجين نقراها من أي مكان تاني
 
   /* ============================================================
      ربط بطاقة الإعدادات بصفحة الإعدادات
