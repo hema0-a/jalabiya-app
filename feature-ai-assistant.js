@@ -94,7 +94,7 @@
     btn.innerHTML = '🤖';
     btn.setAttribute('aria-label', 'المساعد الذكي');
     btn.addEventListener('click', function(){ openAssistantModal(); });
-    document.getElementById('app').appendChild(btn);
+    (document.getElementById('app') || document.body).appendChild(btn);
   }
 
   function buildWelcomeMessage(){
@@ -256,15 +256,17 @@
   };
 
   /* ============================================================
-     إضافة الزر العائم عند تشغيل التطبيق
+     إضافة الزر العائم — طريقة مستقلة مش معتمدة على boot
      ============================================================ */
-  var origBootAI = boot;
-  boot = function(){
-    origBootAI.apply(this, arguments);
-    setTimeout(function(){
-      ensureAssistantButton();
-    }, 500);
-  };
+  function tryAddButton(){
+    ensureAssistantButton();
+    if(!document.getElementById('aiAssistantFab')){
+      setTimeout(tryAddButton, 1000);
+    }
+  }
+  tryAddButton();
+  document.addEventListener('DOMContentLoaded', tryAddButton);
+  window.addEventListener('load', function(){ setTimeout(tryAddButton, 200); });
 
   /* ============================================================
      بطاقة إعدادات المساعد في صفحة الإعدادات
