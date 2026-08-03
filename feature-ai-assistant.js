@@ -8,7 +8,7 @@
 
    بيشتغل عن طريق:
    - زرار عائم في كل الصفحات بيفتح نافذة الدردشة
-   - إعدادات في صفحة الإعدادات لربط مفتاح OpenAI
+   - إعدادات في صفحة الإعدادات لربط مفتاح Gemini (مجاني من aistudio.google.com)
    - كل البيانات بتتبعت للسيرفر (edge function) بشكل آمن
    ============================================================ */
 (function(){
@@ -49,7 +49,7 @@
     }
 
     if(!apiKey){
-      throw new Error('مفتاح OpenAI مش متظبط. ضعه من الإعدادات → المساعد الذكي');
+      throw new Error('مفتاح Gemini مش متظبط. ضعه من الإعدادات → المساعد الذكي');
     }
 
     var apiUrl = SUPABASE_URL + '/functions/v1/ai-assistant';
@@ -297,13 +297,13 @@
         '<span class="ic">📌</span>'+
         '<div>'+
           '<b>إعداد مرة واحدة بس</b>'+
-          'المساعد الذكي محتاج مفتاح OpenAI API عشان يشتغل. تلاقي المفتاح من platform.openai.com ← API Keys. المفتاح بيتبعت بشكل آمن لسيرفر المساعد مع كل سؤال.'+
+          'المساعد الذكي محتاج مفتاح Gemini API (مجاني) عشان يشتغل. تلاقي المفتاح من aistudio.google.com ← Get API key. المفتاح بيتبعت بشكل آمن لسيرفر المساعد مع كل سؤال.'+
         '</div>'+
       '</div>'+
       '<div class="field">'+
-        '<label>مفتاح OpenAI API</label>'+
-        '<input id="aiApiKeyInput" type="password" placeholder="sk-..." style="direction:ltr;text-align:left;font-size:12px;" value="'+(db.aiApiKey?db.aiApiKey.replace(/"/g,'&quot;'):'')+'">'+
-        '<p class="meta" style="margin-top:4px;font-size:11px;">تلاقي المفتاح من: platform.openai.com ← API Keys</p>'+
+        '<label>مفتاح Gemini API</label>'+
+        '<input id="aiApiKeyInput" type="password" placeholder="AIza..." style="direction:ltr;text-align:left;font-size:12px;" value="'+(db.aiApiKey?db.aiApiKey.replace(/"/g,'&quot;'):'')+'">'+
+        '<p class="meta" style="margin-top:4px;font-size:11px;">تلاقي المفتاح من: aistudio.google.com ← Get API key (مجاني، من غير بطاقة ائتمان)</p>'+
       '</div>'+
       '<button class="btn" onclick="saveAIApiKey()">💾 حفظ المفتاح وتفعيل المساعد</button>'+
       '<div id="aiAssistantStatus" style="margin-top:10px;"></div>';
@@ -320,7 +320,7 @@
       box.innerHTML = '<p class="meta" style="color:var(--ok);">✅ المساعد الذكي مفعّل وجاهز للاستخدام</p>'+
         '<button class="btn sm outline" style="margin-top:6px;" onclick="clearAssistantChat()">🗑️ مسح المحادثة</button>';
     } else {
-      box.innerHTML = '<p class="meta" style="color:var(--warn);">⏳ المساعد الذكي لسه مش مفعّل — ضع مفتاح OpenAI فوق واضغط حفظ</p>';
+      box.innerHTML = '<p class="meta" style="color:var(--warn);">⏳ المساعد الذكي لسه مش مفعّل — ضع مفتاح Gemini فوق واضغط حفظ</p>';
     }
   }
 
@@ -329,11 +329,11 @@
     if(!input) return;
     var key = input.value.trim();
     if(!key){
-      toast('الصق مفتاح OpenAI الأول');
+      toast('الصق مفتاح Gemini الأول');
       return;
     }
-    if(!key.startsWith('sk-')){
-      toast('المفتاح لازم يبدأ بـ sk-');
+    if(key.length < 20){
+      toast('المفتاح قصير جدًا — تأكد إنك نسخت مفتاح Gemini كامل من aistudio.google.com');
       return;
     }
 
