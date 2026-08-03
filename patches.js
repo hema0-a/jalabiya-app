@@ -2796,5 +2796,85 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 19) توليد رمز ربط جديد (تدوير) — لو الرمز القديم اتسرب أو مش مطمّن
+   له، بينشئ مساحة مزامنة جديدة، ينقل البيانات ليها، ويوقف الاعتماد
+   على الرمز القديم تمامًا من غير ما يمسح بياناته القديمة (احتياط). */
+(function(){
+  window.rotateCloudSyncCode = async function(){
+    if(!db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.syncId){
+      toast('لازم تكون المزامنة السحابية مفعّلة الأول');
+      return;
+    }
+    var ok = await appConfirm('هيتم إنشاء رمز ربط جديد ونقل بياناتك الحالية ليه. الرمز القديم مش هيقدر يزامن بيانات جديدة تاني. هل تريد المتابعة؟', {okText:'توليد رمز جديد', cancelText:'إلغاء', danger:true});
+    if(!ok) return;
+    try{
+      var newSyncId = randomSyncId();
+      var safeData = JSON.parse(JSON.stringify(db));
+      await cloudDb.collection('workshops').doc(newSyncId).set(safeData);
+      db.cloudSync.syncId = newSyncId;
+      saveDB();
+      if(typeof cloudUnsub==='function'){ cloudUnsub(); cloudUnsub=null; }
+      initCloudSync();
+      renderCloudSyncCard();
+      toast('✅ اتعمل رمز ربط جديد — انسخه واحفظه في مكان آمن فورًا');
+    }catch(e){
+      toast('⚠️ فشل توليد الرمز الجديد: '+(e && (e.code||e.message)||'خطأ غير معروف'));
+    }
+  };
+
+  var origRenderCloudSyncCardRotate = renderCloudSyncCard;
+  renderCloudSyncCard = function(){
+    origRenderCloudSyncCardRotate.apply(this, arguments);
+    var box = document.getElementById('cloudSyncCardWrap');
+    if(!box || !(db.cloudSync && db.cloudSync.enabled && db.cloudSync.syncId)) return;
+    if(box.querySelector('#rotateSyncCodeBtn')) return;
+    var btn = document.createElement('button');
+    btn.id = 'rotateSyncCodeBtn';
+    btn.type = 'button';
+    btn.className = 'btn sm outline';
+    btn.style.marginTop = '10px';
+    btn.textContent = '🔄 توليد رمز ربط جديد';
+    btn.addEventListener('click', function(){ rotateCloudSyncCode(); });
+    box.appendChild(btn);
+  };
+})();
+
+/* 20) تنبيه في الرئيسية لو النسخة الاحتياطية السحابية اليومية توقفت */
+(function(){
+  var origRenderHomeAlertsStale = renderHomeAlerts;
+  renderHomeAlerts = function(){
+    origRenderHomeAlertsStale.apply(this, arguments);
+    if(!(db.cloudSync && db.cloudSync.enabled && db.cloudSync.syncId)) return;
+    var box = document.getElementById('homeAlerts');
+    if(!box) return;
+    var last = db.__lastCloudBackupDate;
+    var days = last ? Math.round((new Date(todayStr())-new Date(last))/86400000) : null;
+    if(days===null || days>=3){
+      var msg = days===null
+        ? 'لم تُحفظ أي نسخة احتياطية سحابية بعد — افتح الإعدادات واضغط "🗄️ احفظ نسخة الآن".'
+        : 'لم تُحفظ نسخة احتياطية سحابية منذ '+days+' يوم — تأكد من اتصال الجهاز بالنت.';
+      box.insertAdjacentHTML('beforeend',
+        '<div class="alert-banner warn"><span class="ic">☁️</span><div><b>النسخة الاحتياطية السحابية اليومية متأخرة</b>'+msg+'</div></div>');
+    }
+  };
+})();
+
+/* 21) [مستوحى من تطبيق مقاس] عند تسليم طلب فيه مبلغ متبقي، اسأل فورًا
+   هل تحب تسجّل الدفعة دلوقتي كمان، بدل ما يكون إجراء منفصل بعدين. */
+(function(){
+  var origMarkOrderDeliveredBundle = markOrderDelivered;
+  markOrderDelivered = async function(orderId){
+    origMarkOrderDeliveredBundle.apply(this, arguments);
+    var o = db.orders.find(function(x){ return x.id===orderId; });
+    if(o){
+      var remaining = orderRemaining(o);
+      if(remaining>0){
+        var ok = await appConfirm('باقي على العميل '+remaining.toLocaleString('ar-EG')+' ج.م. هل تريد تسجيل الدفعة دلوقتي؟', {okText:'تسجيل الدفعة', cancelText:'لاحقًا', danger:false});
+        if(ok) openPaymentModal(orderId);
+      }
+    }
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
