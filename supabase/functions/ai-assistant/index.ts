@@ -35,6 +35,9 @@ const SYSTEM_PROMPT = `أنت مساعد ذكي متخصص في إدارة ور�
 - ركّز على موضوعات: العملاء، الطلبات، المديونيات، المواعيد، الإيرادات، المصروفات، الطاقة الإنتاجية.
 - خلي الرد مختصر ومفيد، استخدم نقاط لو محتاج تفاصيل.`;
 
+// موديل Gemini المستخدم — Flash سريع ومجاني في حدود الاستخدام العادي لورشة واحدة
+const GEMINI_MODEL = "gemini-2.5-flash";
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -48,7 +51,7 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           error:
-            "مفتاح OpenAI مش متظبط. ضعه من صفحة الإعدادات → المساعد الذكي.",
+            "مفتاح Gemini مش متظبط. ضعه من صفحة الإعدادات → المساعد الذكي.",
         }),
         {
           status: 400,
@@ -69,35 +72,41 @@ Deno.serve(async (req: Request) => {
 
     // Build a compact data summary for the system prompt
     const dataSummary = buildDataSummary(workshopData);
+    const fullSystemPrompt =
+      SYSTEM_PROMPT + (dataSummary ? "\n\nبيانات الورشة الحالية:\n" + dataSummary : "");
 
-    const fullMessages: ChatMessage[] = [
-      {
-        role: "system",
-        content: SYSTEM_PROMPT + (dataSummary ? "\n\nبيانات الورشة الحالية:\n" + dataSummary : ""),
-      },
-      ...messages,
-    ];
+    // Gemini بيفرّق بين تعليمات النظام (systemInstruction) ومحتوى المحادثة
+    // (contents)، وبيستخدم "model" بدل "assistant" لدور رد المساعد
+    const geminiContents = messages.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    }));
 
-    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+    const geminiUrl =
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+
+    const aiResponse = await fetch(geminiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey.trim()}`,
+        "x-goog-api-key": apiKey.trim(),
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: fullMessages,
-        max_tokens: 800,
-        temperature: 0.7,
+        systemInstruction: { parts: [{ text: fullSystemPrompt }] },
+        contents: geminiContents,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 800,
+        },
       }),
     });
 
     if (!aiResponse.ok) {
       const errText = await aiResponse.text();
-      console.error("OpenAI API error:", aiResponse.status, errText);
+      console.error("Gemini API error:", aiResponse.status, errText);
       return new Response(
         JSON.stringify({
-          error: "الاتصال بالمساعد الذكي فشل. تأكد من صحة مفتاح OpenAI.",
+          error: "الاتصال بالمساعد الذكي فشل. تأكد من صحة مفتاح Gemini.",
         }),
         {
           status: 502,
@@ -108,7 +117,7 @@ Deno.serve(async (req: Request) => {
 
     const aiData = await aiResponse.json();
     const reply =
-      aiData.choices?.[0]?.message?.content ||
+      aiData?.candidates?.[0]?.content?.parts?.[0]?.text ||
       "آسف، مقدرتش أحلّل الطلب ده.";
 
     return new Response(
