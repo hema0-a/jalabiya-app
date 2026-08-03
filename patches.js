@@ -2876,5 +2876,200 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 22) أداة دمج العملاء المكررين (نفس رقم الهاتف)
+   التطبيق بيتحقق من رقم الهاتف المكرر وقت الحفظ، لكن لو حد تجاهل
+   التحذير أو استورد بيانات قديمة، ممكن يتكون عملاء مكررين فعليًا.
+   الأداة دي بتكتشفهم وبتسيبك تختار مين تحتفظ بيه، وبتنقل كل الطلبات
+   للنسخة المختارة قبل ما تمسح الباقي. */
+(function(){
+  function findDuplicateCustomers(){
+    var byPhone = {};
+    (db.customers||[]).forEach(function(c){
+      var p = (c.phone||'').trim();
+      if(!p) return;
+      if(!byPhone[p]) byPhone[p] = [];
+      byPhone[p].push(c);
+    });
+    var dups = [];
+    Object.keys(byPhone).forEach(function(p){
+      if(byPhone[p].length>1) dups.push(byPhone[p]);
+    });
+    return dups;
+  }
+
+  window.renderDuplicateCustomersUI = function(){
+    var box = document.getElementById('duplicateCustomersBox');
+    if(!box) return;
+    var dups = findDuplicateCustomers();
+    window.__dupGroups = dups;
+    if(!dups.length){ box.innerHTML = '<p class="meta">مفيش عملاء مكررين حاليًا 👍</p>'; return; }
+    box.innerHTML = dups.map(function(group, gi){
+      var rows = group.map(function(c,i){
+        var ordersCount = db.orders.filter(function(o){ return o.customerId===c.id; }).length;
+        return '<label style="display:block;margin:6px 0;"><input type="radio" name="dupKeep'+gi+'" value="'+c.id+'" '+(i===0?'checked':'')+'> '
+          + escapeHtml(c.name) + ' <span class="meta">('+ordersCount+' طلب)</span></label>';
+      }).join('');
+      return '<div class="card" style="padding:10px;margin-bottom:10px;">'
+        + '<p class="meta">نفس رقم الهاتف ('+escapeHtml(group[0].phone)+'):</p>'
+        + rows
+        + '<button class="btn sm outline" style="margin-top:8px;" onclick="mergeDuplicateGroup('+gi+')">🔗 دمج في المختار</button>'
+        + '</div>';
+    }).join('');
+  };
+
+  window.mergeDuplicateGroup = async function(gi){
+    var group = (window.__dupGroups||[])[gi];
+    if(!group) return;
+    var radios = document.getElementsByName('dupKeep'+gi);
+    var keepId = null;
+    for(var i=0;i<radios.length;i++){ if(radios[i].checked) keepId = radios[i].value; }
+    if(!keepId) return;
+    var ok = await appConfirm('هيتم نقل كل طلبات باقي النسخ المكررة لهذا العميل، وحذف النسخ التانية نهائيًا. هل أنت متأكد؟', {okText:'دمج', cancelText:'إلغاء', danger:true});
+    if(!ok) return;
+    group.forEach(function(c){
+      if(c.id===keepId) return;
+      db.orders.forEach(function(o){ if(o.customerId===c.id) o.customerId = keepId; });
+      db.customers = db.customers.filter(function(x){ return x.id!==c.id; });
+    });
+    logActivity('🔗 دمج عملاء مكررين لنفس الرقم');
+    saveDB();
+    renderCustomers();
+    renderDuplicateCustomersUI();
+    toast('✅ تم الدمج بنجاح');
+  };
+
+  var origRenderSettingsDup = renderSettings;
+  renderSettings = function(){
+    origRenderSettingsDup.apply(this, arguments);
+    var page = document.getElementById('page-settings');
+    if(!page) return;
+    if(page.querySelector('#duplicateCustomersCard')) { renderDuplicateCustomersUI(); return; }
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.id = 'duplicateCustomersCard';
+    card.innerHTML = '<h3>🔗 دمج عملاء مكررين</h3>'
+      + '<p class="meta">بتكتشف تلقائيًا أي عملاء عندهم نفس رقم الهاتف، وتسيبك تدمجهم في نسخة واحدة مع نقل كل طلباتهم.</p>'
+      + '<div id="duplicateCustomersBox"></div>';
+    page.appendChild(card);
+    renderDuplicateCustomersUI();
+  };
+})();
+
+/* 23) أداة تجميع القياسات المتقاربة (للتقطيع/التنفيذ الدفعي)
+   بتجمع الطلبات "قيد العمل" حسب نوع اللبس، وترتبهم حسب قياس الصدر،
+   وتقفّلهم في مجموعات لو الفرق بينهم جوه النطاق المسموح — عشان
+   المعلم يقدر يقطّع أكتر من قطعة بنفس القالب مرة واحدة. */
+(function(){
+  function getMeasurements(customerId){
+    var c = customerById(customerId);
+    if(!c) return null;
+    var chest = Number(c.chest);
+    if(!chest) return null; // من غير قياس صدر مفيش معنى للتجميع
+    return {
+      chest: chest,
+      waist: Number(c.waist)||null,
+      length: Number(c.length)||null,
+      sleeve: Number(c.sleeve)||null,
+      shoulder: Number(c.shoulder)||null,
+      name: c.name
+    };
+  }
+
+  function orderGarmentType(o){
+    if(Array.isArray(o.items) && o.items.length) return o.items[0].type||'';
+    return o.type||'';
+  }
+
+  function buildClusters(garmentTypeName, tolerance, onlyInProgress){
+    var candidates = db.orders.filter(function(o){
+      if(onlyInProgress && o.status!=='قيد العمل') return false;
+      if(garmentTypeName && orderGarmentType(o)!==garmentTypeName) return false;
+      return true;
+    }).map(function(o){
+      var m = getMeasurements(o.customerId);
+      if(!m) return null;
+      return {order:o, m:m};
+    }).filter(Boolean);
+
+    candidates.sort(function(a,b){ return a.m.chest - b.m.chest; });
+
+    var clusters = [];
+    var current = null;
+    candidates.forEach(function(item){
+      if(current && Math.abs(item.m.chest - current.anchor) <= tolerance){
+        current.items.push(item);
+      } else {
+        current = {anchor:item.m.chest, items:[item]};
+        clusters.push(current);
+      }
+    });
+    return clusters.filter(function(c){ return c.items.length>=2; });
+  }
+
+  function diffTxt(val, anchor, label){
+    if(val===null || val===undefined) return '';
+    var d = val - anchor;
+    var sign = d>0 ? '+'+d : (d<0 ? d : '=');
+    return label+': '+val+' ('+sign+')';
+  }
+
+  window.renderMeasurementClusters = function(){
+    var box = document.getElementById('clusterResultsBox');
+    if(!box) return;
+    var type = document.getElementById('clusterGarmentType').value;
+    var tol = Number(document.getElementById('clusterTolerance').value)||2;
+    var onlyWip = document.getElementById('clusterOnlyWip').checked;
+    var clusters = buildClusters(type, tol, onlyWip);
+    if(!clusters.length){
+      box.innerHTML = '<p class="meta">مفيش مجموعات قياسات متقاربة حاليًا بالمعايير دي.</p>';
+      return;
+    }
+    box.innerHTML = clusters.map(function(cl, ci){
+      var base = cl.items[0].m;
+      var rows = cl.items.map(function(it){
+        var o = it.order, m = it.m;
+        var parts = [diffTxt(m.waist, base.waist, 'الخصر'), diffTxt(m.length, base.length, 'الطول'), diffTxt(m.sleeve, base.sleeve, 'الكم'), diffTxt(m.shoulder, base.shoulder, 'الكتف')].filter(Boolean).join(' | ');
+        return '<div style="padding:8px 0;border-bottom:1px solid var(--border);">'
+          + '<b>'+escapeHtml(m.name)+'</b> — صدر '+m.chest
+          + (parts?('<br><span class="meta">'+parts+'</span>'):'')
+          + '</div>';
+      }).join('');
+      return '<div class="card" style="padding:12px;margin-bottom:10px;">'
+        + '<p class="meta">مجموعة '+(ci+1)+' — '+cl.items.length+' طلب حول قياس صدر '+base.chest+'</p>'
+        + rows + '</div>';
+    }).join('');
+  };
+
+  window.openMeasurementClusterTool = function(){
+    var typeOptions = '<option value="">كل الأنواع</option>' + db.garmentTypes.slice().sort(function(a,b){return a.name.localeCompare(b.name,'ar');}).map(function(g){
+      return '<option value="'+escapeHtml(g.name)+'">'+escapeHtml(g.name)+'</option>';
+    }).join('');
+    openModal(
+      '<div class="modal-head"><h3>📐 تجميع القياسات المتقاربة</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<p class="meta">بتجمع الطلبات اللي قياساتها قريبة من بعض حسب قياس الصدر، عشان تقدر تقطّع أكتر من قطعة بنفس القالب مرة واحدة.</p>'
+      + '<div class="field"><label>نوع اللبس</label><select id="clusterGarmentType">'+typeOptions+'</select></div>'
+      + '<div class="field"><label>نطاق التقارب (سم)</label><input id="clusterTolerance" type="number" value="2" min="0" step="0.5"></div>'
+      + '<label style="display:flex;align-items:center;gap:6px;margin:8px 0;"><input type="checkbox" id="clusterOnlyWip" checked> بس الطلبات "قيد العمل"</label>'
+      + '<button class="btn" onclick="renderMeasurementClusters()">🔎 جمّع دلوقتي</button>'
+      + '<div id="clusterResultsBox" style="margin-top:14px;"></div>'
+    );
+    renderMeasurementClusters();
+  };
+
+  var origRenderOrdersCluster = renderOrders;
+  renderOrders = function(){
+    origRenderOrdersCluster.apply(this, arguments);
+    var filters = document.getElementById('orderStatusFilters');
+    if(!filters || filters.querySelector('#openClusterToolBtn')) return;
+    var btn = document.createElement('button');
+    btn.id = 'openClusterToolBtn';
+    btn.type = 'button';
+    btn.className = 'btn sm outline';
+    btn.textContent = '📐 قياسات متقاربة';
+    btn.addEventListener('click', function(){ openMeasurementClusterTool(); });
+    filters.appendChild(btn);
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
