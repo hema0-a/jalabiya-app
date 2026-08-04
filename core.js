@@ -173,19 +173,47 @@ function loadDB(){
   }
 }
 
+// كتابة localStorage الفعلية بتتأجل شوية (debounce) عشان الشاشات اللي بتنادي
+// saveDB مرات كتير قريبة من بعض (كتابة في حقل، سحب-وإفلات، تعديلات متتالية)
+// متعملش JSON.stringify لقاعدة بيانات كبيرة مع كل ضغطة زرار — ده كان بيبطّئ
+// الواجهة على الأجهزة الضعيفة. db.updatedAt وباقي المنطق (المزامنة السحابية،
+// الشارة) بيتحدثوا فورًا زي الأول؛ الحفظ الفعلي في localStorage بس هو اللي بيتأجل.
+let saveDBTimer = null;
+let saveDBPending = false;
+
 function saveDB(){
-  try{
-    db.updatedAt = Date.now();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  }catch(e){
-    console.warn('تعذر حفظ البيانات محليًا (وضع التصفح الخاص أو متصفح مقيّد):', e);
-  }
-  // البيانات دايمًا بتتحفظ محليًا فورًا (شغل كامل بدون إنترنت)، والمزامنة السحابية
+  db.updatedAt = Date.now();
+  // البيانات دايمًا بتتحفظ محليًا (شغل كامل بدون إنترنت)، والمزامنة السحابية
   // (لو مفعّلة) بتحصل لما يبقى فيه اتصال — لحد ما تنجح، التغيير فضل "معلّق"
   if(db.cloudSync && db.cloudSync.enabled) cloudPendingChanges = true;
   scheduleCloudPush();
   if(typeof window.refreshConnectivityBadge==='function') window.refreshConnectivityBadge();
+  saveDBPending = true;
+  clearTimeout(saveDBTimer);
+  saveDBTimer = setTimeout(flushSaveDB, 400);
 }
+
+// يكتب db فعليًا في localStorage دلوقتي (من غير أي تأجيل). بينادَى تلقائيًا
+// بعد فترة هدوء قصيرة من آخر saveDB()، وكمان فورًا لو الصفحة هتتقفل/تتخبّى
+// عشان منضيعش آخر تعديل لسه معلّق في المؤقّت.
+function flushSaveDB(){
+  clearTimeout(saveDBTimer);
+  if(!saveDBPending) return;
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    saveDBPending = false;
+  }catch(e){
+    console.warn('تعذر حفظ البيانات محليًا (وضع التصفح الخاص أو متصفح مقيّد):', e);
+  }
+}
+
+// شبكة أمان: لو المستخدم قفل التطبيق أو بدّل تاب قبل ما يعدّي الـ 400ms،
+// لازم نضمن إن آخر تعديل اتكتب فعليًا قبل ما الصفحة تختفي.
+window.addEventListener('pagehide', flushSaveDB);
+window.addEventListener('beforeunload', flushSaveDB);
+document.addEventListener('visibilitychange', function(){
+  if(document.visibilityState === 'hidden') flushSaveDB();
+});
 
 /* ============================================================
    المزامنة السحابية بين الأجهزة (Firebase Firestore)
@@ -286,6 +314,11 @@ function initCloudSync(){
         const remote = snap.data();
         if(!remote || typeof remote.updatedAt!=='number'){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         if(remote.updatedAt > (Number(db.updatedAt)||0)){
+          // قبل ما نستبدل بيانات الجهاز ده ببيانات جاية من جهاز تاني (تعارض)،
+          // ناخد نسخة احتياطية محلية من بيانات الجهاز ده الحالية أولًا — شبكة
+          // أمان لو كان فيه تعديل محلي لسه ما اتزامنش لأي سبب. متعملش الباك أب
+          // لو الجهاز ده أصلاً ولا عمل save قبل كده (db.updatedAt=0، مفيش حاجة تتفقد).
+          if(Number(db.updatedAt) > 0) saveConflictBackup(db);
           cloudApplyingRemote = true;
           const myCloudSettings = db.cloudSync; // نحافظ على إعدادات الاتصال بتاعت الجهاز ده بالذات
           db = remote;
@@ -293,6 +326,7 @@ function initCloudSync(){
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
           renderAll();
+          renderConflictBackupsCard();
           try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
           cloudApplyingRemote = false;
         }
@@ -324,6 +358,94 @@ function fillMissingDefaults(){
   if(!db.pushNotify) db.pushNotify = d.pushNotify;
   if(!Array.isArray(db.pushNotify.deviceTokens)) db.pushNotify.deviceTokens=[];
   if(!Array.isArray(db.pushNotify.notifiedOrderIds)) db.pushNotify.notifiedOrderIds=[];
+}
+
+/* ============================================================
+   نسخ احتياطية محلية عند تعارض المزامنة
+   ============================================================
+   مخزّنة في مفتاح localStorage منفصل عن db نفسه (عشان متتزامنش
+   للسحابة وتفضل خاصة بالجهاز ده بس). بناخد نسخة تلقائيًا كل ما
+   بيانات جهاز تاني هتستبدل بيانات الجهاز ده وقت تعارض (شوف
+   initCloudSync فوق). آخر 5 نسخ بس بتفضل محفوظة.
+   ============================================================ */
+const CONFLICT_BACKUP_KEY = 'jalaba_conflict_backups_v1';
+const CONFLICT_BACKUP_MAX = 5;
+
+function loadConflictBackups(){
+  try{
+    const raw = localStorage.getItem(CONFLICT_BACKUP_KEY);
+    return raw ? JSON.parse(raw) : [];
+  }catch(e){ return []; }
+}
+
+function saveConflictBackup(localData){
+  try{
+    const list = loadConflictBackups();
+    // Firestore-safe round-trip مش مطلوب هنا (localStorage مش زي Firestore بيرفض
+    // undefined)، بس بنعمل نسخة مستقلة برضه عشان مانفلتش reference للـ db الحي
+    const safeData = JSON.parse(JSON.stringify(localData));
+    list.unshift({
+      id: 'b' + Date.now(),
+      ts: Date.now(),
+      customersCount: (safeData.customers||[]).length,
+      ordersCount: (safeData.orders||[]).length,
+      data: safeData
+    });
+    while(list.length > CONFLICT_BACKUP_MAX) list.pop();
+    localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list));
+  }catch(e){
+    console.warn('تعذر حفظ نسخة احتياطية عند تعارض المزامنة:', e);
+  }
+}
+
+async function restoreConflictBackupLocal(id){
+  const list = loadConflictBackups();
+  const item = list.find((b) => b.id === id);
+  if(!item){ toast('⚠️ النسخة دي مش موجودة'); return; }
+  const ok = await appConfirm(
+    'هل تريد استرجاع هذه النسخة الاحتياطية؟ سيتم استبدال كل بيانات هذا الجهاز الحالية بها.',
+    {okText:'استرجاع', cancelText:'إلغاء', danger:true}
+  );
+  if(!ok) return;
+  const myCloudSettings = db.cloudSync;
+  db = JSON.parse(JSON.stringify(item.data));
+  db.cloudSync = myCloudSettings;
+  fillMissingDefaults();
+  saveDB();
+  flushSaveDB();
+  renderAll();
+  toast('✅ تم استرجاع النسخة الاحتياطية بنجاح');
+}
+
+function deleteConflictBackup(id){
+  const list = loadConflictBackups().filter((b) => b.id !== id);
+  try{ localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list)); }catch(e){}
+  renderConflictBackupsCard();
+}
+
+function renderConflictBackupsCard(){
+  const box = document.getElementById('conflictBackupsCardWrap');
+  if(!box) return;
+  const list = loadConflictBackups();
+  const intro = '<h3>🛟 نسخ احتياطية عند تعارض المزامنة</h3>'
+    + '<p class="meta">شبكة أمان محلية: لو حصل تعارض بين جهازين وقت المزامنة السحابية، '
+    + 'بناخد نسخة من بيانات هذا الجهاز تلقائيًا قبل أي استبدال — من هنا تقدر ترجع أي نسخة ضاعت.</p>';
+  if(!list.length){
+    box.innerHTML = intro + '<p class="meta">لا توجد نسخ احتياطية حتى الآن.</p>';
+    return;
+  }
+  const rows = list.map((b) => {
+    const d = new Date(b.ts);
+    const dateStr = d.toLocaleDateString('ar-EG') + ' ' + d.toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">'
+      + '<div><div style="font-weight:700;">' + escapeHtml(dateStr) + '</div>'
+      + '<div class="meta">' + (b.customersCount||0) + ' عميل — ' + (b.ordersCount||0) + ' طلب</div></div>'
+      + '<div class="btn-row">'
+      + '<button class="btn sm outline" onclick="restoreConflictBackupLocal(\'' + b.id + '\')">↩️ استرجاع</button>'
+      + '<button class="btn sm danger" onclick="deleteConflictBackup(\'' + b.id + '\')">🗑️</button>'
+      + '</div></div>';
+  }).join('');
+  box.innerHTML = intro + rows;
 }
 
 function randomSyncId(){
@@ -3731,6 +3853,7 @@ function renderSettings(){
   renderOccasionsList();
   renderActivityLog();
   renderCloudSyncCard();
+  renderConflictBackupsCard();
   renderPushNotifyCard();
   renderInvoicePreviewCard();
 }
