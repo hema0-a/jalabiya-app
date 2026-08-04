@@ -793,71 +793,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   .keypad button{ transition:background .08s, transform .08s; }
   .keypad button.pressed{ background:var(--accent) !important; border-color:var(--accent) !important; transform:scale(0.93); }
 
-  /* ===== المساعد الذكي ===== */
-  .ai-assistant-fab{
-    position:fixed; left:16px; bottom:90px; width:52px; height:52px;
-    border-radius:50%; border:none; cursor:pointer;
-    background:linear-gradient(145deg,var(--primary),var(--primary-dark));
-    color:#fff; font-size:24px; z-index:56;
-    display:flex; align-items:center; justify-content:center;
-    box-shadow:0 6px 18px rgba(18,60,47,0.35), inset 0 0 0 3px rgba(255,255,255,0.15);
-    transition:transform .15s, box-shadow .15s;
-  }
-  .ai-assistant-fab:active{ transform:scale(0.92); }
-  .ai-assistant-fab:hover{ box-shadow:0 8px 24px rgba(18,60,47,0.45); }
 
-  .ai-chat-messages{
-    max-height:45vh; overflow-y:auto; padding:4px 2px 10px;
-    display:flex; flex-direction:column; gap:8px;
-    -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
-  }
-  .ai-msg{
-    max-width:85%; padding:10px 14px; border-radius:14px;
-    font-size:14px; line-height:1.65; white-space:pre-wrap; word-wrap:break-word;
-  }
-  .ai-msg.user{
-    align-self:flex-start; background:var(--primary-light); color:var(--heading);
-    border-bottom-left-radius:4px;
-  }
-  .ai-msg.assistant{
-    align-self:flex-end; background:var(--card-alt); color:var(--text);
-    border:1px solid var(--border); border-bottom-right-radius:4px;
-  }
-  .ai-typing{ display:flex; gap:4px; align-items:center; }
-  .ai-typing-dot{
-    width:7px; height:7px; border-radius:50%; background:var(--muted);
-    animation:aiTypingBounce 1.4s ease infinite;
-  }
-  .ai-typing-dot:nth-child(2){ animation-delay:0.2s; }
-  .ai-typing-dot:nth-child(3){ animation-delay:0.4s; }
-  @keyframes aiTypingBounce{
-    0%,60%,100%{ transform:translateY(0); opacity:0.4; }
-    30%{ transform:translateY(-6px); opacity:1; }
-  }
-  .ai-suggestions{
-    display:flex; gap:6px; overflow-x:auto; padding:8px 0;
-    -webkit-overflow-scrolling:touch;
-  }
-  .ai-suggestion-chip{
-    flex-shrink:0; padding:7px 14px; border-radius:20px;
-    border:1px solid var(--border); background:var(--card-alt);
-    font-size:12.5px; font-weight:600; color:var(--text);
-    cursor:pointer; font-family:inherit; white-space:nowrap;
-    transition:background .12s;
-  }
-  .ai-suggestion-chip:hover{ background:var(--primary-light); }
-  .ai-suggestion-chip:active{ transform:scale(0.96); }
-  .ai-input-wrap{
-    display:flex; gap:8px; margin-top:10px; padding-top:10px;
-    border-top:1px solid var(--border);
-  }
-  .ai-input-wrap input{
-    flex:1; padding:11px 14px; border-radius:12px;
-    border:1.5px solid var(--border); font-size:14.5px;
-    background:var(--card-alt); color:var(--text); font-family:inherit;
-  }
-  .ai-input-wrap input:focus{ outline:none; border-color:var(--primary); }
-  .ai-input-wrap .btn{ width:auto; flex-shrink:0; padding:11px 18px; }
 </style>
 </head>
 <body>
@@ -1366,12 +1302,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <!-- ميزات جديدة: كل ميزة في ملفها الخاص بدل ما نكبّر core.js أو patches.js أكتر -->
 <script src="feature-capacity-reminders.js"></script>
 <script src="feature-today-focus.js"></script>
-<script src="feature-ai-assistant.js"></script>
-<script>
-  // متغيرات Supabase للمساعد الذكي
-  window.__SUPABASE_URL = 'https://lkugwuhncfrfpbucgnur.supabase.co';
-  window.__SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxrdWd3dWhuY2ZyZnBidWNnbnVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NzEzMDMsImV4cCI6MjEwMTM0NzMwM30.RI2Ffp4byeUjAwzBTSF-GOI0vXJoKmf_mB77qlY8KHo';
-</script>
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
 </body>

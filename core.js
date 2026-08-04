@@ -47,8 +47,7 @@ function defaultDB(){
     activityLog:[],
     updatedAt: 0,
     cloudSync: {enabled:false, syncId:null, firebaseConfig:null},
-    pushNotify: {vapidKey:null, daysBefore:1, deviceTokens:[], notifiedOrderIds:[]},
-    aiApiKey: ''
+    pushNotify: {vapidKey:null, daysBefore:1, deviceTokens:[], notifiedOrderIds:[]}
   };
 }
 
@@ -163,7 +162,6 @@ function loadDB(){
       if(!Array.isArray(db.pushNotify.deviceTokens)) db.pushNotify.deviceTokens=[];
       if(!Array.isArray(db.pushNotify.notifiedOrderIds)) db.pushNotify.notifiedOrderIds=[];
       if(!db.pushNotify.daysBefore) db.pushNotify.daysBefore=1;
-      if(db.aiApiKey===undefined) db.aiApiKey='';
       purgeOldTrash();
     } else {
       db = defaultDB();
