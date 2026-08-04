@@ -34,7 +34,8 @@ function defaultDB(){
     btnRadius:12,
     fontSettings:{family:'default', size:'1'},
     skeletonLoading:false,
-    homeWidgets:['alerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
+    homeWidgets:['alerts','personalAlerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
+    lastCommitmentsMonthCheck:null,
     wideMode:false,
     customCSS:'',
     customJS:'',
@@ -132,7 +133,14 @@ function loadDB(){
       if(!db.payments) db.payments=[];
       if(!db.expenses) db.expenses=[];
       if(!db.commitments) db.commitments=[];
+      db.commitments.forEach(c=>{
+        if(!c.priority) c.priority='essential';
+        if(c.remainingMonths===undefined) c.remainingMonths=null;
+        if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
+      });
       if(!db.houseExpenses) db.houseExpenses=[];
+      if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
+      rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
@@ -1585,6 +1593,7 @@ function sparklineSvg(values){
 function renderHome(){
   renderUndoBar();
   renderHomeAlerts();
+  renderPersonalAlerts();
   renderWeeklyOverview();
   renderTodayPlan();
   renderCommitmentLog();
@@ -3422,6 +3431,210 @@ async function applyRequiredCapacityToSettings(){
   toast('✅ اتحدثت السعة اليومية');
 }
 
+/* ============================================================
+   قسم منفصل في الشاشة الرئيسية: تنبيهات الالتزامات الشخصية
+   (مواعيد الأقساط، مصروف بيت غير طبيعي، تقدّم الشهر، الفائض
+   المتاح، اقتراح تأجيل التزامات، وسيناريو "لو غبت يوم شغل").
+   منفصل تمامًا عن renderHomeAlerts (تنبيهات الورشة) عشان
+   ميتلخبطش مع بعض، ومحمي بنفس قفل صفحة المالية.
+   ============================================================ */
+
+function currentYM(){ return todayStr().slice(0,7); }
+
+// فرق الشهور بين شهرين بصيغة 'YYYY-MM'
+function diffMonthsYM(fromYM, toYM){
+  const [fy,fm] = fromYM.split('-').map(Number);
+  const [ty,tm] = toYM.split('-').map(Number);
+  return (ty-fy)*12 + (tm-fm);
+}
+
+// بينزّل عداد "باقي كام شهر" لأي التزام له مدة محددة، مرة واحدة لكل شهر
+// جديد (بيحسب كل الشهور اللي فاتت من غير ما تفتح التطبيق كمان). لما العداد
+// يوصل صفر، الالتزام بيتوقف تلقائياً (active=false) زي ما لو دفعته وخلص.
+function rolloverCommitmentsMonthly(){
+  const nowYM = currentYM();
+  if(!db.lastCommitmentsMonthCheck){ db.lastCommitmentsMonthCheck = nowYM; return; }
+  const elapsed = diffMonthsYM(db.lastCommitmentsMonthCheck, nowYM);
+  if(elapsed<=0) return;
+  (db.commitments||[]).forEach(c=>{
+    if(c.remainingMonths!=null && c.active!==false){
+      c.remainingMonths = Math.max(0, c.remainingMonths - elapsed);
+      if(c.remainingMonths===0){
+        c.active = false;
+        logActivity(`🏁 انتهت مدة الالتزام تلقائياً: ${c.desc}`);
+      }
+    }
+  });
+  db.lastCommitmentsMonthCheck = nowYM;
+  saveDB();
+}
+
+// تاريخ استحقاق القسط في شهر مرجعي معين (بصيغة نص 'YYYY-MM-DD')، مع مراعاة
+// إن يوم الاستحقاق ممكن يكون أكبر من عدد أيام الشهر (زي يوم 31 في فبراير)
+function commitmentDueDateStr(c, refStr){
+  refStr = refStr || todayStr();
+  const [y,m] = refStr.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const day = Math.min(Number(c.dueDay), lastDay);
+  return `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+
+// الأقساط اللي مستحقة خلال 3 أيام أو متأخرة، ولسه ملحّقتش تتعلّم كمدفوعة الشهر ده
+function getCommitmentDueAlerts(){
+  const today = todayStr();
+  const nowYM = currentYM();
+  const alerts = [];
+  (db.commitments||[]).filter(c=>c.active!==false && c.dueDay).forEach(c=>{
+    if(c.lastPaidMonth===nowYM) return;
+    const due = commitmentDueDateStr(c);
+    const diff = Math.round((new Date(due)-new Date(today))/86400000);
+    if(diff<=3) alerts.push({c, diff, due});
+  });
+  return alerts.sort((a,b)=>a.diff-b.diff);
+}
+
+// هل مصروف بيت النهاردة أعلى بكتير من المتوسط المعتاد؟ (محتاج على الأقل
+// 10 أيام بيانات سابقة عشان "المتوسط" يبقى موثوق فيه ومنتجنبش إنذارات كاذبة)
+function houseExpenseAnomalyToday(){
+  const today = todayStr();
+  const todayTotal = (db.houseExpenses||[]).filter(e=>e.date===today).reduce((s,e)=>s+Number(e.amount||0),0);
+  if(todayTotal<=0) return null;
+  const since = new Date(Date.now()-59*86400000).toISOString().slice(0,10);
+  const priorDays = {};
+  (db.houseExpenses||[]).filter(e=>e.date>=since && e.date<today).forEach(e=>{
+    priorDays[e.date] = (priorDays[e.date]||0) + Number(e.amount||0);
+  });
+  const days = Object.keys(priorDays);
+  if(days.length<10) return null;
+  const avg = days.reduce((s,d)=>s+priorDays[d],0)/days.length;
+  if(avg<=0 || todayTotal < avg*1.5) return null;
+  return {todayTotal, avg};
+}
+
+// شريط تقدّم الشهر: كسبت كام من إجمالي المطلوب لتغطية التزاماتك الشهر ده
+function monthlyCommitmentProgress(){
+  const r = calcRequiredDailyCapacity();
+  const requiredMonthly = r.monthlyCommitments + r.housePerDay*30;
+  if(requiredMonthly<=0) return null;
+  const yearMonth = currentYM();
+  const collectedMonth = db.payments.filter(p=>p.date.slice(0,7)===yearMonth).reduce((s,p)=>s+Number(p.amount||0),0);
+  const pct = Math.min(100, Math.round(collectedMonth/requiredMonthly*100));
+  return {requiredMonthly, collectedMonth, pct};
+}
+
+// الفائض المتاح: هل إيراد النهاردة عدّى احتياجك اليومي ولا لسه ناقص؟
+function todaySurplus(){
+  const r = calcRequiredDailyCapacity();
+  if(r.total<=0) return null;
+  const revenueToday = db.payments.filter(p=>p.date===todayStr()).reduce((s,p)=>s+Number(p.amount||0),0);
+  return {revenueToday, required:r.total, surplus:revenueToday-r.total};
+}
+
+// اقتراح تأجيل الالتزامات "ممكن تتأجل" لو سعتك اليومية الحالية أقل من المطلوب
+function deferrableSuggestion(){
+  const r = calcRequiredDailyCapacity();
+  if(r.total<=0) return null;
+  const currentCapacity = Number(db.dailyCapacity)||500;
+  if(currentCapacity >= r.total) return null;
+  const deferrable = (db.commitments||[]).filter(c=>c.active!==false && c.priority==='deferrable');
+  if(!deferrable.length) return null;
+  const deferrableTotal = deferrable.reduce((s,c)=>s+Number(c.amount||0),0);
+  const reducedTotal = r.total - (deferrableTotal/r.wdays);
+  return {count:deferrable.length, deferrableTotal, reducedTotal, currentTotal:r.total};
+}
+
+// التزامات هتخلص قريب (باقي شهرين أو أقل)
+function endingSoonCommitments(){
+  return (db.commitments||[]).filter(c=>c.active!==false && c.remainingMonths!=null && c.remainingMonths>0 && c.remainingMonths<=2);
+}
+
+// تعليم قسط كمدفوع لهذا الشهر — بيوقف تنبيه استحقاقه لحد الشهر الجاي
+function markCommitmentPaidThisMonth(id){
+  const c = (db.commitments||[]).find(x=>x.id===id);
+  if(!c) return;
+  const before = c.lastPaidMonth;
+  c.lastPaidMonth = currentYM();
+  saveDB();
+  setUndo('تعليم القسط كمدفوع', ()=>{
+    c.lastPaidMonth = before;
+    saveDB();
+    renderPersonalAlerts();
+    renderCommitments();
+  });
+  renderPersonalAlerts();
+  renderCommitments();
+  toast('تم ✅');
+}
+
+function renderPersonalAlerts(){
+  const box = document.getElementById('personalAlerts');
+  if(!box) return;
+  if(window.userRole==='receptionist'){ box.innerHTML=''; return; }
+  if(db.financePassword && !window.financeUnlocked){
+    box.innerHTML = `<div class="alert-banner warn"><span class="ic">🔒</span><div><b>تنبيهات التزاماتك الشخصية محمية</b>افتح صفحة المالية بالرقم السري لعرضها هنا.
+      <div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="openFinanceGate()">🔓 فتح</button></div>
+    </div></div>`;
+    return;
+  }
+  const hasData = (db.commitments||[]).length>0 || (db.houseExpenses||[]).length>0;
+  if(!hasData){
+    box.innerHTML = `<div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك من صفحة المالية عشان تظهر هنا تنبيهاتك الشخصية.</div>`;
+    return;
+  }
+
+  let html = '';
+
+  getCommitmentDueAlerts().forEach(a=>{
+    const when = a.diff<0 ? `متأخر ${Math.abs(a.diff)} يوم عن موعده (${fmtDate(a.due)})`
+      : a.diff===0 ? 'مستحق النهاردة'
+      : a.diff===1 ? 'مستحق بكرة'
+      : `مستحق خلال ${a.diff} أيام (${fmtDate(a.due)})`;
+    html += `<div class="alert-banner ${a.diff<0?'danger':'warn'}">
+      <span class="ic">${a.diff<0?'⏰':'🔔'}</span>
+      <div><b>قسط "${escapeHtml(a.c.desc)}" — ${Number(a.c.amount).toLocaleString('ar-EG')} ج.م</b>${when}
+        <div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${a.c.id}')">✅ اتدفع الشهر ده</button></div>
+      </div>
+    </div>`;
+  });
+
+  const anomaly = houseExpenseAnomalyToday();
+  if(anomaly){
+    html += `<div class="alert-banner warn"><span class="ic">📈</span><div><b>مصروف بيت النهاردة أعلى من متوسطك المعتاد</b>النهاردة: ${Math.round(anomaly.todayTotal).toLocaleString('ar-EG')} ج.م، متوسطك المعتاد: ${Math.round(anomaly.avg).toLocaleString('ar-EG')} ج.م. تأكد إن كل حاجة مسجلة صح.</div></div>`;
+  }
+
+  endingSoonCommitments().forEach(c=>{
+    html += `<div class="alert-banner good"><span class="ic">🏁</span><div><b>التزام "${escapeHtml(c.desc)}" هيخلص بعد ${c.remainingMonths} شهر</b>هتقل التزاماتك الشهرية بـ ${Number(c.amount).toLocaleString('ar-EG')} ج.م بعدها.</div></div>`;
+  });
+
+  const prog = monthlyCommitmentProgress();
+  if(prog){
+    html += `<div class="alert-banner good"><span class="ic">📊</span><div><b>كسبت ${Math.round(prog.collectedMonth).toLocaleString('ar-EG')} من ${Math.round(prog.requiredMonthly).toLocaleString('ar-EG')} ج.م المطلوبين الشهر ده (${prog.pct}%)</b>
+      <div class="progress-track"><div class="progress-fill" style="width:${prog.pct}%;"></div></div>
+    </div></div>`;
+  }
+
+  const surplus = todaySurplus();
+  if(surplus && surplus.revenueToday>0){
+    if(surplus.surplus>0){
+      html += `<div class="alert-banner good"><span class="ic">💰</span><div><b>عندك فائض النهاردة ~${Math.round(surplus.surplus).toLocaleString('ar-EG')} ج.م</b>فوق احتياجك اليومي (${Math.ceil(surplus.required).toLocaleString('ar-EG')} ج.م) — تقدر تدّخره.</div></div>`;
+    } else {
+      html += `<div class="alert-banner warn"><span class="ic">⚠️</span><div><b>إيراد النهاردة (${Math.round(surplus.revenueToday).toLocaleString('ar-EG')} ج.م) لسه أقل من احتياجك اليومي</b>محتاج ${Math.ceil(Math.abs(surplus.surplus)).toLocaleString('ar-EG')} ج.م زيادة عشان تغطي التزاماتك النهاردة.</div></div>`;
+    }
+  }
+
+  const defer = deferrableSuggestion();
+  if(defer){
+    html += `<div class="alert-banner warn"><span class="ic">⚖️</span><div><b>سعتك اليومية الحالية أقل من المطلوب</b>عندك ${defer.count} التزام "ممكن يتأجل" بإجمالي ${Math.round(defer.deferrableTotal).toLocaleString('ar-EG')} ج.م شهريًا — لو أجّلتهم، المطلوب يوميًا هينزل لـ ${Math.ceil(defer.reducedTotal).toLocaleString('ar-EG')} ج.م بدل ${Math.ceil(defer.currentTotal).toLocaleString('ar-EG')} ج.م.</div></div>`;
+  }
+
+  const r = calcRequiredDailyCapacity();
+  if(r.total>0){
+    html += `<div class="alert-banner warn"><span class="ic">🤕</span><div><b>لو غبت يوم شغل واحد</b>هتفقد تغطية ~${Math.ceil(r.total).toLocaleString('ar-EG')} ج.م من التزاماتك، هتحتاج تعوضها في الأيام اللي بعده.</div></div>`;
+  }
+
+  box.innerHTML = html || `<div class="empty-msg">تمام، مفيش تنبيهات على التزاماتك الشخصية دلوقتي 👍</div>`;
+}
+
 /* ---- الالتزامات الشهرية الثابتة (أقساط، إيجار، فواتير...) ---- */
 function renderCommitments(){
   const total = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
@@ -3430,28 +3643,48 @@ function renderCommitments(){
   const list = (db.commitments||[]).slice().sort((a,b)=>Number(b.amount)-Number(a.amount));
   const box = document.getElementById('commitmentsList');
   if(!box) return;
-  box.innerHTML = list.length ? list.map(c=>`
+  const nowYM = currentYM();
+  box.innerHTML = list.length ? list.map(c=>{
+    const paidThisMonth = c.lastPaidMonth===nowYM;
+    return `
     <div class="card">
       <div class="row">
         <h3>${escapeHtml(c.desc)}${c.active===false?' <span class="meta">(متوقف)</span>':''}</h3>
         <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م</b>
       </div>
-      ${c.dueDay?`<div class="meta">📅 يستحق يوم ${c.dueDay} من كل شهر</div>`:''}
+      <div class="meta">
+        ${c.dueDay?`📅 يستحق يوم ${c.dueDay} من كل شهر — `:''}${c.priority==='deferrable'?'⚖️ ممكن يتأجل':'🔴 ضروري'}${c.remainingMonths!=null?` — 🏁 باقي ${c.remainingMonths} شهر`:''}${paidThisMonth?' — ✅ مدفوع الشهر ده':''}
+      </div>
       <div class="btn-row">
+        ${c.active!==false && c.dueDay && !paidThisMonth ? `<button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${c.id}')">✅ اتدفع الشهر ده</button>` : ''}
         <button class="btn sm outline" onclick="openCommitmentModal('${c.id}')">✏️ تعديل</button>
         <button class="btn sm danger" onclick="deleteCommitment('${c.id}')">🗑️ حذف</button>
       </div>
     </div>
-  `).join('') : `<div class="empty-msg">لا توجد التزامات مسجلة</div>`;
+  `;}).join('') : `<div class="empty-msg">لا توجد التزامات مسجلة</div>`;
 }
 
 function openCommitmentModal(id){
   const c = id ? (db.commitments||[]).find(x=>x.id===id) : null;
+  const hasDuration = !!(c && c.remainingMonths!=null);
   const html = `
     <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام شهري جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="field"><label>الوصف</label><input id="f_commDesc" placeholder="مثال: قسط سيارة، إيجار، فاتورة كهرباء..." value="${c?escapeHtml(c.desc):''}"></div>
     <div class="field"><label>القيمة الشهرية (ج.م)</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
     <div class="field"><label>يوم الاستحقاق من الشهر (اختياري)</label><input id="f_commDueDay" type="number" min="1" max="31" placeholder="مثال: 5" value="${c&&c.dueDay?c.dueDay:''}"></div>
+    <div class="field"><label>الأولوية</label>
+      <select id="f_commPriority">
+        <option value="essential" ${(!c||c.priority!=='deferrable')?'selected':''}>🔴 ضروري</option>
+        <option value="deferrable" ${(c&&c.priority==='deferrable')?'selected':''}>⚖️ ممكن يتأجل</option>
+      </select>
+    </div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <input type="checkbox" id="f_commHasDuration" style="width:18px;height:18px;" onchange="document.getElementById('f_commDurationWrap').style.display=this.checked?'block':'none'" ${hasDuration?'checked':''}> له مدة محددة (مش لحد الأبد)
+    </label></div>
+    <div id="f_commDurationWrap" class="field" style="display:${hasDuration?'block':'none'};">
+      <label>عدد الشهور الباقية</label>
+      <input id="f_commRemainingMonths" type="number" min="1" placeholder="مثال: 12" value="${hasDuration?c.remainingMonths:''}">
+    </div>
     <button class="btn" onclick="saveCommitment('${c?c.id:''}')">💾 حفظ</button>
   `;
   openModal(html);
@@ -3461,19 +3694,24 @@ function saveCommitment(id){
   const desc = document.getElementById('f_commDesc').value.trim();
   const amount = Number(document.getElementById('f_commAmount').value)||0;
   const dueDay = Number(document.getElementById('f_commDueDay').value)||null;
+  const priority = document.getElementById('f_commPriority').value==='deferrable' ? 'deferrable' : 'essential';
+  const hasDuration = document.getElementById('f_commHasDuration').checked;
+  const remainingMonths = hasDuration ? (Number(document.getElementById('f_commRemainingMonths').value)||null) : null;
   if(!desc){ toast('أدخل وصف الالتزام'); return; }
   if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
+  if(hasDuration && !remainingMonths){ toast('أدخل عدد الشهور الباقية'); return; }
   if(!db.commitments) db.commitments=[];
   if(id){
     const c = db.commitments.find(x=>x.id===id);
-    if(c){ c.desc=desc; c.amount=amount; c.dueDay=dueDay; }
+    if(c){ c.desc=desc; c.amount=amount; c.dueDay=dueDay; c.priority=priority; c.remainingMonths=remainingMonths; }
   }else{
-    db.commitments.push({id:uid(), desc, amount, dueDay, active:true});
+    db.commitments.push({id:uid(), desc, amount, dueDay, priority, remainingMonths, lastPaidMonth:null, active:true});
   }
   saveDB();
   closeModal();
   renderCommitments();
   renderRequiredCapacityCard();
+  renderPersonalAlerts();
   toast('تم الحفظ ✅');
 }
 
@@ -3487,10 +3725,12 @@ async function deleteCommitment(id){
     saveDB();
     renderCommitments();
     renderRequiredCapacityCard();
+    renderPersonalAlerts();
   });
   saveDB();
   renderCommitments();
   renderRequiredCapacityCard();
+  renderPersonalAlerts();
   toast('تم الحذف');
 }
 
@@ -3541,11 +3781,13 @@ function saveHouseExpense(){
     saveDB();
     renderHouseExpenses();
     renderRequiredCapacityCard();
+    renderPersonalAlerts();
   });
   saveDB();
   closeModal();
   renderHouseExpenses();
   renderRequiredCapacityCard();
+  renderPersonalAlerts();
   toast('تم الإضافة ✅');
 }
 
@@ -3559,10 +3801,12 @@ async function deleteHouseExpense(id){
     saveDB();
     renderHouseExpenses();
     renderRequiredCapacityCard();
+    renderPersonalAlerts();
   });
   saveDB();
   renderHouseExpenses();
   renderRequiredCapacityCard();
+  renderPersonalAlerts();
   toast('تم الحذف');
 }
 
@@ -4312,9 +4556,9 @@ function fillWideModeInput(){
 /* ============================================================
    تخصيص الشاشة الرئيسية (ترتيب/إخفاء الودجت)
    ============================================================ */
-const HOME_WIDGETS_DEFAULT = ['alerts','stats','weekly','today','commitment','upcoming','late'];
+const HOME_WIDGETS_DEFAULT = ['alerts','personalAlerts','stats','weekly','today','commitment','upcoming','late'];
 const HOME_WIDGET_LABELS = {
-  alerts:'🔔 التنبيهات', stats:'📊 الإحصائيات', weekly:'📅 نظرة الأسبوع', today:'🌅 خطة النهاردة',
+  alerts:'🔔 التنبيهات', personalAlerts:'💳 تنبيهات الالتزامات الشخصية', stats:'📊 الإحصائيات', weekly:'📅 نظرة الأسبوع', today:'🌅 خطة النهاردة',
   commitment:'📈 الالتزام بالخطة', upcoming:'📅 أقرب مواعيد التسليم', late:'⏰ طلبات متأخرة'
 };
 
@@ -4978,7 +5222,14 @@ function importBackup(event){
       if(!db.payments) db.payments=[];
       if(!db.expenses) db.expenses=[];
       if(!db.commitments) db.commitments=[];
+      db.commitments.forEach(c=>{
+        if(!c.priority) c.priority='essential';
+        if(c.remainingMonths===undefined) c.remainingMonths=null;
+        if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
+      });
       if(!db.houseExpenses) db.houseExpenses=[];
+      if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
+      rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
