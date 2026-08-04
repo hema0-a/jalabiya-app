@@ -13,6 +13,9 @@ function defaultDB(){
     orders:[],
     payments:[],
     expenses:[],
+    commitments:[],
+    houseExpenses:[],
+    financePassword:null,
     dailyCapacity:500,
     garmentTypes:[],
     vipThreshold:3,
@@ -128,6 +131,9 @@ function loadDB(){
       if(!db.orders) db.orders=[];
       if(!db.payments) db.payments=[];
       if(!db.expenses) db.expenses=[];
+      if(!db.commitments) db.commitments=[];
+      if(!db.houseExpenses) db.houseExpenses=[];
+      if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
       if(!db.vipThreshold) db.vipThreshold=3;
@@ -3320,6 +3326,9 @@ function renderFinance(){
   renderAdvancedAnalytics();
   renderWorkshopInsights();
   renderDebtsList();
+  renderCommitments();
+  renderHouseExpenses();
+  renderRequiredCapacityCard();
 
   const lastPays = db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   document.getElementById('lastPayments').innerHTML = lastPays.length ? lastPays.map(p=>{
@@ -3337,6 +3346,224 @@ function renderFinance(){
   renderRevenueChart();
   populateMonthSelect();
   renderMonthlyReport();
+}
+
+/* ============================================================
+   الالتزامات الشخصية: أقساط شهرية ثابتة + مصاريف بيت يومية
+   الهدف: نحسب "الحد الأدنى المطلوب تكسبه يوميًا من الورشة" عشان
+   يغطي التزاماتك الشخصية، ونقدر نربطه بسعة العمل اليومية اللي
+   بيتبني عليها اقتراح مواعيد التسليم. البيانات دي شخصية بحتة
+   ومنفصلة تمامًا عن مصروفات الورشة (db.expenses) عشان مايتأثرش
+   بيها حساب صافي ربح الورشة الحقيقي. القسم ده محمي أصلاً بنفس
+   قفل صفحة المالية المستقل (db.financePassword).
+   ============================================================ */
+
+// بيحسب عدد أيام الشغل الفعلية (يستبعد يوم إجازتك الأسبوعي) في آخر n يوم
+function workDaysInLastNDays(n){
+  let count=0;
+  for(let i=0;i<n;i++){
+    const d = new Date(Date.now()-i*86400000);
+    if(!isDayOff(d)) count++;
+  }
+  return Math.max(count,1);
+}
+
+function calcRequiredDailyCapacity(){
+  const monthlyCommitments = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
+  const wdays = workDaysInLastNDays(30); // متوسط أيام الشغل في الشهر
+  const commitmentsPerDay = monthlyCommitments / wdays;
+
+  const since = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+  const houseRecent = (db.houseExpenses||[]).filter(e=>e.date>=since);
+  const houseTotal = houseRecent.reduce((s,e)=>s+Number(e.amount||0),0);
+  const housePerDay = houseTotal / 30;
+
+  const total = commitmentsPerDay + housePerDay;
+  return {monthlyCommitments, wdays, commitmentsPerDay, houseTotal, housePerDay, total};
+}
+
+function renderRequiredCapacityCard(){
+  const box = document.getElementById('requiredCapacityCard');
+  if(!box) return;
+  const r = calcRequiredDailyCapacity();
+  const currentCapacity = Number(db.dailyCapacity)||500;
+  const hasData = r.monthlyCommitments>0 || r.houseTotal>0;
+  if(!hasData){
+    box.innerHTML = `<div class="card"><div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك اليومية تحت، وهنحسبلك تلقائي قد إيه محتاج تكسب يوميًا من الورشة.</div></div>`;
+    return;
+  }
+  const diff = r.total - currentCapacity;
+  box.innerHTML = `
+    <div class="card" style="${diff>0?'border-right:4px solid var(--danger);':''}">
+      <div class="row"><h3>💡 الحد الأدنى المطلوب يوميًا من الورشة</h3><b style="color:${diff>0?'var(--danger)':'var(--primary)'};font-size:18px;">${Math.ceil(r.total).toLocaleString('ar-EG')} ج.م</b></div>
+      <div class="meta" style="line-height:1.8;">
+        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا: ${Math.ceil(r.commitmentsPerDay).toLocaleString('ar-EG')} ج.م (من إجمالي ${r.monthlyCommitments.toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
+        🏠 متوسط مصاريف البيت اليومية (آخر 30 يوم): ${Math.round(r.housePerDay).toLocaleString('ar-EG')} ج.م
+      </div>
+      ${diff>0
+        ? `<div class="meta" style="color:var(--danger);margin-top:6px;">⚠️ سعتك اليومية المسجلة حاليًا (${currentCapacity.toLocaleString('ar-EG')} ج.م) أقل من المطلوب بـ ${Math.ceil(diff).toLocaleString('ar-EG')} ج.م</div>`
+        : `<div class="meta" style="color:var(--primary);margin-top:6px;">✅ سعتك اليومية المسجلة حاليًا (${currentCapacity.toLocaleString('ar-EG')} ج.م) كافية لالتزاماتك</div>`
+      }
+      <button class="btn sm outline" style="margin-top:8px;" onclick="applyRequiredCapacityToSettings()">📥 استخدم الرقم ده كسعة يومية (بيأثر على اقتراح مواعيد التسليم)</button>
+    </div>
+  `;
+}
+
+async function applyRequiredCapacityToSettings(){
+  const r = calcRequiredDailyCapacity();
+  const val = Math.ceil(r.total);
+  if(val<=0){ toast('لا يوجد بيانات كافية بعد'); return; }
+  if(!await appConfirm(`هيتم تحديث السعة اليومية إلى ${val.toLocaleString('ar-EG')} ج.م، وده هيأثر على اقتراح مواعيد التسليم الجديدة. متأكد؟`)) return;
+  db.dailyCapacity = val;
+  const input = document.getElementById('dailyCapacityInput');
+  if(input) input.value = val;
+  saveDB();
+  renderRequiredCapacityCard();
+  toast('✅ اتحدثت السعة اليومية');
+}
+
+/* ---- الالتزامات الشهرية الثابتة (أقساط، إيجار، فواتير...) ---- */
+function renderCommitments(){
+  const total = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
+  const el = document.getElementById('totalCommitmentsTxt');
+  if(el) el.textContent = total.toLocaleString('ar-EG')+' ج.م / شهر';
+  const list = (db.commitments||[]).slice().sort((a,b)=>Number(b.amount)-Number(a.amount));
+  const box = document.getElementById('commitmentsList');
+  if(!box) return;
+  box.innerHTML = list.length ? list.map(c=>`
+    <div class="card">
+      <div class="row">
+        <h3>${escapeHtml(c.desc)}${c.active===false?' <span class="meta">(متوقف)</span>':''}</h3>
+        <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م</b>
+      </div>
+      ${c.dueDay?`<div class="meta">📅 يستحق يوم ${c.dueDay} من كل شهر</div>`:''}
+      <div class="btn-row">
+        <button class="btn sm outline" onclick="openCommitmentModal('${c.id}')">✏️ تعديل</button>
+        <button class="btn sm danger" onclick="deleteCommitment('${c.id}')">🗑️ حذف</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-msg">لا توجد التزامات مسجلة</div>`;
+}
+
+function openCommitmentModal(id){
+  const c = id ? (db.commitments||[]).find(x=>x.id===id) : null;
+  const html = `
+    <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام شهري جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>الوصف</label><input id="f_commDesc" placeholder="مثال: قسط سيارة، إيجار، فاتورة كهرباء..." value="${c?escapeHtml(c.desc):''}"></div>
+    <div class="field"><label>القيمة الشهرية (ج.م)</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
+    <div class="field"><label>يوم الاستحقاق من الشهر (اختياري)</label><input id="f_commDueDay" type="number" min="1" max="31" placeholder="مثال: 5" value="${c&&c.dueDay?c.dueDay:''}"></div>
+    <button class="btn" onclick="saveCommitment('${c?c.id:''}')">💾 حفظ</button>
+  `;
+  openModal(html);
+}
+
+function saveCommitment(id){
+  const desc = document.getElementById('f_commDesc').value.trim();
+  const amount = Number(document.getElementById('f_commAmount').value)||0;
+  const dueDay = Number(document.getElementById('f_commDueDay').value)||null;
+  if(!desc){ toast('أدخل وصف الالتزام'); return; }
+  if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
+  if(!db.commitments) db.commitments=[];
+  if(id){
+    const c = db.commitments.find(x=>x.id===id);
+    if(c){ c.desc=desc; c.amount=amount; c.dueDay=dueDay; }
+  }else{
+    db.commitments.push({id:uid(), desc, amount, dueDay, active:true});
+  }
+  saveDB();
+  closeModal();
+  renderCommitments();
+  renderRequiredCapacityCard();
+  toast('تم الحفظ ✅');
+}
+
+async function deleteCommitment(id){
+  if(!await appConfirm('حذف هذا الالتزام؟')) return;
+  const removed = (db.commitments||[]).find(c=>c.id===id);
+  if(!removed) return;
+  db.commitments = db.commitments.filter(c=>c.id!==id);
+  setUndo('حذف الالتزام', ()=>{
+    db.commitments.push(removed);
+    saveDB();
+    renderCommitments();
+    renderRequiredCapacityCard();
+  });
+  saveDB();
+  renderCommitments();
+  renderRequiredCapacityCard();
+  toast('تم الحذف');
+}
+
+/* ---- مصاريف البيت اليومية ---- */
+function renderHouseExpenses(){
+  const total = (db.houseExpenses||[]).reduce((s,e)=>s+Number(e.amount||0),0);
+  const el = document.getElementById('totalHouseExpensesTxt');
+  if(el) el.textContent = total.toLocaleString('ar-EG')+' ج.م (إجمالي كل الوقت)';
+  const list = (db.houseExpenses||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
+  const box = document.getElementById('houseExpensesList');
+  if(!box) return;
+  box.innerHTML = list.length ? list.map(e=>`
+    <div class="card">
+      <div class="row">
+        <h3>${escapeHtml(e.desc)}</h3>
+        <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
+      </div>
+      <div class="meta">📅 ${fmtDate(e.date)}</div>
+      <div class="btn-row">
+        <button class="btn sm danger" onclick="deleteHouseExpense('${e.id}')">🗑️ حذف</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-msg">لا توجد مصاريف بيت مسجلة بعد</div>`;
+}
+
+function openHouseExpenseModal(){
+  const html = `
+    <div class="modal-head"><h3>➕ مصروف بيت</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>وصف المصروف</label><input id="f_houseDesc" placeholder="مثال: أكل، مواصلات، فواتير..."></div>
+    <div class="field"><label>المبلغ (ج.م)</label><input id="f_houseAmount" type="number" placeholder="0"></div>
+    <div class="field"><label>التاريخ</label><input id="f_houseDate" type="date" value="${todayStr()}"></div>
+    <button class="btn" onclick="saveHouseExpense()">💾 حفظ</button>
+  `;
+  openModal(html);
+}
+
+function saveHouseExpense(){
+  const desc = document.getElementById('f_houseDesc').value.trim();
+  const amount = Number(document.getElementById('f_houseAmount').value)||0;
+  const date = document.getElementById('f_houseDate').value || todayStr();
+  if(!desc){ toast('أدخل وصف المصروف'); return; }
+  if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
+  if(!db.houseExpenses) db.houseExpenses=[];
+  const record = {id:uid(), desc, amount, date};
+  db.houseExpenses.push(record);
+  setUndo('إضافة مصروف البيت', ()=>{
+    db.houseExpenses = db.houseExpenses.filter(e=>e.id!==record.id);
+    saveDB();
+    renderHouseExpenses();
+    renderRequiredCapacityCard();
+  });
+  saveDB();
+  closeModal();
+  renderHouseExpenses();
+  renderRequiredCapacityCard();
+  toast('تم الإضافة ✅');
+}
+
+async function deleteHouseExpense(id){
+  if(!await appConfirm('حذف هذا المصروف؟')) return;
+  const removed = (db.houseExpenses||[]).find(e=>e.id===id);
+  if(!removed) return;
+  db.houseExpenses = db.houseExpenses.filter(e=>e.id!==id);
+  setUndo('حذف مصروف البيت', ()=>{
+    db.houseExpenses.push(removed);
+    saveDB();
+    renderHouseExpenses();
+    renderRequiredCapacityCard();
+  });
+  saveDB();
+  renderHouseExpenses();
+  renderRequiredCapacityCard();
+  toast('تم الحذف');
 }
 
 /* ============================================================
@@ -3856,6 +4083,7 @@ function renderSettings(){
   renderConflictBackupsCard();
   renderPushNotifyCard();
   renderInvoicePreviewCard();
+  renderFinancePasswordCard();
 }
 
 function renderActivityLog(){
@@ -4566,6 +4794,52 @@ function changePassword(){
   toast('تم تغيير الرقم السري بنجاح ✅');
 }
 
+/* ---- رقم سري إضافي ومستقل لصفحة المالية (خصوصية إضافية للبيانات
+   المالية والالتزامات الشخصية، غير رقم قفل التطبيق العام) ---- */
+function renderFinancePasswordCard(){
+  const box = document.getElementById('financePasswordCardWrap');
+  if(!box) return;
+  const isSet = !!db.financePassword;
+  box.innerHTML = `
+    <h3>🔐 رقم سري إضافي لصفحة المالية</h3>
+    <p class="meta">حماية منفصلة عن رقم قفل التطبيق العام — تفيدك لو في حد تاني بيستخدم التطبيق (موظف استقبال مثلاً) ومش عايزه يشوف أرباحك أو التزاماتك الشخصية.</p>
+    <p class="meta">الحالة: ${isSet?'🔒 مفعّلة':'🔓 غير مفعّلة'}</p>
+    ${isSet?`<div class="field"><label>الرقم الحالي</label><input type="tel" maxlength="4" id="financeOldPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div>`:''}
+    <div class="field"><label>${isSet?'الرقم الجديد (4 أرقام)':'رقم سري المالية (4 أرقام)'}</label><input type="tel" maxlength="4" id="financeNewPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div>
+    <div class="btn-row">
+      <button class="btn" onclick="saveFinancePassword()">💾 ${isSet?'تغيير الرقم':'تفعيل الحماية'}</button>
+      ${isSet?`<button class="btn danger" onclick="removeFinancePassword()">🗑️ إلغاء الحماية</button>`:''}
+    </div>
+  `;
+}
+
+function saveFinancePassword(){
+  const isSet = !!db.financePassword;
+  if(isSet){
+    const oldP = (document.getElementById('financeOldPass')||{}).value||'';
+    if(oldP !== db.financePassword){ toast('الرقم الحالي غير صحيح'); return; }
+  }
+  const newP = (document.getElementById('financeNewPass')||{}).value||'';
+  if(!/^\d{4}$/.test(newP)){ toast('الرقم يجب أن يكون 4 أرقام'); return; }
+  db.financePassword = newP;
+  window.financeUnlocked = false; // يتطلب دخول بالرقم الجديد من أول مرة
+  updateFinanceLockUI();
+  saveDB();
+  renderFinancePasswordCard();
+  toast(isSet?'تم تغيير رقم المالية ✅':'تم تفعيل حماية صفحة المالية ✅');
+}
+
+async function removeFinancePassword(){
+  if(!db.financePassword) return;
+  if(!await appConfirm('هيتم إلغاء الحماية الإضافية عن صفحة المالية، وأي حد يفتح التطبيق هيقدر يشوفها. متأكد؟')) return;
+  db.financePassword = null;
+  window.financeUnlocked = true;
+  updateFinanceLockUI();
+  saveDB();
+  renderFinancePasswordCard();
+  toast('تم إلغاء حماية صفحة المالية');
+}
+
 function csvEscape(val){
   let s = (val===null||val===undefined) ? '' : String(val);
   if(/[",\n]/.test(s)) s = '"'+s.replace(/"/g,'""')+'"';
@@ -4703,6 +4977,9 @@ function importBackup(event){
       if(!db.password) db.password='0000';
       if(!db.payments) db.payments=[];
       if(!db.expenses) db.expenses=[];
+      if(!db.commitments) db.commitments=[];
+      if(!db.houseExpenses) db.houseExpenses=[];
+      if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
       if(!db.garmentTypes) db.garmentTypes=[];
       if(!db.vipThreshold) db.vipThreshold=3;

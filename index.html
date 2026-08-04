@@ -927,6 +927,23 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <!-- ---------- المالية ---------- -->
     <section class="page" id="page-finance">
       <div class="grid-cards" id="financeStats"></div>
+
+      <div class="section-title">💳 التزاماتي الشخصية (أقساط ومصاريف البيت)</div>
+      <div id="requiredCapacityCard"></div>
+      <div class="card">
+        <div class="row"><h3>الالتزامات الشهرية الثابتة</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+        <div class="meta">أقساط، إيجار، فواتير ثابتة... أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا</div>
+      </div>
+      <button class="btn outline" onclick="openCommitmentModal()">➕ إضافة التزام شهري</button>
+      <div id="commitmentsList" style="margin-top:8px;"></div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="row"><h3>مصاريف البيت اليومية</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+        <div class="meta">سجّلها يوم بيوم عشان التطبيق يقدر يحسب متوسطك الحقيقي</div>
+      </div>
+      <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
+      <div id="houseExpensesList" style="margin-top:8px;"></div>
+
       <div class="section-title">📈 الإيرادات الشهرية (آخر 6 أشهر)</div>
       <div class="card">
         <canvas id="revenueChart" width="600" height="220" style="width:100%;height:auto;"></canvas>
@@ -1221,6 +1238,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <div class="field"><label>الرقم الجديد (4 أرقام)</label><input type="tel" maxlength="4" id="newPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)"></div>
         <button class="btn" onclick="changePassword()">حفظ الرقم الجديد</button>
       </div>
+      <div class="card" id="financePasswordCardWrap"></div>
       <div class="card">
         <h3>💾 نسخة احتياطية</h3>
         <p class="meta">احفظ نسخة من كل بياناتك (العملاء - الطلبات - المصروفات) في ملف واحد يمكنك استرجاعه لاحقاً.</p>
