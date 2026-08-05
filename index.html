@@ -950,6 +950,14 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       </div>
       <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
       <div id="houseExpensesList" style="margin-top:8px;"></div>
+      <div class="card" style="margin-top:8px;">
+        <h3>🏷️ مصروف البيت حسب النوع</h3>
+        <div id="houseExpenseCategoryBreakdown"></div>
+      </div>
+      <div class="card" style="margin-top:8px;">
+        <h3>📉 مصروف البيت آخر 6 شهور</h3>
+        <canvas id="houseExpenseChart" width="600" height="180" style="width:100%;height:auto;"></canvas>
+      </div>
 
       <div class="section-title">📜 سجل دفعات الأقساط</div>
       <div id="commitmentPaymentsLog"></div>
