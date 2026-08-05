@@ -36,6 +36,12 @@ function defaultDB(){
     skeletonLoading:false,
     homeWidgets:['alerts','personalAlerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
     lastCommitmentsMonthCheck:null,
+    commitmentPayments:[],
+    missedCommitmentNotices:[],
+    commitmentsNotifyEnabled:false,
+    commitmentsLastNotifiedDate:null,
+    houseExpenseAlertPercent:50,
+    houseExpenseAlertMinDays:10,
     wideMode:false,
     customCSS:'',
     customJS:'',
@@ -140,6 +146,12 @@ function loadDB(){
       });
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
+      if(!db.commitmentPayments) db.commitmentPayments=[];
+      if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
+      if(db.commitmentsNotifyEnabled===undefined) db.commitmentsNotifyEnabled=false;
+      if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
+      if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
+      if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
@@ -608,6 +620,7 @@ function toggleCloudSetupMode(mode){
    الفعلي عن طريق FCM حتى لو التطبيق مقفول تمامًا.
    ============================================================ */
 let messagingInstance = null;
+let commitmentPaymentsLogShowCount = 15;
 
 function getPushSwUrl(){
   const cfg = db.cloudSync && db.cloudSync.firebaseConfig;
@@ -3338,6 +3351,9 @@ function renderFinance(){
   renderCommitments();
   renderHouseExpenses();
   renderRequiredCapacityCard();
+  commitmentPaymentsLogShowCount = 15;
+  renderCommitmentPaymentsLog();
+  renderCommitmentsSettingsCard();
 
   const lastPays = db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   document.getElementById('lastPayments').innerHTML = lastPays.length ? lastPays.map(p=>{
@@ -3355,6 +3371,7 @@ function renderFinance(){
   renderRevenueChart();
   populateMonthSelect();
   renderMonthlyReport();
+  renderPersonalCommitmentsReport();
 }
 
 /* ============================================================
@@ -3456,7 +3473,13 @@ function rolloverCommitmentsMonthly(){
   if(!db.lastCommitmentsMonthCheck){ db.lastCommitmentsMonthCheck = nowYM; return; }
   const elapsed = diffMonthsYM(db.lastCommitmentsMonthCheck, nowYM);
   if(elapsed<=0) return;
+  const prevYM = db.lastCommitmentsMonthCheck;
+  if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
   (db.commitments||[]).forEach(c=>{
+    // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص)
+    if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM){
+      db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, month:prevYM});
+    }
     if(c.remainingMonths!=null && c.active!==false){
       c.remainingMonths = Math.max(0, c.remainingMonths - elapsed);
       if(c.remainingMonths===0){
@@ -3465,6 +3488,7 @@ function rolloverCommitmentsMonthly(){
       }
     }
   });
+  if(db.missedCommitmentNotices.length>50) db.missedCommitmentNotices = db.missedCommitmentNotices.slice(-50);
   db.lastCommitmentsMonthCheck = nowYM;
   saveDB();
 }
@@ -3505,9 +3529,11 @@ function houseExpenseAnomalyToday(){
     priorDays[e.date] = (priorDays[e.date]||0) + Number(e.amount||0);
   });
   const days = Object.keys(priorDays);
-  if(days.length<10) return null;
+  const minDays = Number(db.houseExpenseAlertMinDays)||10;
+  if(days.length<minDays) return null;
   const avg = days.reduce((s,d)=>s+priorDays[d],0)/days.length;
-  if(avg<=0 || todayTotal < avg*1.5) return null;
+  const percent = Number(db.houseExpenseAlertPercent)||50;
+  if(avg<=0 || todayTotal < avg*(1+percent/100)) return null;
   return {todayTotal, avg};
 }
 
@@ -3554,16 +3580,267 @@ function markCommitmentPaidThisMonth(id){
   if(!c) return;
   const before = c.lastPaidMonth;
   c.lastPaidMonth = currentYM();
+  if(!db.commitmentPayments) db.commitmentPayments=[];
+  const paymentRecord = {id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, date:todayStr(), month:currentYM()};
+  db.commitmentPayments.push(paymentRecord);
+  if(db.commitmentPayments.length>200) db.commitmentPayments = db.commitmentPayments.slice(-200);
   saveDB();
   setUndo('تعليم القسط كمدفوع', ()=>{
     c.lastPaidMonth = before;
+    db.commitmentPayments = db.commitmentPayments.filter(p=>p.id!==paymentRecord.id);
     saveDB();
     renderPersonalAlerts();
     renderCommitments();
+    renderCommitmentPaymentsLog();
+    renderPersonalCommitmentsReport();
   });
   renderPersonalAlerts();
   renderCommitments();
+  renderCommitmentPaymentsLog();
+  renderPersonalCommitmentsReport();
   toast('تم ✅');
+}
+
+// إقرار بإشعار "فاتك تعليم دفع الشهر اللي فات" — وإختياريًا تسجيله فعليًا كدفعة فات ميعادها
+function acknowledgeMissedCommitmentNotice(id, alsoLogPaid){
+  const n = (db.missedCommitmentNotices||[]).find(x=>x.id===id);
+  if(!n) return;
+  if(alsoLogPaid){
+    if(!db.commitmentPayments) db.commitmentPayments=[];
+    db.commitmentPayments.push({id:uid(), commitmentId:n.commitmentId, desc:n.desc, amount:n.amount, date:todayStr(), month:n.month});
+  }
+  db.missedCommitmentNotices = (db.missedCommitmentNotices||[]).filter(x=>x.id!==id);
+  saveDB();
+  renderPersonalAlerts();
+  renderCommitmentPaymentsLog();
+  renderPersonalCommitmentsReport();
+  toast(alsoLogPaid?'✅ اتسجلت الدفعة':'تمام');
+}
+
+// تجاهل جماعي لأقدم إشعارات "فاتك تعليم دفع" المتراكمة (بيسيب أحدث 5 بس ظاهرين فرادى)
+function dismissOldMissedNotices(){
+  const sorted = (db.missedCommitmentNotices||[]).slice().sort((a,b)=>b.month.localeCompare(a.month));
+  const keepIds = new Set(sorted.slice(0,5).map(n=>n.id));
+  db.missedCommitmentNotices = (db.missedCommitmentNotices||[]).filter(n=>keepIds.has(n.id));
+  saveDB();
+  renderPersonalAlerts();
+  toast('تم تجاهل الإشعارات القديمة');
+}
+
+// سجل دفعات الأقساط (تاريخ فعلي لكل مرة اتعلّم فيها القسط كمدفوع)
+function renderCommitmentPaymentsLog(){
+  const box = document.getElementById('commitmentPaymentsLog');
+  if(!box) return;
+  const all = (db.commitmentPayments||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const list = all.slice(0, commitmentPaymentsLogShowCount);
+  const rows = list.length ? list.map(p=>`
+    <div class="card">
+      <div class="row">
+        <h3>${escapeHtml(p.desc)}</h3>
+        <b style="color:var(--ok)">${Number(p.amount).toLocaleString('ar-EG')} ج.م</b>
+      </div>
+      <div class="meta">📅 ${fmtDate(p.date)}</div>
+      <div class="btn-row">
+        <button class="btn sm outline" onclick="editCommitmentPayment('${p.id}')">✏️ تعديل</button>
+        <button class="btn sm danger" onclick="deleteCommitmentPayment('${p.id}')">🗑️ حذف</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-msg">لسه معملتش أي دفعة قسط بزرار "✅ اتدفع الشهر ده"</div>`;
+  const more = all.length>list.length ? `<button class="btn sm outline" style="margin-top:6px;" onclick="showMoreCommitmentPayments()">⬇️ عرض المزيد (${all.length-list.length} متبقي)</button>` : '';
+  box.innerHTML = rows + more;
+}
+
+function showMoreCommitmentPayments(){
+  commitmentPaymentsLogShowCount += 15;
+  renderCommitmentPaymentsLog();
+}
+
+function editCommitmentPayment(id){
+  const p = (db.commitmentPayments||[]).find(x=>x.id===id);
+  if(!p) return;
+  const html = `
+    <div class="modal-head"><h3>✏️ تعديل دفعة "${escapeHtml(p.desc)}"</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>المبلغ (ج.م)</label><input id="f_payAmount" type="number" value="${p.amount}"></div>
+    <div class="field"><label>تاريخ الدفع</label><input id="f_payDate" type="date" value="${p.date}"></div>
+    <button class="btn" onclick="saveCommitmentPaymentEdit('${p.id}')">💾 حفظ</button>
+  `;
+  openModal(html);
+}
+
+function saveCommitmentPaymentEdit(id){
+  const p = (db.commitmentPayments||[]).find(x=>x.id===id);
+  if(!p) return;
+  const amount = Number(document.getElementById('f_payAmount').value)||0;
+  const date = document.getElementById('f_payDate').value;
+  if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
+  if(!date){ toast('اختر تاريخ الدفع'); return; }
+  p.amount = amount;
+  p.date = date;
+  p.month = date.slice(0,7);
+  saveDB();
+  closeModal();
+  renderCommitmentPaymentsLog();
+  renderPersonalCommitmentsReport();
+  toast('تم الحفظ ✅');
+}
+
+async function deleteCommitmentPayment(id){
+  if(!await appConfirm('حذف سجل هذه الدفعة؟')) return;
+  const removed = (db.commitmentPayments||[]).find(p=>p.id===id);
+  if(!removed) return;
+  db.commitmentPayments = db.commitmentPayments.filter(p=>p.id!==id);
+  setUndo('حذف سجل الدفعة', ()=>{
+    db.commitmentPayments.push(removed);
+    saveDB();
+    renderCommitmentPaymentsLog();
+    renderPersonalCommitmentsReport();
+  });
+  saveDB();
+  renderCommitmentPaymentsLog();
+  renderPersonalCommitmentsReport();
+  toast('تم الحذف');
+}
+
+/* ---- تنبيه محلي (Notification API) على الجهاز لما يبقى فيه قسط مستحق —
+   ده إشعار محلي بيشتغل لما التطبيق مفتوح/في الخلفية على المتصفح، مش
+   Push حقيقي زي بتاع مواعيد التسليم (اللي محتاج Cloud Function خارجية).
+   محتاج نفس إذن الإشعارات (Notification.permission) بس من غير الحاجة
+   لإعداد Firebase/VAPID. بيبعت إشعار واحد بس في اليوم عشان ميتكررش. ---- */
+async function toggleCommitmentsNotify(checked){
+  if(checked){
+    if(typeof Notification==='undefined'){
+      toast('المتصفح ده مش بيدعم الإشعارات');
+      renderCommitmentsSettingsCard();
+      return;
+    }
+    const perm = Notification.permission==='granted' ? 'granted' : await Notification.requestPermission();
+    if(perm!=='granted'){
+      toast('لازم توافق على إذن الإشعارات من المتصفح عشان تشتغل');
+      renderCommitmentsSettingsCard();
+      return;
+    }
+  }
+  db.commitmentsNotifyEnabled = checked;
+  saveDB();
+  renderCommitmentsSettingsCard();
+  toast(checked?'✅ اتفعّلت':'تم الإيقاف');
+}
+
+function maybeSendLocalCommitmentNotification(dueAlerts){
+  if(!db.commitmentsNotifyEnabled) return;
+  if(typeof Notification==='undefined' || Notification.permission!=='granted') return;
+  if(!dueAlerts || !dueAlerts.length) return;
+  if(db.commitmentsLastNotifiedDate===todayStr()) return;
+  try{
+    const first = dueAlerts[0];
+    const title = dueAlerts.length===1 ? `🔔 قسط "${first.c.desc}" مستحق` : `🔔 عندك ${dueAlerts.length} أقساط مستحقة قريب`;
+    const body = dueAlerts.length===1
+      ? `${Number(first.c.amount).toLocaleString('ar-EG')} ج.م — ${fmtDate(first.due)}`
+      : dueAlerts.slice(0,3).map(a=>a.c.desc).join('، ');
+    new Notification(title, {body});
+    db.commitmentsLastNotifiedDate = todayStr();
+    saveDB();
+  }catch(e){ /* تجاهل أي خطأ في الإشعار المحلي، مش حرج لباقي الفيتشر */ }
+}
+
+// إعدادات مجمّعة: تفعيل الإشعار المحلي + حساسية تنبيه المصروف غير الطبيعي
+function saveAnomalySettings(){
+  const percentEl = document.getElementById('houseAlertPercentInput');
+  const daysEl = document.getElementById('houseAlertMinDaysInput');
+  if(!percentEl || !daysEl) return;
+  const percent = Math.max(10, Math.min(300, Number(percentEl.value)||50));
+  const minDays = Math.max(3, Math.min(60, Number(daysEl.value)||10));
+  db.houseExpenseAlertPercent = percent;
+  db.houseExpenseAlertMinDays = minDays;
+  saveDB();
+  renderPersonalAlerts();
+  toast('✅ اتحفظت الإعدادات');
+}
+
+function renderCommitmentsSettingsCard(){
+  const box = document.getElementById('commitmentsSettingsCard');
+  if(!box) return;
+  const notifyOn = !!db.commitmentsNotifyEnabled;
+  box.innerHTML = `
+    <div class="row"><h3>⚙️ إعدادات تنبيهات الالتزامات الشخصية</h3></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+      <input type="checkbox" style="width:18px;height:18px;" ${notifyOn?'checked':''} onchange="toggleCommitmentsNotify(this.checked)"> 🔔 نبّهني بإشعار على الجهاز لما قسط يقرب يستحق (إشعار محلي، مرة في اليوم بحد أقصى)
+    </label></div>
+    <div class="meta">حساسية تنبيه "مصروف بيت غير طبيعي":</div>
+    <div class="field-row2">
+      <div class="field"><label>نسبة الزيادة عن المتوسط (%)</label><input id="houseAlertPercentInput" type="number" min="10" max="300" value="${Number(db.houseExpenseAlertPercent)||50}"></div>
+      <div class="field"><label>أقل عدد أيام بيانات مطلوب</label><input id="houseAlertMinDaysInput" type="number" min="3" max="60" value="${Number(db.houseExpenseAlertMinDays)||10}"></div>
+    </div>
+    <button class="btn sm outline" onclick="saveAnomalySettings()">💾 حفظ الإعدادات</button>
+  `;
+}
+
+// بيجمّع بيانات تقرير الالتزامات الشخصية لشهر معيّن (مستخدمة في العرض والطباعة معاً)
+function buildPersonalCommitmentsReportData(month){
+  const dueCommitments = (db.commitments||[]).filter(c=>c.dueDay);
+  const paidThisMonth = new Set((db.commitmentPayments||[]).filter(p=>p.month===month).map(p=>p.commitmentId));
+  const missedIds = new Set((db.missedCommitmentNotices||[]).filter(n=>n.month===month).map(n=>n.commitmentId));
+  const totalDue = dueCommitments.reduce((s,c)=>s+Number(c.amount||0),0);
+  const totalPaidAmount = (db.commitmentPayments||[]).filter(p=>p.month===month).reduce((s,p)=>s+Number(p.amount||0),0);
+  const houseExpensesTotal = (db.houseExpenses||[]).filter(e=>e.date.slice(0,7)===month).reduce((s,e)=>s+Number(e.amount||0),0);
+  const rows = dueCommitments.map(c=>{
+    const paid = paidThisMonth.has(c.id) || c.lastPaidMonth===month;
+    const missed = !paid && missedIds.has(c.id);
+    const status = paid ? '✅ اتدفع' : (missed ? '⏮️ فات ميعاده' : '⏳ لسه');
+    return {desc:c.desc, amount:Number(c.amount||0), status};
+  });
+  return {dueCommitments, totalDue, totalPaidAmount, houseExpensesTotal, rows};
+}
+
+// تقرير شهري لالتزاماتك الشخصية (بيستخدم نفس اختيار الشهر بتاع التقرير الشهري للورشة)
+function renderPersonalCommitmentsReport(){
+  const sel = document.getElementById('reportMonthSelect');
+  const box = document.getElementById('personalCommitmentsReportBody');
+  if(!sel || !box) return;
+  const month = sel.value || todayStr().slice(0,7);
+  const data = buildPersonalCommitmentsReportData(month);
+  if(!data.dueCommitments.length && !data.houseExpensesTotal){
+    box.innerHTML = `<div class="empty-msg">لا توجد التزامات لها يوم استحقاق محدد، ولا مصروف بيت مسجّل لهذا الشهر.</div>`;
+    return;
+  }
+  const rowsHtml = data.rows.map(r=>`<div class="meta">${escapeHtml(r.desc)} — ${r.amount.toLocaleString('ar-EG')} ج.م — ${r.status}</div>`).join('');
+  const grandTotal = data.totalPaidAmount + data.houseExpensesTotal;
+  box.innerHTML = `
+    <div class="meta">💰 إجمالي المحصَّل من الأقساط الشهر ده: <b>${data.totalPaidAmount.toLocaleString('ar-EG')} ج.م</b> من أصل ${data.totalDue.toLocaleString('ar-EG')} ج.م</div>
+    <div class="meta">🏠 إجمالي مصروف البيت المسجَّل الشهر ده: <b>${data.houseExpensesTotal.toLocaleString('ar-EG')} ج.م</b></div>
+    <div class="meta">📦 إجمالي التزاماتك الشخصية الفعلي الشهر ده (أقساط مدفوعة + مصروف بيت): <b>${grandTotal.toLocaleString('ar-EG')} ج.م</b></div>
+    <hr class="sep">
+    ${rowsHtml}
+    <button class="btn secondary" style="margin-top:8px;" onclick="printPersonalCommitmentsReport()">🖨️ طباعة / حفظ كـ PDF</button>
+  `;
+}
+
+function printPersonalCommitmentsReport(){
+  const sel = document.getElementById('reportMonthSelect');
+  const month = sel && sel.value ? sel.value : todayStr().slice(0,7);
+  const label = new Date(month+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
+  const data = buildPersonalCommitmentsReportData(month);
+  const grandTotal = data.totalPaidAmount + data.houseExpensesTotal;
+  const html = `
+    <html dir="rtl" lang="ar"><head><meta charset="UTF-8"><title>التزاماتي الشخصية ${label}</title>
+    <style>
+      body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#222;}
+      h1{font-size:20px;border-bottom:2px solid #1F6D57;padding-bottom:8px;}
+      table{width:100%;border-collapse:collapse;margin-top:14px;}
+      td{padding:10px 6px;border-bottom:1px solid #ddd;font-size:15px;}
+      td.lbl{color:#666;width:55%;}
+      td.val{font-weight:bold;}
+      .total-row td{font-size:17px;color:#1F6D57;}
+    </style></head><body>
+      <h1>💳 تقرير الالتزامات الشخصية — ${label}</h1>
+      <table>
+        ${data.rows.map(r=>`<tr><td class="lbl">${escapeHtml(r.desc)}</td><td class="val">${r.amount.toLocaleString('ar-EG')} ج.م — ${r.status}</td></tr>`).join('')}
+        <tr><td class="lbl">إجمالي مصروف البيت الشهر ده</td><td class="val">${data.houseExpensesTotal.toLocaleString('ar-EG')} ج.م</td></tr>
+        <tr class="total-row"><td class="lbl">الإجمالي الفعلي (أقساط مدفوعة + مصروف بيت)</td><td class="val">${grandTotal.toLocaleString('ar-EG')} ج.م</td></tr>
+      </table>
+    </body></html>
+  `;
+  openPrintWindow(html, 'التزامات_شخصية_'+label);
 }
 
 function renderPersonalAlerts(){
@@ -3584,7 +3861,8 @@ function renderPersonalAlerts(){
 
   let html = '';
 
-  getCommitmentDueAlerts().forEach(a=>{
+  const dueAlerts = getCommitmentDueAlerts();
+  dueAlerts.forEach(a=>{
     const when = a.diff<0 ? `متأخر ${Math.abs(a.diff)} يوم عن موعده (${fmtDate(a.due)})`
       : a.diff===0 ? 'مستحق النهاردة'
       : a.diff===1 ? 'مستحق بكرة'
@@ -3596,6 +3874,22 @@ function renderPersonalAlerts(){
       </div>
     </div>`;
   });
+  maybeSendLocalCommitmentNotification(dueAlerts);
+
+  const missedSorted = (db.missedCommitmentNotices||[]).slice().sort((a,b)=>b.month.localeCompare(a.month));
+  missedSorted.slice(0,5).forEach(n=>{
+    html += `<div class="alert-banner danger"><span class="ic">⏮️</span><div><b>فاتك تعليم دفع قسط "${escapeHtml(n.desc)}" الشهر اللي فات</b>${Number(n.amount).toLocaleString('ar-EG')} ج.م — ${new Date(n.month+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'})}
+      <div class="btn-row" style="margin-top:6px;">
+        <button class="btn sm outline" onclick="acknowledgeMissedCommitmentNotice('${n.id}', true)">✅ سجّل إني دفعته</button>
+        <button class="btn sm outline" onclick="acknowledgeMissedCommitmentNotice('${n.id}', false)">تمام، شفتها</button>
+      </div>
+    </div></div>`;
+  });
+  if(missedSorted.length>5){
+    html += `<div class="alert-banner warn"><span class="ic">📦</span><div><b>عندك كمان ${missedSorted.length-5} إشعار "فاتك تعليم دفع" أقدم</b>غالبًا تراكموا من فترة ما فتحتش فيها التطبيق.
+      <div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="dismissOldMissedNotices()">🗑️ تجاهل القديم كله</button></div>
+    </div></div>`;
+  }
 
   const anomaly = houseExpenseAnomalyToday();
   if(anomaly){
@@ -5229,6 +5523,12 @@ function importBackup(event){
       });
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
+      if(!db.commitmentPayments) db.commitmentPayments=[];
+      if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
+      if(db.commitmentsNotifyEnabled===undefined) db.commitmentsNotifyEnabled=false;
+      if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
+      if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
+      if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;

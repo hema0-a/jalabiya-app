@@ -951,6 +951,11 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
       <div id="houseExpensesList" style="margin-top:8px;"></div>
 
+      <div class="section-title">📜 سجل دفعات الأقساط</div>
+      <div id="commitmentPaymentsLog"></div>
+
+      <div class="card" style="margin-top:14px;" id="commitmentsSettingsCard"></div>
+
       <div class="section-title">📈 الإيرادات الشهرية (آخر 6 أشهر)</div>
       <div class="card">
         <canvas id="revenueChart" width="600" height="220" style="width:100%;height:auto;"></canvas>
@@ -963,9 +968,13 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       <div id="debtsList"></div>
       <div class="section-title">📊 تقرير شهري</div>
       <div class="card">
-        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport()"></select></div>
+        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport(); renderPersonalCommitmentsReport();"></select></div>
         <div id="monthlyReportBody"></div>
         <button class="btn secondary" style="margin-top:8px;" onclick="printMonthlyReport()">🖨️ طباعة / حفظ كـ PDF</button>
+      </div>
+      <div class="section-title">📆 تقرير شهري لالتزاماتك الشخصية</div>
+      <div class="card">
+        <div id="personalCommitmentsReportBody"></div>
       </div>
       <div class="section-title">💵 آخر الدفعات</div>
       <div id="lastPayments"></div>
