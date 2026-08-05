@@ -129,50 +129,29 @@ async function processWorkshop(doc, todayStr) {
   const title = lines.length === 1 ? '🧵 نشرة اليوم' : '🧵 نشرة اليوم (' + lines.length + ')';
   const body = lines.join(' — ');
 
-  // توكنز أجهزة اتمسحت/اتفصلت (تطبيق اتحذف، بيانات المتصفح اتمسحت...) بترجع
-  // من FCM بكود خطأ واضح. لو سبناها من غير تنظيف، هتفضل تتراكم في deviceTokens
-  // للأبد وكل يوم هنحاول نبعت لتوكنز ميتة بلا فايدة (وممكن كمان تعدي حد الـ 500
-  // توكن لكل استدعاء لو الورشة قديمة وعندها كذا جهاز اتغيّر بمرور الوقت).
-  let liveTokens = tokens;
   try {
-    const res = await admin.messaging().sendEachForMulticast({
+    await admin.messaging().sendEachForMulticast({
       tokens,
       notification: {title, body},
       webpush: {
         fcmOptions: {link: '/'}
       }
     });
-    const deadCodes = new Set([
-      'messaging/registration-token-not-registered',
-      'messaging/invalid-registration-token',
-      'messaging/invalid-argument'
-    ]);
-    const deadTokens = new Set();
-    res.responses.forEach((r, i) => {
-      if (!r.success && r.error && deadCodes.has(r.error.code)) deadTokens.add(tokens[i]);
-    });
-    if (deadTokens.size) liveTokens = tokens.filter((t) => !deadTokens.has(t));
   } catch (e) {
     console.warn('فشل إرسال الإشعار لورشة', doc.id, e);
     return;
   }
 
-  // بنحدّث الحقول مع بعض في نفس الاستدعاء (مفيش تعارض، كل حقل بمساره
+  // بنحدّث الحقلين مع بعض في نفس الاستدعاء (مفيش تعارض، كل حقل بمساره
   // بتاعه)، من غير ما نلمس updatedAt عشان منعملش تعارض مع منطق
   // "آخر تعديل بيكسب" المستخدم في مزامنة التطبيق بين الأجهزة
   const updates = {};
   if (dueOrders.length) {
-    // بنشيل أي id بقى مش موجود أصلاً في الطلبات الحالية (اتسلّم من زمان، اتمسح،
-    // إلخ) عشان القايمة متكبرش للأبد على مدار عمر الورشة كله
-    const currentOrderIds = new Set(orders.map((o) => o.id));
-    const merged = Array.from(alreadyNotified).concat(dueOrders.map((o) => o.id));
-    updates['pushNotify.notifiedOrderIds'] = merged.filter((id) => currentOrderIds.has(id));
+    updates['pushNotify.notifiedOrderIds'] =
+      Array.from(alreadyNotified).concat(dueOrders.map((o) => o.id));
   }
   if (willMarkCapacityLateToday) {
     updates['pushNotify.lastCapacityLateAlertDate'] = todayStr;
-  }
-  if (liveTokens.length !== tokens.length) {
-    updates['pushNotify.deviceTokens'] = liveTokens;
   }
   if (Object.keys(updates).length) {
     await doc.ref.update(updates);
