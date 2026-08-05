@@ -733,9 +733,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   }
   .alert-banner.danger{background:var(--danger-light);color:var(--danger);border-color:rgba(162,59,44,0.18);}
   .alert-banner.warn{background:var(--warn-light);color:var(--warn);border-color:rgba(147,105,28,0.18);}
-  .alert-banner.good{background:var(--primary-light);color:var(--heading);border-color:rgba(31,109,87,0.18);}
-  .alert-banner .progress-track{background:rgba(0,0,0,0.08);border-radius:8px;height:8px;margin-top:6px;overflow:hidden;}
-  .alert-banner .progress-fill{background:var(--primary);height:100%;}
   .alert-banner b{display:block;font-family:var(--font-display);font-size:14.5px;font-weight:700;margin-bottom:2px;}
   .alert-banner .ic{font-size:19px;}
   .alert-banner .close-x{margin-inline-start:auto;background:none;border:none;color:inherit;font-size:15px;opacity:.7;}
@@ -795,8 +792,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   }
   .keypad button{ transition:background .08s, transform .08s; }
   .keypad button.pressed{ background:var(--accent) !important; border-color:var(--accent) !important; transform:scale(0.93); }
-
-
 </style>
 </head>
 <body>
@@ -859,10 +854,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <div id="homeWidgetsContainer">
           <div id="widget-alerts" class="home-widget">
             <div id="homeAlerts"></div>
-          </div>
-          <div id="widget-personalAlerts" class="home-widget">
-            <div class="section-title">💳 تنبيهات الالتزامات الشخصية</div>
-            <div id="personalAlerts"></div>
           </div>
           <div id="widget-stats" class="home-widget">
             <div class="grid-cards" id="homeStats"></div>
@@ -934,36 +925,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <!-- ---------- المالية ---------- -->
     <section class="page" id="page-finance">
       <div class="grid-cards" id="financeStats"></div>
-
-      <div class="section-title">💳 التزاماتي الشخصية (أقساط ومصاريف البيت)</div>
-      <div id="requiredCapacityCard"></div>
-      <div class="card">
-        <div class="row"><h3>الالتزامات الشهرية الثابتة</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
-        <div class="meta">أقساط، إيجار، فواتير ثابتة... أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا</div>
-      </div>
-      <button class="btn outline" onclick="openCommitmentModal()">➕ إضافة التزام شهري</button>
-      <div id="commitmentsList" style="margin-top:8px;"></div>
-
-      <div class="card" style="margin-top:14px;">
-        <div class="row"><h3>مصاريف البيت اليومية</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
-        <div class="meta">سجّلها يوم بيوم عشان التطبيق يقدر يحسب متوسطك الحقيقي</div>
-      </div>
-      <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
-      <div id="houseExpensesList" style="margin-top:8px;"></div>
-      <div class="card" style="margin-top:8px;">
-        <h3>🏷️ مصروف البيت حسب النوع</h3>
-        <div id="houseExpenseCategoryBreakdown"></div>
-      </div>
-      <div class="card" style="margin-top:8px;">
-        <h3>📉 مصروف البيت آخر 6 شهور</h3>
-        <canvas id="houseExpenseChart" width="600" height="180" style="width:100%;height:auto;"></canvas>
-      </div>
-
-      <div class="section-title">📜 سجل دفعات الأقساط</div>
-      <div id="commitmentPaymentsLog"></div>
-
-      <div class="card" style="margin-top:14px;" id="commitmentsSettingsCard"></div>
-
       <div class="section-title">📈 الإيرادات الشهرية (آخر 6 أشهر)</div>
       <div class="card">
         <canvas id="revenueChart" width="600" height="220" style="width:100%;height:auto;"></canvas>
@@ -976,13 +937,9 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       <div id="debtsList"></div>
       <div class="section-title">📊 تقرير شهري</div>
       <div class="card">
-        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport(); renderPersonalCommitmentsReport();"></select></div>
+        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport()"></select></div>
         <div id="monthlyReportBody"></div>
         <button class="btn secondary" style="margin-top:8px;" onclick="printMonthlyReport()">🖨️ طباعة / حفظ كـ PDF</button>
-      </div>
-      <div class="section-title">📆 تقرير شهري لالتزاماتك الشخصية</div>
-      <div class="card">
-        <div id="personalCommitmentsReportBody"></div>
       </div>
       <div class="section-title">💵 آخر الدفعات</div>
       <div id="lastPayments"></div>
@@ -1262,7 +1219,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <div class="field"><label>الرقم الجديد (4 أرقام)</label><input type="tel" maxlength="4" id="newPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\D/g,'').slice(0,4)"></div>
         <button class="btn" onclick="changePassword()">حفظ الرقم الجديد</button>
       </div>
-      <div class="card" id="financePasswordCardWrap"></div>
       <div class="card">
         <h3>💾 نسخة احتياطية</h3>
         <p class="meta">احفظ نسخة من كل بياناتك (العملاء - الطلبات - المصروفات) في ملف واحد يمكنك استرجاعه لاحقاً.</p>
@@ -1274,7 +1230,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <input type="file" id="importFile" accept="application/json" style="display:none" onchange="importBackup(event)">
       </div>
       <div class="card" id="cloudSyncCardWrap"></div>
-      <div class="card" id="conflictBackupsCardWrap"></div>
       <div class="card" id="pushNotifyCardWrap"></div>
       <div class="card">
         <h3>🗑️ سلة المحذوفات <span id="trashCountTxt" class="meta"></span></h3>
