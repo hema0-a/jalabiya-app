@@ -152,6 +152,7 @@ html[data-theme="dark"] .alert-banner .ic{ background:rgba(255,255,255,0.08); }
 /* مستوى الاستقبال: زي الوضع القديم بالظبط — بدون مالية/مصروفات/إعدادات وبدون حذف */
 html.role-receptionist .navbtn[data-page="finance"],
 html.role-receptionist .navbtn[data-page="expenses"],
+html.role-receptionist .navbtn[data-page="personal"],
 html.role-receptionist .navbtn[data-page="settings"],
 html.role-receptionist #navAuditDay,
 html.role-receptionist button[onclick="showWeeklySummary()"],
@@ -935,17 +936,41 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <section class="page" id="page-finance">
       <div class="grid-cards" id="financeStats"></div>
 
-      <div class="section-title">💳 التزاماتي الشخصية (أقساط ومصاريف البيت)</div>
-      <div id="requiredCapacityCard"></div>
+      <div class="section-title">📈 الإيرادات الشهرية (آخر 6 أشهر)</div>
       <div class="card">
-        <div class="row"><h3>الالتزامات الشهرية الثابتة</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
-        <div class="meta">أقساط، إيجار، فواتير ثابتة... أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا</div>
+        <canvas id="revenueChart" width="600" height="220" style="width:100%;height:auto;"></canvas>
+      </div>
+      <div class="section-title">🔮 تحليلات متقدمة</div>
+      <div id="advancedAnalytics"></div>
+      <div class="section-title">🔎 رؤى الورشة</div>
+      <div id="workshopInsights"></div>
+      <div class="section-title">🧾 المديونيات <span id="totalDebtsTxt" style="font-weight:900;color:var(--danger);font-size:14px;"></span></div>
+      <div id="debtsList"></div>
+      <div class="section-title">📊 تقرير شهري</div>
+      <div class="card">
+        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport();"></select></div>
+        <div id="monthlyReportBody"></div>
+        <button class="btn secondary" style="margin-top:8px;" onclick="printMonthlyReport()">🖨️ طباعة / حفظ كـ PDF</button>
+      </div>
+      <div class="section-title">💵 آخر الدفعات</div>
+      <div id="lastPayments"></div>
+    </section>
+
+    <!-- ---------- التزاماتي الشخصية ---------- -->
+    <section class="page" id="page-personal">
+      <div id="requiredCapacityCard"></div>
+
+      <div class="section-title">💳 الالتزامات الشهرية الثابتة</div>
+      <div class="card">
+        <div class="row"><h3>أقساط، إيجار، فواتير ثابتة...</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+        <div class="meta">أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا — سجّلها هنا عشان التطبيق يحسب نصيبها اليومي ويقدّر احتياجك الحقيقي.</div>
       </div>
       <button class="btn outline" onclick="openCommitmentModal()">➕ إضافة التزام شهري</button>
       <div id="commitmentsList" style="margin-top:8px;"></div>
 
-      <div class="card" style="margin-top:14px;">
-        <div class="row"><h3>مصاريف البيت اليومية</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+      <div class="section-title">🏠 مصاريف البيت اليومية</div>
+      <div class="card">
+        <div class="row"><h3>مصاريف البيت</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
         <div class="meta">سجّلها يوم بيوم عشان التطبيق يقدر يحسب متوسطك الحقيقي</div>
       </div>
       <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
@@ -962,30 +987,14 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
       <div class="section-title">📜 سجل دفعات الأقساط</div>
       <div id="commitmentPaymentsLog"></div>
 
-      <div class="card" style="margin-top:14px;" id="commitmentsSettingsCard"></div>
+      <div class="section-title">⚙️ إعدادات تنبيهات الالتزامات</div>
+      <div class="card" id="commitmentsSettingsCard"></div>
 
-      <div class="section-title">📈 الإيرادات الشهرية (آخر 6 أشهر)</div>
-      <div class="card">
-        <canvas id="revenueChart" width="600" height="220" style="width:100%;height:auto;"></canvas>
-      </div>
-      <div class="section-title">🔮 تحليلات متقدمة</div>
-      <div id="advancedAnalytics"></div>
-      <div class="section-title">🔎 رؤى الورشة</div>
-      <div id="workshopInsights"></div>
-      <div class="section-title">🧾 المديونيات <span id="totalDebtsTxt" style="font-weight:900;color:var(--danger);font-size:14px;"></span></div>
-      <div id="debtsList"></div>
-      <div class="section-title">📊 تقرير شهري</div>
-      <div class="card">
-        <div class="field"><label>اختر الشهر</label><select id="reportMonthSelect" onchange="renderMonthlyReport(); renderPersonalCommitmentsReport();"></select></div>
-        <div id="monthlyReportBody"></div>
-        <button class="btn secondary" style="margin-top:8px;" onclick="printMonthlyReport()">🖨️ طباعة / حفظ كـ PDF</button>
-      </div>
       <div class="section-title">📆 تقرير شهري لالتزاماتك الشخصية</div>
       <div class="card">
+        <div class="field"><label>اختر الشهر</label><select id="personalMonthSelect" onchange="renderPersonalCommitmentsReport()"></select></div>
         <div id="personalCommitmentsReportBody"></div>
       </div>
-      <div class="section-title">💵 آخر الدفعات</div>
-      <div id="lastPayments"></div>
     </section>
 
     <!-- ---------- المصروفات ---------- -->
@@ -1323,6 +1332,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <button class="navbtn" data-page="deliveries" onclick="showPage('deliveries');closeSideNav()"><span class="ic">📅</span>المواعيد</button>
     <button class="navbtn" data-page="finance" onclick="showPage('finance');closeSideNav()"><span class="ic">💰</span>المالية</button>
     <button class="navbtn" data-page="expenses" onclick="showPage('expenses');closeSideNav()"><span class="ic">🧵</span>مصروفات</button>
+    <button class="navbtn" data-page="personal" onclick="showPage('personal');closeSideNav()"><span class="ic">💳</span>التزاماتي</button>
     <button class="navbtn" data-page="settings" onclick="showPage('settings');closeSideNav()"><span class="ic">⚙️</span>إعدادات</button>
   </nav>
 </div>

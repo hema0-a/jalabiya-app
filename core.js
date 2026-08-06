@@ -949,20 +949,21 @@ let currentOrderFilter='all';
 
 const pageTitles = {
   home:'🏠 الرئيسية', customers:'👥 العملاء', orders:'📋 الطلبات',
-  deliveries:'📅 مواعيد التسليم', finance:'💰 المالية', expenses:'🧵 المصروفات', settings:'⚙️ الإعدادات'
+  deliveries:'📅 مواعيد التسليم', finance:'💰 المالية', expenses:'🧵 المصروفات',
+  personal:'💳 التزاماتي', settings:'⚙️ الإعدادات'
 };
-const fabPages = {home:false, customers:true, orders:true, deliveries:false, finance:false, expenses:true, settings:false};
+const fabPages = {home:false, customers:true, orders:true, deliveries:false, finance:false, expenses:true, personal:true, settings:false};
 
 function showPage(name){
-  if(window.userRole==='receptionist' && (name==='finance' || name==='expenses' || name==='settings')){
+  if(window.userRole==='receptionist' && (name==='finance' || name==='expenses' || name==='personal' || name==='settings')){
     toast('🔒 الصفحة دي مش متاحة في وضع الاستقبال');
     name = 'home';
+  } else if((name==='finance' || name==='personal') && db && db.financePassword && !window.financeUnlocked){
+    openFinanceGate();
+    return;
   } else if(window.userRole==='manager' && name==='settings'){
     toast('🔒 صفحة الإعدادات متاحة للمالك بس');
     name = 'home';
-  } else if(name==='finance' && db && db.financePassword && !window.financeUnlocked){
-    openFinanceGate();
-    return;
   }
   currentPage = name;
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -996,6 +997,7 @@ function fabAction(){
   if(currentPage==='customers') openCustomerModal();
   else if(currentPage==='orders') openOrderModal();
   else if(currentPage==='expenses') openExpenseModal();
+  else if(currentPage==='personal') openCommitmentModal();
 }
 
 function boot(){
@@ -1013,6 +1015,7 @@ function renderAll(){
   if(currentPage==='deliveries') renderDeliveries();
   if(currentPage==='finance') renderFinance();
   if(currentPage==='expenses') renderExpenses();
+  if(currentPage==='personal') renderPersonalPage();
   if(currentPage==='settings') renderSettings();
 }
 
@@ -3348,13 +3351,6 @@ function renderFinance(){
   renderAdvancedAnalytics();
   renderWorkshopInsights();
   renderDebtsList();
-  renderCommitments();
-  renderHouseExpenses();
-  renderRequiredCapacityCard();
-  commitmentPaymentsLogShowCount = 15;
-  renderCommitmentPaymentsLog();
-  renderCommitmentsSettingsCard();
-
   const lastPays = db.payments.slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   document.getElementById('lastPayments').innerHTML = lastPays.length ? lastPays.map(p=>{
     const o = db.orders.find(x=>x.id===p.orderId);
@@ -3371,7 +3367,33 @@ function renderFinance(){
   renderRevenueChart();
   populateMonthSelect();
   renderMonthlyReport();
+}
+
+function renderPersonalPage(){
+  renderRequiredCapacityCard();
+  renderCommitments();
+  renderHouseExpenses();
+  commitmentPaymentsLogShowCount = 15;
+  renderCommitmentPaymentsLog();
+  renderCommitmentsSettingsCard();
+  populatePersonalMonthSelect();
   renderPersonalCommitmentsReport();
+}
+
+function populatePersonalMonthSelect(){
+  const sel = document.getElementById('personalMonthSelect');
+  if(!sel) return;
+  let opts = '';
+  const now = new Date();
+  for(let i=0;i<12;i++){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    const val = d.toISOString().slice(0,7);
+    const label = d.toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
+    opts += `<option value="${val}">${label}</option>`;
+  }
+  const prev = sel.value;
+  sel.innerHTML = opts;
+  sel.value = prev || now.toISOString().slice(0,7);
 }
 
 /* ============================================================
@@ -3794,7 +3816,7 @@ function buildPersonalCommitmentsReportData(month){
 
 // تقرير شهري لالتزاماتك الشخصية (بيستخدم نفس اختيار الشهر بتاع التقرير الشهري للورشة)
 function renderPersonalCommitmentsReport(){
-  const sel = document.getElementById('reportMonthSelect');
+  const sel = document.getElementById('personalMonthSelect') || document.getElementById('reportMonthSelect');
   const box = document.getElementById('personalCommitmentsReportBody');
   if(!sel || !box) return;
   const month = sel.value || todayStr().slice(0,7);
@@ -3816,7 +3838,7 @@ function renderPersonalCommitmentsReport(){
 }
 
 function printPersonalCommitmentsReport(){
-  const sel = document.getElementById('reportMonthSelect');
+  const sel = document.getElementById('personalMonthSelect') || document.getElementById('reportMonthSelect');
   const month = sel && sel.value ? sel.value : todayStr().slice(0,7);
   const label = new Date(month+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
   const data = buildPersonalCommitmentsReportData(month);
