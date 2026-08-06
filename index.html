@@ -359,6 +359,7 @@ body{ font-size:15px; line-height:1.5; }
 #commitmentsList .card[data-type="قسط"]{ border-inline-start-color:var(--info); }
 #commitmentsList .card[data-type="فاتورة"]{ border-inline-start-color:var(--warn); }
 #commitmentsList .card[data-type="اشتراك"]{ border-inline-start-color:var(--accent); }
+#commitmentsList .card[data-type="ادخار"]{ border-inline-start-color:var(--ok); }
 #commitmentsList .card[data-type="تانية"]{ border-inline-start-color:var(--border); }
 
 /* قسم الالتزامات المتوقفة (مؤرشفة) — مطوي افتراضيًا */
@@ -405,6 +406,15 @@ body{ font-size:15px; line-height:1.5; }
 
 /* أزرار القوالب السريعة لإضافة التزام شائع بضغطة واحدة */
 #commitmentsTemplates .btn.sm{ font-size:12px; }
+
+/* شريط تقدّم هدف الادخار */
+#savingsGoalCard .savings-progress-track{
+  margin-top:8px; height:10px; border-radius:6px; background:var(--card-alt);
+  border:1px solid var(--border); overflow:hidden;
+}
+#savingsGoalCard .savings-progress-fill{
+  height:100%; background:var(--ok); border-radius:6px; transition:width .3s;
+}
 
 /* عنوان فرعي صغير لتقسيم قائمة الالتزامات لمجموعات (مستحق قريب / لسه بعيد)
    — بسيط من غير رقم دائري زي section-title، عشان ميتلخبطش مع ترقيم أقسام الصفحة */
@@ -1048,7 +1058,9 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           <button class="btn sm outline" onclick="openCommitmentModal(null,'قسط','قسط السيارة')">🚗 قسط سيارة</button>
           <button class="btn sm outline" onclick="openCommitmentModal(null,'فاتورة','فاتورة الكهرباء')">🧾 فاتورة كهرباء</button>
           <button class="btn sm outline" onclick="openCommitmentModal(null,'اشتراك','اشتراك إنترنت')">🔁 اشتراك إنترنت</button>
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'ادخار','ادخار شهري')">💰 ادخار</button>
         </div>
+        <div class="card" id="savingsGoalCard" style="margin-top:10px;"></div>
         <div id="commitmentsSummaryLine" class="meta" style="margin:8px 2px 0;"></div>
         <div id="commitmentsTypeChips"></div>
         <div class="sticky-total-bar">

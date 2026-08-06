@@ -3128,7 +3128,16 @@ cloudStatusChanged = function(){
     var coveragePct = r && r.total>0 ? Math.round((currentCapacity/r.total)*100) : 100;
     var missedCount = (db.missedCommitmentNotices||[]).length;
     var dueSoonCount = safe(function(){ return getCommitmentDueAlerts().length; }, 0);
-    var goalProg = safe(function(){ return savingsGoalProgress(); }, null);
+    // [إصلاح] savingsGoalProgress() اتشالت من core.js (استُبدلت بهدف ادخار
+    // بمبلغ مستهدف واحد بدل الشهري: db.savingsGoalTarget + totalSavedAmount()).
+    // بنحسب نفس الفكرة (نسبة %) من البيانات الجديدة لو موجودة، وإلا نرجع فاضي.
+    var goalProg = safe(function(){
+      if(typeof savingsGoalProgress === 'function') return savingsGoalProgress(); // توافق مع نسخ قديمة
+      var target = Number(db.savingsGoalTarget)||0;
+      if(!target || typeof totalSavedAmount !== 'function') return null;
+      var saved = totalSavedAmount();
+      return {saved:saved, goal:target, pct:Math.min(100, Math.round(saved/target*100))};
+    }, null);
     var ef = safe(function(){ return calcEmergencyFundRunway(); }, null);
     return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef};
   }
@@ -3148,20 +3157,24 @@ cloudStatusChanged = function(){
       + '<div class="stat-card"><div class="stat-ic">📶</div><div><div class="num" style="color:'+covColor+';">'+s.coveragePct+'%</div><div class="lbl">نسبة تغطية التزاماتك بسعتك الحالية</div></div></div>'
       + '<div class="stat-card '+(s.missedCount>0?'danger':'')+'"><div class="stat-ic">⏮️</div><div><div class="num">'+s.missedCount+'</div><div class="lbl">التزامات فاتك تسجيلها كمدفوعة</div></div></div>'
       + '<div class="stat-card '+(s.dueSoonCount>0?'danger':'')+'"><div class="stat-ic">🔔</div><div><div class="num">'+s.dueSoonCount+'</div><div class="lbl">مستحق خلال 3 أيام أو أقل</div></div></div>'
-      + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار الشهري</div></div></div>' : '')
+      + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار</div></div></div>' : '')
       + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '');
   };
 
-  // [إصلاح] الكارت ده عن الالتزامات الشخصية، فبقى معلّق على renderPersonalCommitments
-  // (صفحة "التزاماتي الشخصية" المستقلة) بدل renderFinance بعد ما القسم اتنقل لصفحته.
-  // لو core.js المحمّل نسخة أقدم من غير الصفحة الجديدة، بنرجع لـ renderFinance كخطة بديلة.
-  var hookHealthTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
-  var hookHealthPageId = hookHealthTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  // [إصلاح] كانت بتدوّر على دالة اسمها renderPersonalCommitments (مش موجودة
+  // في core.js أصلاً) فكانت دايمًا بترجع لـ renderFinance غلط. الاسم الصح
+  // هو renderPersonalPage، وكمان الكارت لازم يترمي جوّه تاب "نظرة عامة"
+  // (#personalTab-overview) مش جوّه #page-personal مباشرة، عشان يظهر
+  // ويختفي صح مع تبديل التابات بدل ما يفضل ظاهر فوق كل التابات.
+  var hookHealthTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookHealthContainerId = hookHealthTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-overview') ? 'personalTab-overview' : 'page-personal')
+    : 'page-finance';
   var origRenderFinanceHealth = window[hookHealthTarget];
   window[hookHealthTarget] = function(){
     origRenderFinanceHealth.apply(this, arguments);
     try{
-      var page = document.getElementById(hookHealthPageId);
+      var page = document.getElementById(hookHealthContainerId);
       if(!page) return;
       if(!page.querySelector('#financialHealthCard')){
         var card = document.createElement('div');
@@ -3225,15 +3238,19 @@ cloudStatusChanged = function(){
     }).join('');
   };
 
-  // [إصلاح] نفس التعليق اللي فوق: خريطة الالتزامات دي خاصة بصفحة "التزاماتي
-  // الشخصية"، فبقت معلّقة على renderPersonalCommitments بدل renderFinance.
-  var hookMapTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
-  var hookMapPageId = hookMapTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  // [إصلاح] نفس مشكلة القسم اللي فوق: اسم الدالة الصح renderPersonalPage
+  // (مش renderPersonalCommitments اللي مش موجودة أصلاً)، والخريطة دي جدول
+  // تفصيلي فمكانها الطبيعي تاب "التقارير" (#personalTab-reports) جنب
+  // التقرير الشهري، مش جوّه #page-personal مباشرة برّه كل التابات.
+  var hookMapTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookMapContainerId = hookMapTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-reports') ? 'personalTab-reports' : 'page-personal')
+    : 'page-finance';
   var origRenderFinanceAnnualMap = window[hookMapTarget];
   window[hookMapTarget] = function(){
     origRenderFinanceAnnualMap.apply(this, arguments);
     try{
-      var page = document.getElementById(hookMapPageId);
+      var page = document.getElementById(hookMapContainerId);
       if(!page) return;
       if(!page.querySelector('#annualCommitmentsMapCard')){
         var card = document.createElement('div');
@@ -3290,15 +3307,18 @@ cloudStatusChanged = function(){
         : '<p class="meta" style="margin-top:8px;">أضف التزاماتك الشهرية الأول عشان نحسبلك المدة.</p>');
   };
 
-  // [إصلاح] صندوق الطوارئ برضه جزء من "التزاماتي الشخصية"، فبقى معلّق
-  // على renderPersonalCommitments بدل renderFinance.
-  var hookEfTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
-  var hookEfPageId = hookEfTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  // [إصلاح] نفس المشكلة: الاسم الصح renderPersonalPage. صندوق الطوارئ
+  // فيه إدخال بيانات (رصيد المدخرات) فمكانه الطبيعي تاب "القائمة"
+  // (#personalTab-list) جنب هدف الادخار والالتزامات، مش برّه التابات.
+  var hookEfTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookEfContainerId = hookEfTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-list') ? 'personalTab-list' : 'page-personal')
+    : 'page-finance';
   var origRenderFinanceEmergency = window[hookEfTarget];
   window[hookEfTarget] = function(){
     origRenderFinanceEmergency.apply(this, arguments);
     try{
-      var page = document.getElementById(hookEfPageId);
+      var page = document.getElementById(hookEfContainerId);
       if(!page) return;
       if(!page.querySelector('#emergencyFundCard')){
         var card = document.createElement('div');
@@ -3385,15 +3405,17 @@ cloudStatusChanged = function(){
     }).join('') : '<p class="meta">لا توجد قروض مسجّلة.</p>';
   };
 
-  // [إصلاح] القروض الشخصية برضه جزء من "التزاماتي الشخصية"، فبقت معلّقة
-  // على renderPersonalCommitments بدل renderFinance.
-  var hookLoansTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
-  var hookLoansPageId = hookLoansTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  // [إصلاح] نفس المشكلة: الاسم الصح renderPersonalPage. القروض فيها إدخال
+  // وتشغيل يومي (إضافة قرض، تسجيل دفعات) فمكانها الطبيعي تاب "القائمة".
+  var hookLoansTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookLoansContainerId = hookLoansTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-list') ? 'personalTab-list' : 'page-personal')
+    : 'page-finance';
   var origRenderFinanceLoans = window[hookLoansTarget];
   window[hookLoansTarget] = function(){
     origRenderFinanceLoans.apply(this, arguments);
     try{
-      var page = document.getElementById(hookLoansPageId);
+      var page = document.getElementById(hookLoansContainerId);
       if(!page) return;
       if(!page.querySelector('#personalLoansCard')){
         var card = document.createElement('div');

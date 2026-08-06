@@ -16,6 +16,7 @@ function defaultDB(){
     commitments:[],
     houseExpenses:[],
     financePassword:null,
+    savingsGoalTarget:0,
     dailyCapacity:500,
     garmentTypes:[],
     vipThreshold:3,
@@ -154,6 +155,7 @@ function loadDB(){
       if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
       if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
       if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
+      if(db.savingsGoalTarget===undefined) db.savingsGoalTarget=0;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
@@ -3624,7 +3626,7 @@ function renderRequiredCapacityCard(){
     <div class="card" style="${diff>0?'border-right:4px solid var(--danger);':''}">
       <div class="row"><h3>💡 الحد الأدنى المطلوب يوميًا من الورشة</h3><b style="color:${diff>0?'var(--danger)':'var(--primary)'};font-size:18px;">${Math.ceil(r.total).toLocaleString('ar-EG')} ج.م</b></div>
       <div class="meta" style="line-height:1.8;">
-        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا: ${Math.ceil(r.commitmentsPerDay).toLocaleString('ar-EG')} ج.م (من إجمالي ${r.monthlyCommitments.toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
+        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا (شامل أي بند "💰 ادخار" مسجّل): ${Math.ceil(r.commitmentsPerDay).toLocaleString('ar-EG')} ج.م (من إجمالي ${r.monthlyCommitments.toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
         🏠 متوسط مصاريف البيت اليومية (آخر 30 يوم): ${Math.round(r.housePerDay).toLocaleString('ar-EG')} ج.م
       </div>
       ${diff>0
@@ -3679,7 +3681,7 @@ function rolloverCommitmentsMonthly(){
   (db.commitments||[]).forEach(c=>{
     // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص)
     if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM){
-      db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, month:prevYM});
+      db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, type:c.type||'تانية', month:prevYM});
     }
     if(c.remainingMonths!=null && c.active!==false){
       c.remainingMonths = Math.max(0, c.remainingMonths - elapsed);
@@ -3790,7 +3792,7 @@ function markCommitmentPaidThisMonth(id){
   const before = c.lastPaidMonth;
   c.lastPaidMonth = currentYM();
   if(!db.commitmentPayments) db.commitmentPayments=[];
-  const paymentRecord = {id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, date:todayStr(), month:currentYM()};
+  const paymentRecord = {id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, type:c.type||'تانية', date:todayStr(), month:currentYM()};
   db.commitmentPayments.push(paymentRecord);
   if(db.commitmentPayments.length>200) db.commitmentPayments = db.commitmentPayments.slice(-200);
   saveDB();
@@ -3816,7 +3818,7 @@ function acknowledgeMissedCommitmentNotice(id, alsoLogPaid){
   if(!n) return;
   if(alsoLogPaid){
     if(!db.commitmentPayments) db.commitmentPayments=[];
-    db.commitmentPayments.push({id:uid(), commitmentId:n.commitmentId, desc:n.desc, amount:n.amount, date:todayStr(), month:n.month});
+    db.commitmentPayments.push({id:uid(), commitmentId:n.commitmentId, desc:n.desc, amount:n.amount, type:n.type||'تانية', date:todayStr(), month:n.month});
   }
   db.missedCommitmentNotices = (db.missedCommitmentNotices||[]).filter(x=>x.id!==id);
   saveDB();
@@ -3839,6 +3841,7 @@ function dismissOldMissedNotices(){
 // سجل دفعات الأقساط (تاريخ فعلي لكل مرة اتعلّم فيها القسط كمدفوع)
 function renderCommitmentPaymentsLog(){
   const box = document.getElementById('commitmentPaymentsLog');
+  renderSavingsGoalCard();
   if(!box) return;
   const all = (db.commitmentPayments||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
   const list = all.slice(0, commitmentPaymentsLogShowCount);
@@ -3862,6 +3865,53 @@ function renderCommitmentPaymentsLog(){
 function showMoreCommitmentPayments(){
   commitmentPaymentsLogShowCount += 15;
   renderCommitmentPaymentsLog();
+}
+
+/* ---- هدف الادخار: بند "💰 ادخار" جوه نفس قائمة الالتزامات، والمتجمّع
+   بيتحسب من سجل الدفعات نفسه (نفس زرار "✅ اتدفع الشهر ده") من غير عداد منفصل
+   عشان نضمن إنه دايمًا متطابق مع السجل، حتى لو السجل اتعدّل أو اتحذف منه دفعة ---- */
+function totalSavedAmount(){
+  return (db.commitmentPayments||[]).filter(p=>p.type==='ادخار').reduce((s,p)=>s+Number(p.amount||0),0);
+}
+
+function renderSavingsGoalCard(){
+  const box = document.getElementById('savingsGoalCard');
+  if(!box) return;
+  const target = Number(db.savingsGoalTarget)||0;
+  const saved = totalSavedAmount();
+  if(!target && !saved){
+    box.innerHTML = `
+      <div class="row"><h3>🎯 هدف الادخار</h3></div>
+      <div class="meta">حدد مبلغ تستهدف توفيره (زي مصاريف طوارئ لكذا شهر) وتابع تقدمك هنا. سجّل التوفير الشهري كبند "💰 ادخار" فوق واضغط "✅ اتدفع الشهر ده" عشان يتحسب هنا.</div>
+      <div class="btn-row" style="margin-top:8px;"><button class="btn sm outline" onclick="openSavingsGoalModal()">🎯 تحديد هدف</button></div>
+    `;
+    return;
+  }
+  const pct = target ? Math.min(100, Math.round(saved/target*100)) : 0;
+  box.innerHTML = `
+    <div class="row"><h3>🎯 هدف الادخار</h3><button class="btn sm outline" onclick="openSavingsGoalModal()">✏️ تعديل الهدف</button></div>
+    <div class="meta">اتجمع <b style="color:var(--ok)">${saved.toLocaleString('ar-EG')} ج.م</b>${target?` من ${target.toLocaleString('ar-EG')} ج.م (${pct}%)`:' — لسه محدّدتش هدف بمبلغ'}</div>
+    ${target ? `<div class="savings-progress-track"><div class="savings-progress-fill" style="width:${pct}%;"></div></div>` : ''}
+  `;
+}
+
+function openSavingsGoalModal(){
+  const html = `
+    <div class="modal-head"><h3>🎯 هدف الادخار</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>المبلغ المستهدف (ج.م)</label><input id="f_savingsTarget" type="number" min="0" placeholder="مثال: 15000" value="${db.savingsGoalTarget?db.savingsGoalTarget:''}"></div>
+    <div class="meta">اقتراح: تقدر تحسبه كـ 3 أشهر من (إجمالي التزاماتك الشهرية + متوسط مصروف بيتك).</div>
+    <button class="btn" onclick="saveSavingsGoal()">💾 حفظ</button>
+  `;
+  openModal(html);
+}
+
+function saveSavingsGoal(){
+  const target = Math.max(0, Number(document.getElementById('f_savingsTarget').value)||0);
+  db.savingsGoalTarget = target;
+  saveDB();
+  closeModal();
+  renderSavingsGoalCard();
+  toast('تم الحفظ ✅');
 }
 
 function editCommitmentPayment(id){
@@ -4145,6 +4195,7 @@ const COMMITMENT_TYPES = [
   {key:'قسط', icon:'💳', label:'💳 قسط'},
   {key:'فاتورة', icon:'🧾', label:'🧾 فاتورة'},
   {key:'اشتراك', icon:'🔁', label:'🔁 اشتراك'},
+  {key:'ادخار', icon:'💰', label:'💰 ادخار'},
   {key:'تانية', icon:'📌', label:'📌 تانية'},
 ];
 function commitmentTypeInfo(key){
@@ -5979,6 +6030,7 @@ function importBackup(event){
       if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
       if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
       if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
+      if(db.savingsGoalTarget===undefined) db.savingsGoalTarget=0;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
