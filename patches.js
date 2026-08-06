@@ -3071,5 +3071,346 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 30) [إعادة تنظيم] تجميع تنبيهات الالتزامات الشخصية في كارت واحد
+   قابل للطي بدل حائط بانرات (ممكن توصل لـ8 بانر مرة واحدة). بنسيب
+   المنطق الأصلي زي ما هو تمامًا (كل الأزرار والوظائف شغالة)، وبس
+   بنغيّر طريقة العرض بعد ما يترندر عادي. */
+(function(){
+  // [إصلاح] لو core.js المحمّل مفيهوش renderPersonalAlerts (نسخة قديمة)،
+  // كان قراية المتغيّر ده مباشرة بتعمل ReferenceError فورًا لحظة تحميل
+  // الملف — وده بيوقف تنفيذ كل حاجة بعدها في الملف كله (البنود 31-34
+  // بتاعت لوحة الصحة المالية والخريطة السنوية وصندوق الطوارئ والقروض
+  // كانت بتضيع فعليًا من غير ما حد يلاحظ ليه). دلوقتي بنتأكد الأول.
+  if(typeof renderPersonalAlerts !== 'function'){
+    console.warn('[patches] تخطّي تجميع تنبيهات الالتزامات: renderPersonalAlerts مش موجودة في core.js المحمّل.');
+    return;
+  }
+  var origRenderPersonalAlertsCollapse = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    try{
+      origRenderPersonalAlertsCollapse.apply(this, arguments);
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      var banners = box.querySelectorAll(':scope > .alert-banner');
+      if(banners.length < 2) return; // بانر واحد أو صفر، مفيش داعي نلخّص
+      var level = box.querySelector(':scope > .alert-banner.danger') ? 'danger'
+                : box.querySelector(':scope > .alert-banner.warn') ? 'warn' : 'good';
+      var icon = level==='danger' ? '🔴' : (level==='warn' ? '🟡' : '🟢');
+      var inner = box.innerHTML;
+      var count = banners.length;
+      box.innerHTML = ''
+        + '<div class="alert-banner '+level+'" id="personalAlertsSummaryBtn" style="cursor:pointer;">'
+        + '<span class="ic">'+icon+'</span><div><b>عندك '+count+' تنبيهات على التزاماتك الشخصية</b>'
+        + '<span id="personalAlertsToggleTxt">اضغط لعرض التفاصيل ▾</span></div></div>'
+        + '<div id="personalAlertsDetails" style="display:none;">'+inner+'</div>';
+      document.getElementById('personalAlertsSummaryBtn').addEventListener('click', function(){
+        var details = document.getElementById('personalAlertsDetails');
+        var txt = document.getElementById('personalAlertsToggleTxt');
+        var open = details.style.display!=='none';
+        details.style.display = open ? 'none' : 'block';
+        txt.textContent = open ? 'اضغط لعرض التفاصيل ▾' : 'اضغط للإخفاء ▴';
+      });
+    }catch(e){ console.warn('[patches] فشل تجميع بانرات الالتزامات الشخصية:', e); }
+  };
+})();
+
+/* 31) لوحة "الصحة المالية الشخصية" — شاشة ملخّصة واحدة بدل التنقل بين
+   كذا قسم منفصل عشان تجمع الصورة الكاملة. */
+(function(){
+  // [إصلاح] كل قيمة بتتحسب لوحدها بـ try/catch: لو دالة معيّنة مش موجودة
+  // (زي getCommitmentDueAlerts أو savingsGoalProgress في نسخة core.js أقدم)،
+  // بنسيب قيمتها فاضية ونكمل باقي اللوحة، بدل ما اللوحة كلها توقف عن الظهور.
+  function safe(fn, fallback){ try{ return fn(); }catch(e){ return fallback; } }
+
+  function calcHealthSnapshot(){
+    var r = safe(function(){ return calcRequiredDailyCapacity(); }, {total:0});
+    var currentCapacity = Number(db.dailyCapacity)||500;
+    var coveragePct = r && r.total>0 ? Math.round((currentCapacity/r.total)*100) : 100;
+    var missedCount = (db.missedCommitmentNotices||[]).length;
+    var dueSoonCount = safe(function(){ return getCommitmentDueAlerts().length; }, 0);
+    var goalProg = safe(function(){ return savingsGoalProgress(); }, null);
+    var ef = safe(function(){ return calcEmergencyFundRunway(); }, null);
+    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef};
+  }
+
+  window.renderFinancialHealthDashboard = function(){
+    var box = document.getElementById('financialHealthBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var hasData = (db.commitments||[]).length>0 || (db.houseExpenses||[]).length>0;
+    if(!hasData){
+      box.innerHTML = '<div class="empty-msg">أضف التزاماتك الشهرية عشان تظهر لوحة الصحة المالية هنا.</div>';
+      return;
+    }
+    var s = calcHealthSnapshot();
+    var covColor = s.coveragePct>=100 ? 'var(--primary)' : (s.coveragePct>=70 ? 'var(--warn,#b8860b)' : 'var(--danger)');
+    box.innerHTML = ''
+      + '<div class="stat-card"><div class="stat-ic">📶</div><div><div class="num" style="color:'+covColor+';">'+s.coveragePct+'%</div><div class="lbl">نسبة تغطية التزاماتك بسعتك الحالية</div></div></div>'
+      + '<div class="stat-card '+(s.missedCount>0?'danger':'')+'"><div class="stat-ic">⏮️</div><div><div class="num">'+s.missedCount+'</div><div class="lbl">التزامات فاتك تسجيلها كمدفوعة</div></div></div>'
+      + '<div class="stat-card '+(s.dueSoonCount>0?'danger':'')+'"><div class="stat-ic">🔔</div><div><div class="num">'+s.dueSoonCount+'</div><div class="lbl">مستحق خلال 3 أيام أو أقل</div></div></div>'
+      + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار الشهري</div></div></div>' : '')
+      + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '');
+  };
+
+  // [إصلاح] الكارت ده عن الالتزامات الشخصية، فبقى معلّق على renderPersonalCommitments
+  // (صفحة "التزاماتي الشخصية" المستقلة) بدل renderFinance بعد ما القسم اتنقل لصفحته.
+  // لو core.js المحمّل نسخة أقدم من غير الصفحة الجديدة، بنرجع لـ renderFinance كخطة بديلة.
+  var hookHealthTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
+  var hookHealthPageId = hookHealthTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  var origRenderFinanceHealth = window[hookHealthTarget];
+  window[hookHealthTarget] = function(){
+    origRenderFinanceHealth.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookHealthPageId);
+      if(!page) return;
+      if(!page.querySelector('#financialHealthCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'financialHealthCard';
+        card.innerHTML = '<h3>📋 لوحة الصحة المالية الشخصية</h3><div id="financialHealthBox" class="grid-cards"></div>';
+        page.appendChild(card);
+      }
+      renderFinancialHealthDashboard();
+    }catch(e){ console.warn('[patches] فشل رسم لوحة الصحة المالية:', e); }
+  };
+})();
+
+/* 32) خريطة سنوية للالتزامات — الـ12 شهر الجايين وإجمالي كل شهر،
+   شامل الالتزامات الموسمية (كل 3/6/12 شهر) — عشان تشوف "الشهر
+   التقيل" قبل ما يجيلك بفترة كافية تستعد له. */
+(function(){
+  // [إصلاح] لو core.js المحمّل نسخة قديمة مفيهاش currentYM/isCommitmentCycleMonth/
+  // addMonthsYM (دوال الالتزامات غير الشهرية)، بنرجع لحساب مبسّط بيفترض إن
+  // كل الالتزامات شهرية عادية (intervalMonths=1)، بدل ما نطلع Error ونوقف
+  // الخريطة وكل حاجة بعدها في السلسلة (صندوق الطوارئ + القروض).
+  var hasCycleHelpers = typeof currentYM==='function' && typeof isCommitmentCycleMonth==='function' && typeof addMonthsYM==='function';
+
+  function fallbackAddMonthsYM(ym, n){
+    var parts = ym.split('-'); var y = Number(parts[0]); var m = Number(parts[1]);
+    var total = (y*12+(m-1))+n;
+    var ny = Math.floor(total/12); var nm = (total%12)+1;
+    return ny+'-'+(nm<10?'0':'')+nm;
+  }
+
+  function calcAnnualCommitmentsMap(){
+    var nowYM = hasCycleHelpers ? currentYM() : todayStr().slice(0,7);
+    var housePerDay = 0;
+    try{ housePerDay = calcRequiredDailyCapacity().housePerDay||0; }catch(e){}
+    var houseMonthly = housePerDay*30;
+    var months = [];
+    for(var i=0;i<12;i++){
+      var ym = hasCycleHelpers ? addMonthsYM(nowYM, i) : fallbackAddMonthsYM(nowYM, i);
+      var commitmentsTotal = (db.commitments||[]).filter(function(c){
+        if(c.active===false) return false;
+        return hasCycleHelpers ? isCommitmentCycleMonth(c, ym) : true; // بدون الدوال دي منقدرش نحدد دورة الالتزامات غير الشهرية، فبنعتبرها شهرية عادية
+      }).reduce(function(s,c){ return s+Number(c.amount||0); }, 0);
+      months.push({ym:ym, commitmentsTotal:commitmentsTotal, total:commitmentsTotal+houseMonthly});
+    }
+    return months;
+  }
+
+  window.renderAnnualCommitmentsMap = function(){
+    var box = document.getElementById('annualCommitmentsMapBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var months = calcAnnualCommitmentsMap();
+    var avg = months.reduce(function(s,m){return s+m.total;},0)/months.length;
+    box.innerHTML = months.map(function(m, i){
+      var label = new Date(m.ym+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
+      var heavy = avg>0 && m.total > avg*1.2;
+      return '<div class="row" style="padding:8px 0;'+(i<months.length-1?'border-bottom:1px solid var(--border);':'')+(i===0?'font-weight:800;':'')+'">'
+        + '<span>'+(i===0?'📍 ':'')+label+(heavy?' <span class="meta">🔥 شهر تقيل</span>':'')+'</span>'
+        + '<b style="color:'+(heavy?'var(--danger)':'inherit')+';">'+Math.round(m.total).toLocaleString('ar-EG')+' ج.م</b>'
+        + '</div>';
+    }).join('');
+  };
+
+  // [إصلاح] نفس التعليق اللي فوق: خريطة الالتزامات دي خاصة بصفحة "التزاماتي
+  // الشخصية"، فبقت معلّقة على renderPersonalCommitments بدل renderFinance.
+  var hookMapTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
+  var hookMapPageId = hookMapTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  var origRenderFinanceAnnualMap = window[hookMapTarget];
+  window[hookMapTarget] = function(){
+    origRenderFinanceAnnualMap.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookMapPageId);
+      if(!page) return;
+      if(!page.querySelector('#annualCommitmentsMapCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'annualCommitmentsMapCard';
+        card.innerHTML = '<h3>🗓️ خريطة سنوية للالتزامات</h3><p class="meta">إجمالي الالتزامات المتوقعة (شاملة الموسمية) لكل شهر من الـ12 شهر الجايين، عشان تشوف الشهر التقيل بدري.</p><div id="annualCommitmentsMapBox"></div>';
+        page.appendChild(card);
+      }
+      renderAnnualCommitmentsMap();
+    }catch(e){ console.warn('[patches] فشل رسم الخريطة السنوية للالتزامات:', e); }
+  };
+})();
+
+/* 33) صندوق الطوارئ — لو الدخل وقف فجأة، هتقدر تعيش قد إيه؟
+   بيقارن رصيد مدخرات (بتدخله يدويًا) بإجمالي التزاماتك الشهرية. */
+(function(){
+  window.calcEmergencyFundRunway = function(){
+    var savings = Number(db.emergencyFundBalance)||0;
+    var monthlyCommitments = (db.commitments||[]).filter(function(c){ return c.active!==false; })
+      .reduce(function(s,c){ return s+(Number(c.amount||0)/(Number(c.intervalMonths)||1)); }, 0);
+    var houseMonthly = calcRequiredDailyCapacity().housePerDay*30;
+    var totalMonthly = monthlyCommitments + houseMonthly;
+    if(totalMonthly<=0) return null;
+    return {savings:savings, totalMonthly:totalMonthly, months:savings/totalMonthly};
+  };
+
+  window.saveEmergencyFundBalance = function(){
+    var input = document.getElementById('emergencyFundInput');
+    if(!input) return;
+    db.emergencyFundBalance = Number(input.value)||0;
+    saveDB();
+    renderEmergencyFundCard();
+    renderFinancialHealthDashboard();
+    toast('✅ اتحفظ رصيد صندوق الطوارئ');
+  };
+
+  window.renderEmergencyFundCard = function(){
+    var box = document.getElementById('emergencyFundBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var ef = calcEmergencyFundRunway();
+    var status = !ef ? {label:'', color:''}
+      : ef.months>=6 ? {label:'قوي 💪', color:'var(--primary)'}
+      : ef.months>=3 ? {label:'مقبول 👍', color:'var(--warn,#b8860b)'}
+      : ef.months>=1 ? {label:'ضعيف ⚠️', color:'var(--danger)'}
+      : {label:'خطر 🚨', color:'var(--danger)'};
+    box.innerHTML = ''
+      + '<div class="field"><label>رصيد مدخراتك الحالي (ج.م)</label><input id="emergencyFundInput" type="number" value="'+(db.emergencyFundBalance||0)+'"></div>'
+      + '<button class="btn sm outline" onclick="saveEmergencyFundBalance()">💾 حفظ الرصيد</button>'
+      + (ef ? ('<div class="meta" style="margin-top:10px;line-height:1.8;">لو الدخل وقف تمامًا النهاردة، مدخراتك هتغطي احتياجاتك الشهرية لمدة تقريبية: '
+          + '<b style="color:'+status.color+';font-size:16px;"> '+ef.months.toFixed(1)+' شهر</b> ('+status.label+')'
+          + '<br><span class="meta">إجمالي احتياجك الشهري: '+Math.round(ef.totalMonthly).toLocaleString('ar-EG')+' ج.م</span>'
+          + '<br><span class="meta">المعدل الصحي المتعارف عليه: 3-6 شهور على الأقل</span></div>')
+        : '<p class="meta" style="margin-top:8px;">أضف التزاماتك الشهرية الأول عشان نحسبلك المدة.</p>');
+  };
+
+  // [إصلاح] صندوق الطوارئ برضه جزء من "التزاماتي الشخصية"، فبقى معلّق
+  // على renderPersonalCommitments بدل renderFinance.
+  var hookEfTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
+  var hookEfPageId = hookEfTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  var origRenderFinanceEmergency = window[hookEfTarget];
+  window[hookEfTarget] = function(){
+    origRenderFinanceEmergency.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookEfPageId);
+      if(!page) return;
+      if(!page.querySelector('#emergencyFundCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'emergencyFundCard';
+        card.innerHTML = '<h3>🧳 صندوق الطوارئ</h3><div id="emergencyFundBox"></div>';
+        page.appendChild(card);
+      }
+      renderEmergencyFundCard();
+    }catch(e){ console.warn('[patches] فشل رسم كارت صندوق الطوارئ:', e); }
+  };
+})();
+
+/* 34) قروض شخصية بجدول سداد — مختلفة عن الالتزام الشهري العادي: ليها
+   مبلغ أصلي، رصيد متبقي بينزل مع كل دفعة، ونسبة سداد واضحة. */
+(function(){
+  // [إصلاح] كلاس progress-track/progress-fill في index.html معرّف بس جوّه
+  // .alert-banner، فشريط تقدّم سداد القرض هنا (جوّه .card عادي) كان
+  // بيتعرض من غير أي شكل (بلا لون ولا ارتفاع). بنضيف تعريف عام مرة واحدة.
+  if(!document.getElementById('rcLoanProgressStyle')){
+    var styleTag = document.createElement('style');
+    styleTag.id = 'rcLoanProgressStyle';
+    styleTag.textContent = '.progress-track{background:rgba(0,0,0,0.08);border-radius:8px;height:8px;overflow:hidden;}'
+      + '.progress-fill{background:var(--primary);height:100%;}';
+    document.head.appendChild(styleTag);
+  }
+
+  function ensureLoansArray(){ if(!db.personalLoans) db.personalLoans=[]; return db.personalLoans; }
+
+  window.addPersonalLoan = function(){
+    var desc = document.getElementById('loanDescInput').value.trim();
+    var principal = Number(document.getElementById('loanPrincipalInput').value)||0;
+    var monthlyPayment = Number(document.getElementById('loanMonthlyInput').value)||0;
+    if(!desc || principal<=0){ toast('اكتب وصف القرض والمبلغ الأصلي على الأقل'); return; }
+    ensureLoansArray().push({id:uid(), desc:desc, principal:principal, remainingBalance:principal, monthlyPayment:monthlyPayment, startDate:todayStr(), active:true, payments:[]});
+    saveDB();
+    document.getElementById('loanDescInput').value='';
+    document.getElementById('loanPrincipalInput').value='';
+    document.getElementById('loanMonthlyInput').value='';
+    renderPersonalLoans();
+    toast('✅ اتضاف القرض');
+  };
+
+  window.recordLoanPayment = async function(loanId){
+    var loan = ensureLoansArray().find(function(l){ return l.id===loanId; });
+    if(!loan) return;
+    var suggested = loan.monthlyPayment || loan.remainingBalance;
+    var input = prompt('قيمة الدفعة (ج.م):', suggested);
+    if(input===null) return;
+    var amount = Number(input)||0;
+    if(amount<=0) return;
+    loan.remainingBalance = Math.max(0, loan.remainingBalance - amount);
+    loan.payments = loan.payments||[];
+    loan.payments.push({date:todayStr(), amount:amount});
+    if(loan.remainingBalance<=0){ loan.active=false; logActivity('🏁 انتهى سداد قرض: '+loan.desc); }
+    saveDB();
+    renderPersonalLoans();
+    toast(loan.active ? '✅ اتسجلت الدفعة' : '🎉 مبروك، اتسدد القرض بالكامل!');
+  };
+
+  window.deletePersonalLoan = async function(loanId){
+    var ok = await appConfirm('هل تريد حذف هذا القرض نهائيًا؟', {okText:'حذف', cancelText:'إلغاء', danger:true});
+    if(!ok) return;
+    db.personalLoans = ensureLoansArray().filter(function(l){ return l.id!==loanId; });
+    saveDB();
+    renderPersonalLoans();
+  };
+
+  window.renderPersonalLoans = function(){
+    var box = document.getElementById('personalLoansBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var loans = ensureLoansArray().slice().sort(function(a,b){ return (b.active?1:0)-(a.active?1:0); });
+    box.innerHTML = loans.length ? loans.map(function(l){
+      var pct = l.principal>0 ? Math.round(((l.principal-l.remainingBalance)/l.principal)*100) : 0;
+      return '<div class="card" style="padding:12px;margin-bottom:10px;'+(!l.active?'opacity:.65;':'')+'">'
+        + '<div class="row"><h3>'+escapeHtml(l.desc)+(!l.active?' <span class="meta">(مسدّد بالكامل ✅)</span>':'')+'</h3>'
+        + '<button class="btn sm outline" onclick="deletePersonalLoan(\''+l.id+'\')">🗑️</button></div>'
+        + '<div class="meta">المبلغ الأصلي: '+Number(l.principal).toLocaleString('ar-EG')+' ج.م — المتبقي: <b>'+Number(l.remainingBalance).toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="progress-track" style="margin-top:6px;"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'
+        + '<div class="meta" style="margin-top:4px;">نسبة السداد: '+pct+'%</div>'
+        + (l.active ? '<button class="btn sm outline" style="margin-top:8px;" onclick="recordLoanPayment(\''+l.id+'\')">💵 تسجيل دفعة</button>' : '')
+        + '</div>';
+    }).join('') : '<p class="meta">لا توجد قروض مسجّلة.</p>';
+  };
+
+  // [إصلاح] القروض الشخصية برضه جزء من "التزاماتي الشخصية"، فبقت معلّقة
+  // على renderPersonalCommitments بدل renderFinance.
+  var hookLoansTarget = typeof renderPersonalCommitments === 'function' ? 'renderPersonalCommitments' : 'renderFinance';
+  var hookLoansPageId = hookLoansTarget === 'renderPersonalCommitments' ? 'page-personal' : 'page-finance';
+  var origRenderFinanceLoans = window[hookLoansTarget];
+  window[hookLoansTarget] = function(){
+    origRenderFinanceLoans.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookLoansPageId);
+      if(!page) return;
+      if(!page.querySelector('#personalLoansCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'personalLoansCard';
+        card.innerHTML = '<h3>💳 قروض شخصية بجدول سداد</h3>'
+          + '<div class="field"><label>وصف القرض</label><input id="loanDescInput" type="text" placeholder="مثال: قرض سيارة"></div>'
+          + '<div class="field"><label>المبلغ الأصلي (ج.م)</label><input id="loanPrincipalInput" type="number"></div>'
+          + '<div class="field"><label>القسط الشهري المعتاد (ج.م) <span class="meta">— اختياري</span></label><input id="loanMonthlyInput" type="number"></div>'
+          + '<button class="btn sm outline" onclick="addPersonalLoan()">➕ إضافة قرض</button>'
+          + '<div id="personalLoansBox" style="margin-top:14px;"></div>';
+        page.appendChild(card);
+      }
+      renderPersonalLoans();
+    }catch(e){ console.warn('[patches] فشل رسم كارت القروض الشخصية:', e); }
+  };
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
