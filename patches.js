@@ -303,8 +303,41 @@ var __skipUnsavedCheckOnce = false;
   };
 })();
 
-/* 8) مستحقات مالية متوقعة خلال أسبوع في صفحة المالية */
+/* 8) مستحقات مالية متوقعة خلال أسبوع في صفحة المالية — مربوطة بالتزاماتك
+   (أقساط + قروض) المستحقة في نفس الأسبوع، عشان الرقم "المتوقع تحصيله"
+   ميدّيش إحساس مضلل بالراحة من غير ما تعرف قد إيه منه لازم يروح لالتزاماتك */
 (function(){
+  // إجمالي الأقساط + أقساط القروض المستحقة عليك خلال N يوم جايين (متأخر
+  // محسوب برضه، زي منطق getCommitmentDueAlerts بالظبط بس بنافذة أوسع من 3 أيام)
+  function dueWithinDays(days){
+    var today = todayStr();
+    var commitmentsTotal = 0, commitmentsCount = 0;
+    try{
+      var nowYM = currentYM();
+      (db.commitments||[]).filter(function(c){ return c.active!==false && c.dueDay; }).forEach(function(c){
+        if(c.lastPaidMonth===nowYM) return;
+        if(!isCommitmentCycleMonth(c, nowYM)) return; // مش شهر استحقاق للالتزام ده
+        var due = commitmentDueDateStr(c);
+        var diff = Math.round((new Date(due)-new Date(today))/86400000);
+        if(diff<=days){ commitmentsTotal += Number(c.amount||0); commitmentsCount++; }
+      });
+    }catch(e){}
+    var loanTotal = 0, loanCount = 0;
+    try{
+      var nowYM2 = currentYM();
+      var parts = today.split('-').map(Number);
+      var lastDay = new Date(Date.UTC(parts[0], parts[1], 0)).getUTCDate();
+      (db.personalLoans||[]).filter(function(l){ return l.active!==false && l.dueDay; }).forEach(function(l){
+        if(l.lastPaidMonth===nowYM2) return;
+        var day = Math.min(Number(l.dueDay), lastDay);
+        var due = nowYM2+'-'+String(day).padStart(2,'0');
+        var diff = Math.round((new Date(due)-new Date(today))/86400000);
+        if(diff<=days){ loanTotal += Number(l.monthlyPayment||0); loanCount++; }
+      });
+    }catch(e){}
+    return {total:commitmentsTotal+loanTotal, count:commitmentsCount+loanCount};
+  }
+
   var origRF = renderFinance;
   renderFinance = function(){
     origRF.apply(this, arguments);
@@ -316,17 +349,34 @@ var __skipUnsavedCheckOnce = false;
         return o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery>=today && o.dateDelivery<=in7Str;
       });
       var expectedTotal = upcoming.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+      var noDeposit = upcoming.filter(function(o){ return (Number(o.paid)||0)===0; });
+      var noDepositAmount = noDeposit.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+      var owed = dueWithinDays(7);
+      var net = expectedTotal - owed.total;
       var box = document.getElementById('expectedCashflowBox');
       if(!box){
         box = document.createElement('div');
         box.id='expectedCashflowBox';
         document.getElementById('financeStats').insertAdjacentElement('afterend', box);
       }
+      var riskLine = noDeposit.length>0
+        ? '<div class="meta" style="margin-top:6px;color:var(--warn,#b8860b);">⚠️ منها '+noDeposit.length+' طلب من غير أي عربون بإجمالي '+Math.round(noDepositAmount).toLocaleString('ar-EG')+' ج.م — تحصيله وقت التسليم مش مضمون زي الطلبات اللي أخدت عربون.</div>'
+        : '';
+      var owedLine = owed.count>0
+        ? '<div class="row" style="margin-top:8px;"><span class="meta">مستحق عليك في نفس الفترة (أقساط/قروض)</span>'
+          + '<b style="color:var(--danger);">'+Math.round(owed.total).toLocaleString('ar-EG')+' ج.م</b></div>'
+          + '<div class="meta">من '+owed.count+' قسط/التزام مستحق خلال 7 أيام</div>'
+          + '<div class="row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span class="meta">'+(net>=0?'الصافي المتوقع بعد التزاماتك':'العجز المتوقع لو اتحصّل المتوقع بس')+'</span>'
+          + '<b style="color:'+(net>=0?'var(--ok)':'var(--danger)')+';">'+Math.round(net).toLocaleString('ar-EG')+' ج.م</b></div>'
+        : '<div class="meta" style="margin-top:6px;">مفيش أقساط أو قروض مستحقة عليك في نفس الفترة.</div>';
       box.innerHTML =
         '<div class="section-title">📥 مستحقات متوقعة (الأسبوع القادم)</div>'
         + '<div class="card"><div class="row"><h3>إجمالي المتوقع تحصيله</h3>'
         + '<b style="color:var(--ok);font-size:17px;">'+expectedTotal.toLocaleString('ar-EG')+' ج.م</b></div>'
-        + '<div class="meta">من '+upcoming.length+' طلب مجدول للتسليم خلال 7 أيام</div></div>';
+        + '<div class="meta">من '+upcoming.length+' طلب مجدول للتسليم خلال 7 أيام</div>'
+        + riskLine
+        + owedLine
+        + '</div>';
     }catch(e){}
   };
 })();
@@ -739,12 +789,23 @@ setTimeout(function(){
   };
 })();
 
-/* 18) هدف شهري للإيرادات مع شريط تقدم في صفحة المالية */
+/* 18) هدف شهري للإيرادات مع شريط تقدم في صفحة المالية — مربوط باحتياجك
+   الشخصي الشهري (المحسوب تلقائيًا من صفحة الالتزامات) عشان متحطش هدف
+   إيرادات أقل من اللي محتاجه فعليًا من غير ما تاخد بالك */
 (function(){
   function monthRevenue(){
     var prefix = todayStr().slice(0,7);
     return db.payments.filter(function(p){ return p.date && p.date.slice(0,7)===prefix; })
       .reduce(function(s,p){ return s+(Number(p.amount)||0); }, 0);
+  }
+
+  // نفس الرقم اللي بيظهر في "📊 كسبت X من Y المطلوبين الشهر ده" بصفحة
+  // الالتزامات الشخصية — بنجيبه هنا عشان نقارنه بالهدف اللي صاحب الورشة حدده بنفسه
+  function requiredPersonalMonthly(){
+    try{
+      var prog = monthlyCommitmentProgress();
+      return prog ? prog.requiredMonthly : 0;
+    }catch(e){ return 0; }
   }
 
   window.saveMonthlyGoal = function(){
@@ -756,10 +817,20 @@ setTimeout(function(){
     renderFinance();
   };
 
+  window.useRequiredAsGoal = function(){
+    var required = requiredPersonalMonthly();
+    var input = document.getElementById('f_monthlyGoal');
+    if(required>0 && input) input.value = Math.ceil(required);
+  };
+
   window.editMonthlyGoalModal = function(){
+    var required = requiredPersonalMonthly();
     openModal(
       '<div class="modal-head"><h3>🎯 تحديد الهدف الشهري</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
       + '<div class="field"><label>الهدف الشهري (ج.م)</label><input id="f_monthlyGoal" type="number" value="'+(db.monthlyRevenueGoal||0)+'"></div>'
+      + (required>0
+          ? '<div class="meta" style="margin-bottom:10px;">💡 احتياجك الشخصي الشهري (من التزاماتك المسجلة) هو <b>'+Math.round(required).toLocaleString('ar-EG')+' ج.م</b>. <span style="text-decoration:underline;cursor:pointer;" onclick="useRequiredAsGoal()">استخدمه كهدف</span></div>'
+          : '')
       + '<button class="btn" onclick="saveMonthlyGoal()">💾 حفظ</button>'
     );
   };
@@ -771,6 +842,7 @@ setTimeout(function(){
       var goal = Number(db.monthlyRevenueGoal)||0;
       var revenue = monthRevenue();
       var pct = goal>0 ? Math.min(100, Math.round(revenue/goal*100)) : 0;
+      var required = requiredPersonalMonthly();
       var box = document.getElementById('monthlyGoalBox');
       if(!box){
         box = document.createElement('div');
@@ -778,6 +850,9 @@ setTimeout(function(){
         var anchor = document.getElementById('expectedCashflowBox') || document.getElementById('financeStats');
         anchor.insertAdjacentElement('afterend', box);
       }
+      var warnLine = (goal>0 && required>0 && goal<required)
+        ? '<div class="alert-banner warn" style="margin-top:10px;"><span class="ic">⚠️</span><div><b>الهدف اللي حددته أقل من احتياجك الشخصي الشهري</b>احتياجك الفعلي (من التزاماتك) '+Math.round(required).toLocaleString('ar-EG')+' ج.م — يعني حتى لو حققت الهدف بالكامل هتفضل ناقص '+Math.round(required-goal).toLocaleString('ar-EG')+' ج.م لتغطية التزاماتك.</div></div>'
+        : '';
       box.innerHTML = '<div class="section-title">🎯 الهدف الشهري للإيرادات</div>'
         + '<div class="card" style="padding:10px 12px;">'
         + (goal>0
@@ -785,9 +860,10 @@ setTimeout(function(){
             + '<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;margin-top:8px;">'
             + '<div style="width:'+pct+'%;height:100%;background:var(--accent);"></div></div>'
             + '<div class="meta" style="margin-top:6px;">'+pct+'% من الهدف</div>'
-          : '<div class="empty-msg">لسه معملتش هدف شهري</div>')
+          : '<div class="empty-msg">لسه معملتش هدف شهري'+(required>0?' — احتياجك الشخصي الشهري (من التزاماتك) '+Math.round(required).toLocaleString('ar-EG')+' ج.م':'')+'</div>')
         + '<button class="btn sm secondary" style="margin-top:10px;" onclick="editMonthlyGoalModal()">'+(goal>0?'✏️ تعديل الهدف':'🎯 تحديد الهدف')+'</button>'
-        + '</div>';
+        + '</div>'
+        + warnLine;
     }catch(e){}
   };
 })();
@@ -3071,6 +3147,73 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 29-ب) ربط بانر "كسبت X من Y المطلوبين الشهر ده" (صفحة الالتزامات) بـ
+   "🎯 الهدف الشهري للإيرادات" (صفحة المالية) — نفس الفلوس (db.payments)
+   بيتعرضوا في مكانين من غير ربط؛ هنا بنضيف تنبيه لو الهدف اللي حدده
+   صاحب الورشة بنفسه أقل من احتياجه الشخصي الفعلي المحسوب تلقائيًا. لازم
+   يترنّدر قبل باتش تجميع البانرات (30) عشان يتلمّ معاهم في نفس الكارت. */
+(function(){
+  if(typeof renderPersonalAlerts !== 'function') return;
+  var origRenderPersonalAlertsGoalLink = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    origRenderPersonalAlertsGoalLink.apply(this, arguments);
+    try{
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      if(window.userRole==='receptionist') return;
+      if(db.financePassword && !window.financeUnlocked) return; // البيانات محمية، متعرضش رقم الاحتياج هنا
+      var goal = Number(db.monthlyRevenueGoal)||0;
+      if(goal<=0) return; // لسه مفيش هدف متحدد أصلاً، مفيش داعي للتنبيه
+      var prog = typeof monthlyCommitmentProgress==='function' ? monthlyCommitmentProgress() : null;
+      if(!prog || prog.requiredMonthly<=0 || goal>=prog.requiredMonthly) return;
+      var gap = Math.round(prog.requiredMonthly-goal);
+      var banner = document.createElement('div');
+      banner.className = 'alert-banner warn';
+      banner.innerHTML = '<span class="ic">🎯</span><div><b>هدف الإيرادات اللي حددته في صفحة المالية أقل من احتياجك الشخصي الشهري</b>'
+        + 'الهدف: '+goal.toLocaleString('ar-EG')+' ج.م، احتياجك الفعلي: '+Math.round(prog.requiredMonthly).toLocaleString('ar-EG')+' ج.م — فرق '+gap.toLocaleString('ar-EG')+' ج.م.'
+        + '<div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="showPage(\'finance\');setTimeout(function(){var b=document.getElementById(\'monthlyGoalBox\');if(b)b.scrollIntoView({behavior:\'smooth\'});},200)">🎯 مراجعة الهدف</button></div>'
+        + '</div>';
+      var emptyMsg = box.querySelector(':scope > .empty-msg');
+      if(emptyMsg) box.innerHTML = ''; // مفيش تنبيهات تانية، امسح رسالة "مفيش تنبيهات" الوهمية دلوقتي
+      if(box.firstChild) box.insertBefore(banner, box.firstChild); else box.appendChild(banner);
+    }catch(e){ console.warn('[patches] فشل ربط الهدف الشهري بالتزاماتك الشخصية:', e); }
+  };
+})();
+
+/* 29-ج) ربط "عملاء تجاوزوا حد المديونية" (تنبيهات الرئيسية) بالتزاماتك
+   الشخصية المستحقة قريبًا — بدل رقمين منفصلين ("عندك مديونين" و"قسطك
+   مستحق") من غير أي فعل مقترح، بنقترح تتابع مع أكبر مديون فورًا، وبنستخدم
+   sendDebtReminder الموجودة بالفعل عشان الفعل يبقى بضغطة واحدة. */
+(function(){
+  if(typeof renderPersonalAlerts !== 'function') return;
+  var origRenderPersonalAlertsDebtLink = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    origRenderPersonalAlertsDebtLink.apply(this, arguments);
+    try{
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      if(window.userRole==='receptionist') return;
+      if(db.financePassword && !window.financeUnlocked) return;
+      if(typeof getCommitmentDueAlerts!=='function' || typeof debtorCustomers!=='function' || typeof sendDebtReminder!=='function') return;
+      var dueAlerts = getCommitmentDueAlerts();
+      if(!dueAlerts.length) return;
+      var debtors = debtorCustomers();
+      if(!debtors.length) return;
+      var dueTotal = dueAlerts.reduce(function(s,a){ return s+Number(a.c.amount||0); }, 0);
+      var topDebtor = debtors[0];
+      var banner = document.createElement('div');
+      banner.className = 'alert-banner warn';
+      banner.innerHTML = '<span class="ic">🔗</span><div><b>عندك '+dueAlerts.length+' قسط مستحق قريب بإجمالي '+Math.round(dueTotal).toLocaleString('ar-EG')+' ج.م، وفي المقابل عندك '+debtors.length+' عميل متجاوز حد المديونية</b>'
+        + 'أكبرهم "'+escapeHtml(topDebtor.customer.name)+'" بمبلغ '+Math.round(topDebtor.amount).toLocaleString('ar-EG')+' ج.م — تحصيله ممكن يغطي احتياجك القريب.'
+        + '<div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="sendDebtReminder(\''+topDebtor.customer.id+'\')">💬 ابعتله تذكير دلوقتي</button></div>'
+        + '</div>';
+      var emptyMsg = box.querySelector(':scope > .empty-msg');
+      if(emptyMsg) box.innerHTML = '';
+      box.appendChild(banner);
+    }catch(e){ console.warn('[patches] فشل ربط المديونين بالتزاماتك المستحقة:', e); }
+  };
+})();
+
 /* 30) [إعادة تنظيم] تجميع تنبيهات الالتزامات الشخصية في كارت واحد
    قابل للطي بدل حائط بانرات (ممكن توصل لـ8 بانر مرة واحدة). بنسيب
    المنطق الأصلي زي ما هو تمامًا (كل الأزرار والوظائف شغالة)، وبس
@@ -3140,7 +3283,18 @@ cloudStatusChanged = function(){
     }, null);
     var ef = safe(function(){ return calcEmergencyFundRunway(); }, null);
     var totalDebt = safe(function(){ return typeof totalRemainingLoansDebt==='function' ? totalRemainingLoansDebt() : 0; }, 0);
-    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef, totalDebt:totalDebt};
+    // [إضافة] "اللي ليك عند العملاء" (مستحقات الورشة) و"اللي عليك من قروض"
+    // (ديون شخصية) كانوا رقمين منفصلين تمامًا في مكانين مختلفين من التطبيق —
+    // صافيهم (وضعك المالي الحقيقي) مكانش ظاهر في أي مكان. لو عندك 20,000 ج.م
+    // مستحقة عند عملاء لكن عليك 30,000 ج.م قروض، وضعك الحقيقي سالب حتى لو
+    // إحساسك إنك "مستني فلوس" بيدّيك راحة كاذبة.
+    var totalOwedToYou = safe(function(){
+      var totalFees = (db.orders||[]).reduce(function(s,o){ return s+orderTotal(o); }, 0);
+      var totalCollected = (db.payments||[]).reduce(function(s,p){ return s+Number(p.amount||0); }, 0);
+      return totalFees-totalCollected;
+    }, 0);
+    var netPosition = totalOwedToYou - totalDebt;
+    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef, totalDebt:totalDebt, totalOwedToYou:totalOwedToYou, netPosition:netPosition};
   }
 
   window.renderFinancialHealthDashboard = function(){
@@ -3160,7 +3314,8 @@ cloudStatusChanged = function(){
       + '<div class="stat-card '+(s.dueSoonCount>0?'danger':'')+'"><div class="stat-ic">🔔</div><div><div class="num">'+s.dueSoonCount+'</div><div class="lbl">مستحق خلال 3 أيام أو أقل</div></div></div>'
       + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار</div></div></div>' : '')
       + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '')
-      + (s.totalDebt>0 ? '<div class="stat-card"><div class="stat-ic">🧾</div><div><div class="num">'+Math.round(s.totalDebt).toLocaleString('ar-EG')+'</div><div class="lbl">إجمالي المتبقي على قروضك</div></div></div>' : '');
+      + (s.totalDebt>0 ? '<div class="stat-card"><div class="stat-ic">🧾</div><div><div class="num">'+Math.round(s.totalDebt).toLocaleString('ar-EG')+'</div><div class="lbl">إجمالي المتبقي على قروضك</div></div></div>' : '')
+      + ((s.totalOwedToYou>0 || s.totalDebt>0) ? '<div class="stat-card '+(s.netPosition<0?'danger':'')+'"><div class="stat-ic">📐</div><div><div class="num">'+Math.round(s.netPosition).toLocaleString('ar-EG')+'</div><div class="lbl">صافي وضعك المالي (مستحقاتك عند العملاء − قروضك المتبقية)</div></div></div>' : '');
 
     // توزيع الالتزامات الحالية بالنوع (شامل مصاريف البيت والقروض) — عشان
     // توضّح "ليه احتياجك اليومي/الشهري بالرقم ده بالظبط"، مش بس رقم إجمالي
