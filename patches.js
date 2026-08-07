@@ -3139,7 +3139,8 @@ cloudStatusChanged = function(){
       return {saved:saved, goal:target, pct:Math.min(100, Math.round(saved/target*100))};
     }, null);
     var ef = safe(function(){ return calcEmergencyFundRunway(); }, null);
-    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef};
+    var totalDebt = safe(function(){ return typeof totalRemainingLoansDebt==='function' ? totalRemainingLoansDebt() : 0; }, 0);
+    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef, totalDebt:totalDebt};
   }
 
   window.renderFinancialHealthDashboard = function(){
@@ -3158,7 +3159,36 @@ cloudStatusChanged = function(){
       + '<div class="stat-card '+(s.missedCount>0?'danger':'')+'"><div class="stat-ic">⏮️</div><div><div class="num">'+s.missedCount+'</div><div class="lbl">التزامات فاتك تسجيلها كمدفوعة</div></div></div>'
       + '<div class="stat-card '+(s.dueSoonCount>0?'danger':'')+'"><div class="stat-ic">🔔</div><div><div class="num">'+s.dueSoonCount+'</div><div class="lbl">مستحق خلال 3 أيام أو أقل</div></div></div>'
       + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار</div></div></div>' : '')
-      + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '');
+      + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '')
+      + (s.totalDebt>0 ? '<div class="stat-card"><div class="stat-ic">🧾</div><div><div class="num">'+Math.round(s.totalDebt).toLocaleString('ar-EG')+'</div><div class="lbl">إجمالي المتبقي على قروضك</div></div></div>' : '');
+
+    // توزيع الالتزامات الحالية بالنوع (شامل مصاريف البيت والقروض) — عشان
+    // توضّح "ليه احتياجك اليومي/الشهري بالرقم ده بالظبط"، مش بس رقم إجمالي
+    try{
+      var byType = {};
+      (db.commitments||[]).filter(function(c){ return c.active!==false; }).forEach(function(c){
+        var key = c.type||'تانية';
+        var share = typeof commitmentMonthlyShare==='function' ? commitmentMonthlyShare(c) : Number(c.amount||0);
+        byType[key] = (byType[key]||0) + share;
+      });
+      if(s.r && s.r.houseTotal>0 && s.r.housePerDay) byType['🏠 بيت'] = s.r.housePerDay*30;
+      if(s.r && s.r.loanMonthly>0) byType['💳 قروض'] = s.r.loanMonthly;
+      var keys = Object.keys(byType).sort(function(a,b){ return byType[b]-byType[a]; });
+      if(keys.length){
+        var breakdownBox = document.getElementById('financialHealthTypeBreakdown');
+        if(!breakdownBox){
+          breakdownBox = document.createElement('div');
+          breakdownBox.id = 'financialHealthTypeBreakdown';
+          breakdownBox.style.marginTop = '10px';
+          box.parentNode.appendChild(breakdownBox);
+        }
+        breakdownBox.innerHTML = '<div class="meta" style="margin-bottom:4px;">📊 توزيع التزاماتك الشهرية بالنوع:</div>'
+          + '<div class="meta">' + keys.map(function(k){
+              var icon = (typeof commitmentTypeInfo==='function' && !/^[🏠💳]/.test(k)) ? commitmentTypeInfo(k).icon+' ' : '';
+              return icon+k+': '+Math.round(byType[k]).toLocaleString('ar-EG')+' ج.م';
+            }).join(' — ') + '</div>';
+      }
+    }catch(e){ console.warn('[patches] فشل رسم توزيع الالتزامات بالنوع:', e); }
   };
 
   // [إصلاح] كانت بتدوّر على دالة اسمها renderPersonalCommitments (مش موجودة
@@ -3210,14 +3240,29 @@ cloudStatusChanged = function(){
     var housePerDay = 0;
     try{ housePerDay = calcRequiredDailyCapacity().housePerDay||0; }catch(e){}
     var houseMonthly = housePerDay*30;
+    var loanMonthly = (db.personalLoans||[]).filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.monthlyPayment||0); }, 0);
+    var loanSchedule = typeof calcLoanMonthlyByMonthIndex==='function' ? calcLoanMonthlyByMonthIndex() : null;
     var months = [];
     for(var i=0;i<12;i++){
       var ym = hasCycleHelpers ? addMonthsYM(nowYM, i) : fallbackAddMonthsYM(nowYM, i);
-      var commitmentsTotal = (db.commitments||[]).filter(function(c){
+      var byType = {};
+      var commitmentsTotal = 0;
+      (db.commitments||[]).filter(function(c){
         if(c.active===false) return false;
         return hasCycleHelpers ? isCommitmentCycleMonth(c, ym) : true; // بدون الدوال دي منقدرش نحدد دورة الالتزامات غير الشهرية، فبنعتبرها شهرية عادية
-      }).reduce(function(s,c){ return s+Number(c.amount||0); }, 0);
-      months.push({ym:ym, commitmentsTotal:commitmentsTotal, total:commitmentsTotal+houseMonthly});
+      }).forEach(function(c){
+        var amt = Number(c.amount||0); // القيمة كاملة في شهر استحقاقها الفعلي (مش موزّعة) عشان يبان "الشهر التقيل" بوضوح
+        var key = c.type||'تانية';
+        byType[key] = (byType[key]||0) + amt;
+        commitmentsTotal += amt;
+      });
+      // نصيب القروض للشهر ده تحديدًا — بيهبط ويوصل صفر لما القرض يتسدد
+      // بدل ما يفضل ثابت طول الـ12 شهر حتى بعد ما ينتهي فعليًا
+      var loanForMonth = loanSchedule ? loanSchedule[i] : loanMonthly;
+      if(houseMonthly>0) byType['🏠 بيت'] = houseMonthly;
+      if(loanForMonth>0) byType['💳 قروض'] = loanForMonth;
+      months.push({ym:ym, commitmentsTotal:commitmentsTotal, houseMonthly:houseMonthly, loanMonthly:loanForMonth, byType:byType, total:commitmentsTotal+houseMonthly+loanForMonth});
     }
     return months;
   }
@@ -3231,9 +3276,19 @@ cloudStatusChanged = function(){
     box.innerHTML = months.map(function(m, i){
       var label = new Date(m.ym+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
       var heavy = avg>0 && m.total > avg*1.2;
-      return '<div class="row" style="padding:8px 0;'+(i<months.length-1?'border-bottom:1px solid var(--border);':'')+(i===0?'font-weight:800;':'')+'">'
+      var typeKeys = Object.keys(m.byType).sort(function(a,b){ return m.byType[b]-m.byType[a]; });
+      var breakdown = typeKeys.length ? '<div class="meta" style="padding-right:2px;">'
+        + typeKeys.map(function(k){
+            var icon = (typeof commitmentTypeInfo==='function' && !/^[🏠💳]/.test(k)) ? commitmentTypeInfo(k).icon+' ' : '';
+            return icon+k+': '+Math.round(m.byType[k]).toLocaleString('ar-EG')+' ج.م';
+          }).join(' — ')
+        + '</div>' : '';
+      return '<div style="padding:8px 0;'+(i<months.length-1?'border-bottom:1px solid var(--border);':'')+'">'
+        + '<div class="row" style="'+(i===0?'font-weight:800;':'')+'">'
         + '<span>'+(i===0?'📍 ':'')+label+(heavy?' <span class="meta">🔥 شهر تقيل</span>':'')+'</span>'
         + '<b style="color:'+(heavy?'var(--danger)':'inherit')+';">'+Math.round(m.total).toLocaleString('ar-EG')+' ج.م</b>'
+        + '</div>'
+        + breakdown
         + '</div>';
     }).join('');
   };
@@ -3271,8 +3326,10 @@ cloudStatusChanged = function(){
     var savings = Number(db.emergencyFundBalance)||0;
     var monthlyCommitments = (db.commitments||[]).filter(function(c){ return c.active!==false; })
       .reduce(function(s,c){ return s+(Number(c.amount||0)/(Number(c.intervalMonths)||1)); }, 0);
+    var loanMonthly = (db.personalLoans||[]).filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.monthlyPayment||0); }, 0);
     var houseMonthly = calcRequiredDailyCapacity().housePerDay*30;
-    var totalMonthly = monthlyCommitments + houseMonthly;
+    var totalMonthly = monthlyCommitments + loanMonthly + houseMonthly;
     if(totalMonthly<=0) return null;
     return {savings:savings, totalMonthly:totalMonthly, months:savings/totalMonthly};
   };
@@ -3304,7 +3361,8 @@ cloudStatusChanged = function(){
           + '<b style="color:'+status.color+';font-size:16px;"> '+ef.months.toFixed(1)+' شهر</b> ('+status.label+')'
           + '<br><span class="meta">إجمالي احتياجك الشهري: '+Math.round(ef.totalMonthly).toLocaleString('ar-EG')+' ج.م</span>'
           + '<br><span class="meta">المعدل الصحي المتعارف عليه: 3-6 شهور على الأقل</span></div>')
-        : '<p class="meta" style="margin-top:8px;">أضف التزاماتك الشهرية الأول عشان نحسبلك المدة.</p>');
+        : '<p class="meta" style="margin-top:8px;">أضف التزاماتك الشهرية الأول عشان نحسبلك المدة.</p>')
+      + '<div class="meta" style="margin-top:8px;">ℹ️ الرصيد هنا منفصل عن "🎯 هدف الادخار" — تقدر ترحّل رصيد أي هدف ادخار تحققه هنا كإضافة لصندوق الطوارئ.</div>';
   };
 
   // [إصلاح] نفس المشكلة: الاسم الصح renderPersonalPage. صندوق الطوارئ
@@ -3348,16 +3406,55 @@ cloudStatusChanged = function(){
 
   function ensureLoansArray(){ if(!db.personalLoans) db.personalLoans=[]; return db.personalLoans; }
 
+  // أيام متبقية لاستحقاق قسط القرض الشهري (زي commitmentDaysUntilDue بالظبط،
+  // بس للقروض) — null لو مفيش يوم استحقاق متسجل أو القرض متسدد بالكامل
+  function loanDaysUntilDue(l){
+    if(!l.dueDay || l.active===false) return null;
+    var today = todayStr();
+    var parts = today.split('-').map(Number);
+    var y = parts[0], m = parts[1];
+    var lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    var day = Math.min(Number(l.dueDay), lastDay);
+    var due = y+'-'+String(m).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    return Math.round((new Date(due)-new Date(today))/86400000);
+  }
+
+  // إجمالي المديونية المتبقية على كل القروض النشطة (رقم واحد يلخّص "قد إيه لسه عليك")
+  window.totalRemainingLoansDebt = function(){
+    return ensureLoansArray().filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.remainingBalance||0); }, 0);
+  };
+
+  // جدول سداد القروض شهر بشهر (12 شهر جايين، index 0 = الشهر الحالي)، مراعيًا
+  // إن القرض بيوقف يساهم في الالتزام الشهري بمجرد ما يتسدد بالكامل — بدل ما
+  // نفترضه ثابت طول السنة زي ما كان بيحصل في الخريطة السنوية قبل كده
+  window.calcLoanMonthlyByMonthIndex = function(){
+    var loans = ensureLoansArray().filter(function(l){ return l.active!==false && Number(l.monthlyPayment)>0; });
+    var perMonth = new Array(12).fill(0);
+    loans.forEach(function(l){
+      var remaining = Number(l.remainingBalance)||0;
+      var pay = Number(l.monthlyPayment)||0;
+      for(var i=0;i<12 && remaining>0;i++){
+        var thisMonth = Math.min(pay, remaining);
+        perMonth[i] += thisMonth;
+        remaining -= thisMonth;
+      }
+    });
+    return perMonth;
+  };
+
   window.addPersonalLoan = function(){
     var desc = document.getElementById('loanDescInput').value.trim();
     var principal = Number(document.getElementById('loanPrincipalInput').value)||0;
     var monthlyPayment = Number(document.getElementById('loanMonthlyInput').value)||0;
+    var dueDay = Number(document.getElementById('loanDueDayInput').value)||null;
     if(!desc || principal<=0){ toast('اكتب وصف القرض والمبلغ الأصلي على الأقل'); return; }
-    ensureLoansArray().push({id:uid(), desc:desc, principal:principal, remainingBalance:principal, monthlyPayment:monthlyPayment, startDate:todayStr(), active:true, payments:[]});
+    ensureLoansArray().push({id:uid(), desc:desc, principal:principal, remainingBalance:principal, monthlyPayment:monthlyPayment, dueDay:dueDay, lastPaidMonth:null, startDate:todayStr(), active:true, payments:[]});
     saveDB();
     document.getElementById('loanDescInput').value='';
     document.getElementById('loanPrincipalInput').value='';
     document.getElementById('loanMonthlyInput').value='';
+    document.getElementById('loanDueDayInput').value='';
     renderPersonalLoans();
     toast('✅ اتضاف القرض');
   };
@@ -3373,9 +3470,11 @@ cloudStatusChanged = function(){
     loan.remainingBalance = Math.max(0, loan.remainingBalance - amount);
     loan.payments = loan.payments||[];
     loan.payments.push({date:todayStr(), amount:amount});
+    loan.lastPaidMonth = typeof currentYM==='function' ? currentYM() : todayStr().slice(0,7);
     if(loan.remainingBalance<=0){ loan.active=false; logActivity('🏁 انتهى سداد قرض: '+loan.desc); }
     saveDB();
     renderPersonalLoans();
+    if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
     toast(loan.active ? '✅ اتسجلت الدفعة' : '🎉 مبروك، اتسدد القرض بالكامل!');
   };
 
@@ -3385,6 +3484,7 @@ cloudStatusChanged = function(){
     db.personalLoans = ensureLoansArray().filter(function(l){ return l.id!==loanId; });
     saveDB();
     renderPersonalLoans();
+    if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
   };
 
   window.renderPersonalLoans = function(){
@@ -3392,14 +3492,27 @@ cloudStatusChanged = function(){
     if(!box) return;
     if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
     var loans = ensureLoansArray().slice().sort(function(a,b){ return (b.active?1:0)-(a.active?1:0); });
+    var nowYM = typeof currentYM==='function' ? currentYM() : todayStr().slice(0,7);
     box.innerHTML = loans.length ? loans.map(function(l){
       var pct = l.principal>0 ? Math.round(((l.principal-l.remainingBalance)/l.principal)*100) : 0;
+      var dueLine = '';
+      if(l.active!==false && l.dueDay){
+        var paidThisMonth = l.lastPaidMonth===nowYM;
+        var diff = loanDaysUntilDue(l);
+        if(!paidThisMonth && diff!=null){
+          if(diff<0) dueLine = '<div class="meta" style="color:var(--danger);margin-top:4px;">⏰ متأخر '+Math.abs(diff)+' يوم عن يوم استحقاقه ('+l.dueDay+' من الشهر)</div>';
+          else if(diff<=3) dueLine = '<div class="meta" style="color:var(--danger);margin-top:4px;">🔔 قسط القرض مستحق '+(diff===0?'النهاردة':diff===1?'بكرة':'خلال '+diff+' أيام')+'</div>';
+        } else if(paidThisMonth){
+          dueLine = '<div class="meta" style="margin-top:4px;">✅ مدفوع الشهر ده</div>';
+        }
+      }
       return '<div class="card" style="padding:12px;margin-bottom:10px;'+(!l.active?'opacity:.65;':'')+'">'
         + '<div class="row"><h3>'+escapeHtml(l.desc)+(!l.active?' <span class="meta">(مسدّد بالكامل ✅)</span>':'')+'</h3>'
         + '<button class="btn sm outline" onclick="deletePersonalLoan(\''+l.id+'\')">🗑️</button></div>'
-        + '<div class="meta">المبلغ الأصلي: '+Number(l.principal).toLocaleString('ar-EG')+' ج.م — المتبقي: <b>'+Number(l.remainingBalance).toLocaleString('ar-EG')+' ج.م</b></div>'
+        + '<div class="meta">المبلغ الأصلي: '+Number(l.principal).toLocaleString('ar-EG')+' ج.م — المتبقي: <b>'+Number(l.remainingBalance).toLocaleString('ar-EG')+' ج.م</b>'+(l.dueDay?' — 📅 يستحق يوم '+l.dueDay+' من كل شهر':'')+'</div>'
         + '<div class="progress-track" style="margin-top:6px;"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'
         + '<div class="meta" style="margin-top:4px;">نسبة السداد: '+pct+'%</div>'
+        + dueLine
         + (l.active ? '<button class="btn sm outline" style="margin-top:8px;" onclick="recordLoanPayment(\''+l.id+'\')">💵 تسجيل دفعة</button>' : '')
         + '</div>';
     }).join('') : '<p class="meta">لا توجد قروض مسجّلة.</p>';
@@ -3425,6 +3538,7 @@ cloudStatusChanged = function(){
           + '<div class="field"><label>وصف القرض</label><input id="loanDescInput" type="text" placeholder="مثال: قرض سيارة"></div>'
           + '<div class="field"><label>المبلغ الأصلي (ج.م)</label><input id="loanPrincipalInput" type="number"></div>'
           + '<div class="field"><label>القسط الشهري المعتاد (ج.م) <span class="meta">— اختياري</span></label><input id="loanMonthlyInput" type="number"></div>'
+          + '<div class="field"><label>يوم استحقاق القسط من الشهر <span class="meta">— اختياري</span></label><input id="loanDueDayInput" type="number" min="1" max="31" placeholder="مثال: 10"></div>'
           + '<button class="btn sm outline" onclick="addPersonalLoan()">➕ إضافة قرض</button>'
           + '<div id="personalLoansBox" style="margin-top:14px;"></div>';
         page.appendChild(card);

@@ -146,7 +146,11 @@ function loadDB(){
         if(c.remainingMonths===undefined) c.remainingMonths=null;
         if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
         if(!c.type) c.type='تانية';
+        if(!c.intervalMonths) c.intervalMonths=1;
+        if(c.cycleStartYM===undefined) c.cycleStartYM=null;
       });
+      if(db.savingsGoalTransferredAmount===undefined) db.savingsGoalTransferredAmount=0;
+      if(!db.personalLoans) db.personalLoans=[];
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
       if(!db.commitmentPayments) db.commitmentPayments=[];
@@ -3597,10 +3601,25 @@ function workDaysInLastNDays(n){
   return Math.max(count,1);
 }
 
+// نصيب أي التزام شهريًا: الالتزامات العادية بقيمتها كاملة، أما الالتزامات
+// غير الشهرية (كل 3/6/12 شهر عبر intervalMonths) فبنقسم قيمتها على دورتها
+// عشان نوزّع تكلفتها على شهور الدورة كلها بدل ما تتحسب مرة واحدة بس
+function commitmentMonthlyShare(c){
+  const interval = Number(c.intervalMonths)||1;
+  return Number(c.amount||0) / Math.max(1, interval);
+}
+
+// نصيب القروض الشخصية شهريًا (بند 34) — منفصلة عن db.commitments لكن لازم
+// تدخل في حساب الاحتياج اليومي زي أي التزام تاني، وإلا هيبقى الرقم ناقص
+function personalLoansMonthlyShare(){
+  return (db.personalLoans||[]).filter(l=>l.active!==false).reduce((s,l)=>s+Number(l.monthlyPayment||0),0);
+}
+
 function calcRequiredDailyCapacity(){
-  const monthlyCommitments = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
+  const monthlyCommitments = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+commitmentMonthlyShare(c),0);
+  const loanMonthly = personalLoansMonthlyShare();
   const wdays = workDaysInLastNDays(30); // متوسط أيام الشغل في الشهر
-  const commitmentsPerDay = monthlyCommitments / wdays;
+  const commitmentsPerDay = (monthlyCommitments+loanMonthly) / wdays;
 
   const since = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
   const houseRecent = (db.houseExpenses||[]).filter(e=>e.date>=since);
@@ -3608,7 +3627,7 @@ function calcRequiredDailyCapacity(){
   const housePerDay = houseTotal / 30;
 
   const total = commitmentsPerDay + housePerDay;
-  return {monthlyCommitments, wdays, commitmentsPerDay, houseTotal, housePerDay, total};
+  return {monthlyCommitments, loanMonthly, wdays, commitmentsPerDay, houseTotal, housePerDay, total};
 }
 
 function renderRequiredCapacityCard(){
@@ -3616,7 +3635,7 @@ function renderRequiredCapacityCard(){
   if(!box) return;
   const r = calcRequiredDailyCapacity();
   const currentCapacity = Number(db.dailyCapacity)||500;
-  const hasData = r.monthlyCommitments>0 || r.houseTotal>0;
+  const hasData = r.monthlyCommitments>0 || r.houseTotal>0 || r.loanMonthly>0;
   if(!hasData){
     box.innerHTML = `<div class="card"><div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك اليومية تحت، وهنحسبلك تلقائي قد إيه محتاج تكسب يوميًا من الورشة.</div></div>`;
     return;
@@ -3626,7 +3645,8 @@ function renderRequiredCapacityCard(){
     <div class="card" style="${diff>0?'border-right:4px solid var(--danger);':''}">
       <div class="row"><h3>💡 الحد الأدنى المطلوب يوميًا من الورشة</h3><b style="color:${diff>0?'var(--danger)':'var(--primary)'};font-size:18px;">${Math.ceil(r.total).toLocaleString('ar-EG')} ج.م</b></div>
       <div class="meta" style="line-height:1.8;">
-        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا (شامل أي بند "💰 ادخار" مسجّل): ${Math.ceil(r.commitmentsPerDay).toLocaleString('ar-EG')} ج.م (من إجمالي ${r.monthlyCommitments.toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
+        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا (شامل أي بند "💰 ادخار" مسجّل، ومحسوب بالتناسب لأي التزام غير شهري): ${Math.ceil((r.monthlyCommitments)/r.wdays).toLocaleString('ar-EG')} ج.م (من إجمالي ${Math.round(r.monthlyCommitments).toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
+        ${r.loanMonthly>0?`💳 نصيب أقساط القروض الشخصية يوميًا: ${Math.ceil(r.loanMonthly/r.wdays).toLocaleString('ar-EG')} ج.م (من إجمالي ${Math.round(r.loanMonthly).toLocaleString('ar-EG')} ج.م شهريًا)<br>`:''}
         🏠 متوسط مصاريف البيت اليومية (آخر 30 يوم): ${Math.round(r.housePerDay).toLocaleString('ar-EG')} ج.م
       </div>
       ${diff>0
@@ -3668,6 +3688,27 @@ function diffMonthsYM(fromYM, toYM){
   return (ty-fy)*12 + (tm-fm);
 }
 
+// بيضيف n شهر على شهر بصيغة 'YYYY-MM' ويرجّع نفس الصيغة
+function addMonthsYM(ym, n){
+  const [y,m] = ym.split('-').map(Number);
+  const total = (y*12+(m-1))+n;
+  const ny = Math.floor(total/12), nm = (total%12)+1;
+  return ny+'-'+String(nm).padStart(2,'0');
+}
+
+// هل الشهر ده (ym) هو شهر استحقاق فعلي لالتزام غير شهري (كل 3/6/12 شهر)؟
+// الالتزامات الشهرية العادية (intervalMonths=1 أو مش متسجل) مستحقة كل شهر
+// زي ما هو معتاد. أما غير الشهرية فبتستحق بس كل N شهر بدءًا من cycleStartYM
+// (أو الشهر الحالي وقت إضافتها لو مالهاش شهر بداية محدد).
+function isCommitmentCycleMonth(c, ym){
+  const interval = Number(c.intervalMonths)||1;
+  if(interval<=1) return true;
+  const anchor = c.cycleStartYM || currentYM();
+  const diff = diffMonthsYM(anchor, ym);
+  if(diff<0) return false; // لسه قبل أول استحقاق للالتزام ده
+  return diff % interval === 0;
+}
+
 // بينزّل عداد "باقي كام شهر" لأي التزام له مدة محددة، مرة واحدة لكل شهر
 // جديد (بيحسب كل الشهور اللي فاتت من غير ما تفتح التطبيق كمان). لما العداد
 // يوصل صفر، الالتزام بيتوقف تلقائياً (active=false) زي ما لو دفعته وخلص.
@@ -3679,8 +3720,10 @@ function rolloverCommitmentsMonthly(){
   const prevYM = db.lastCommitmentsMonthCheck;
   if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
   (db.commitments||[]).forEach(c=>{
-    // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص)
-    if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM){
+    // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص،
+    // وبس لو الشهر اللي فات ده أصلاً شهر استحقاق فعلي للالتزام ده — عشان الالتزامات غير الشهرية
+    // متتحسبش "فاتتك" في شهور مش من حقها)
+    if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM && isCommitmentCycleMonth(c, prevYM)){
       db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, type:c.type||'تانية', month:prevYM});
     }
     if(c.remainingMonths!=null && c.active!==false){
@@ -3710,6 +3753,7 @@ function commitmentDueDateStr(c, refStr){
 // أو كان متدفوع بالفعل الشهر ده (يبقى مالوش استحقاق "قريب" حاليًا)
 function commitmentDaysUntilDue(c){
   if(!c.dueDay || c.lastPaidMonth===currentYM()) return null;
+  if(!isCommitmentCycleMonth(c, currentYM())) return null; // التزام غير شهري ومش مستحق الشهر ده
   const due = commitmentDueDateStr(c);
   return Math.round((new Date(due)-new Date(todayStr()))/86400000);
 }
@@ -3721,6 +3765,7 @@ function getCommitmentDueAlerts(){
   const alerts = [];
   (db.commitments||[]).filter(c=>c.active!==false && c.dueDay).forEach(c=>{
     if(c.lastPaidMonth===nowYM) return;
+    if(!isCommitmentCycleMonth(c, nowYM)) return; // مش شهر استحقاق للالتزام ده (غير شهري)
     const due = commitmentDueDateStr(c);
     const diff = Math.round((new Date(due)-new Date(today))/86400000);
     if(diff<=3) alerts.push({c, diff, due});
@@ -3751,7 +3796,7 @@ function houseExpenseAnomalyToday(){
 // شريط تقدّم الشهر: كسبت كام من إجمالي المطلوب لتغطية التزاماتك الشهر ده
 function monthlyCommitmentProgress(){
   const r = calcRequiredDailyCapacity();
-  const requiredMonthly = r.monthlyCommitments + r.housePerDay*30;
+  const requiredMonthly = r.monthlyCommitments + r.loanMonthly + r.housePerDay*30;
   if(requiredMonthly<=0) return null;
   const yearMonth = currentYM();
   const collectedMonth = db.payments.filter(p=>p.date.slice(0,7)===yearMonth).reduce((s,p)=>s+Number(p.amount||0),0);
@@ -3775,7 +3820,7 @@ function deferrableSuggestion(){
   if(currentCapacity >= r.total) return null;
   const deferrable = (db.commitments||[]).filter(c=>c.active!==false && c.priority==='deferrable');
   if(!deferrable.length) return null;
-  const deferrableTotal = deferrable.reduce((s,c)=>s+Number(c.amount||0),0);
+  const deferrableTotal = deferrable.reduce((s,c)=>s+commitmentMonthlyShare(c),0);
   const reducedTotal = r.total - (deferrableTotal/r.wdays);
   return {count:deferrable.length, deferrableTotal, reducedTotal, currentTotal:r.total};
 }
@@ -3870,8 +3915,27 @@ function showMoreCommitmentPayments(){
 /* ---- هدف الادخار: بند "💰 ادخار" جوه نفس قائمة الالتزامات، والمتجمّع
    بيتحسب من سجل الدفعات نفسه (نفس زرار "✅ اتدفع الشهر ده") من غير عداد منفصل
    عشان نضمن إنه دايمًا متطابق مع السجل، حتى لو السجل اتعدّل أو اتحذف منه دفعة ---- */
+// إجمالي المُدّخر لهدف الادخار الحالي: من سجل دفعات بند "💰 ادخار" مطروحًا
+// منه أي مبلغ اترحّل بالفعل لصندوق الطوارئ (عشان لما ترحّل هدف محقق، العداد
+// يرجع يبدأ من الصفر للهدف الجديد بدل ما يفضل شايل رصيد قديم اترحّل بالفعل)
 function totalSavedAmount(){
-  return (db.commitmentPayments||[]).filter(p=>p.type==='ادخار').reduce((s,p)=>s+Number(p.amount||0),0);
+  const raw = (db.commitmentPayments||[]).filter(p=>p.type==='ادخار').reduce((s,p)=>s+Number(p.amount||0),0);
+  return Math.max(0, raw - Number(db.savingsGoalTransferredAmount||0));
+}
+
+// ترحيل رصيد هدف الادخار الحالي (كله أو اللي اتجمع لحد دلوقتي) لصندوق
+// الطوارئ — بيربط المفهومين ببعض بدل ما يفضلوا منفصلين تمامًا: هدف الادخار
+// بيتجمع لغرض معيّن، ولما يتحقق (أو حتى قبل كده) تقدر ترحّله كاحتياطي جاهز
+function transferSavingsToEmergencyFund(){
+  const saved = totalSavedAmount();
+  if(saved<=0){ toast('لا يوجد مبلغ للترحيل دلوقتي'); return; }
+  db.emergencyFundBalance = Number(db.emergencyFundBalance||0) + saved;
+  db.savingsGoalTransferredAmount = Number(db.savingsGoalTransferredAmount||0) + saved;
+  saveDB();
+  renderSavingsGoalCard();
+  if(typeof renderEmergencyFundCard==='function') renderEmergencyFundCard();
+  if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
+  toast(`✅ اترحّل ${saved.toLocaleString('ar-EG')} ج.م لصندوق الطوارئ`);
 }
 
 function renderSavingsGoalCard(){
@@ -3879,19 +3943,25 @@ function renderSavingsGoalCard(){
   if(!box) return;
   const target = Number(db.savingsGoalTarget)||0;
   const saved = totalSavedAmount();
+  const linkNote = `<div class="meta" style="margin-top:6px;">ℹ️ هدف الادخار لغرض بتحدده بمبلغ معيّن، وصندوق الطوارئ احتياطي جاهز لو الدخل وقف فجأة — لما توصل لهدفك (أو حتى قبل كده) ينفع ترحّل اللي اتجمع لصندوق الطوارئ.</div>`;
   if(!target && !saved){
     box.innerHTML = `
       <div class="row"><h3>🎯 هدف الادخار</h3></div>
       <div class="meta">حدد مبلغ تستهدف توفيره (زي مصاريف طوارئ لكذا شهر) وتابع تقدمك هنا. سجّل التوفير الشهري كبند "💰 ادخار" فوق واضغط "✅ اتدفع الشهر ده" عشان يتحسب هنا.</div>
       <div class="btn-row" style="margin-top:8px;"><button class="btn sm outline" onclick="openSavingsGoalModal()">🎯 تحديد هدف</button></div>
+      ${linkNote}
     `;
     return;
   }
   const pct = target ? Math.min(100, Math.round(saved/target*100)) : 0;
+  const goalReached = target>0 && saved>=target;
   box.innerHTML = `
     <div class="row"><h3>🎯 هدف الادخار</h3><button class="btn sm outline" onclick="openSavingsGoalModal()">✏️ تعديل الهدف</button></div>
     <div class="meta">اتجمع <b style="color:var(--ok)">${saved.toLocaleString('ar-EG')} ج.م</b>${target?` من ${target.toLocaleString('ar-EG')} ج.م (${pct}%)`:' — لسه محدّدتش هدف بمبلغ'}</div>
     ${target ? `<div class="savings-progress-track"><div class="savings-progress-fill" style="width:${pct}%;"></div></div>` : ''}
+    ${goalReached ? `<div class="meta" style="color:var(--primary);margin-top:6px;">🎉 مبروك، حققت هدف الادخار!</div>` : ''}
+    ${saved>0 ? `<div class="btn-row" style="margin-top:8px;"><button class="btn sm outline" onclick="transferSavingsToEmergencyFund()">🧳 رحّل ${saved.toLocaleString('ar-EG')} ج.م لصندوق الطوارئ</button></div>` : ''}
+    ${linkNote}
   `;
 }
 
@@ -4219,17 +4289,19 @@ function commitmentCardHtml(c, archived){
   const nowYM = currentYM();
   const paidThisMonth = c.lastPaidMonth===nowYM;
   const info = commitmentTypeInfo(c.type);
+  const interval = Number(c.intervalMonths)||1;
+  const intervalLabel = (COMMITMENT_INTERVALS.find(i=>i.key===interval)||{}).label || 'شهري';
   return `
     <div class="card" data-type="${escapeHtml(c.type||'تانية')}">
       <div class="row">
         <h3>${info.icon} ${escapeHtml(c.desc)}${archived?' <span class="meta">(متوقف)</span>':''}</h3>
-        <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م</b>
+        <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م${interval>1?` <span class="meta">/ ${intervalLabel}</span>`:''}</b>
       </div>
       <div class="meta">
-        ${info.label}${c.dueDay?` — 📅 يستحق يوم ${c.dueDay} من كل شهر`:''} — ${c.priority==='deferrable'?'⚖️ ممكن يتأجل':'🔴 ضروري'}${c.remainingMonths!=null?` — 🏁 باقي ${c.remainingMonths} شهر`:''}${paidThisMonth?' — ✅ مدفوع الشهر ده':''}
+        ${info.label}${interval>1?` — 🔁 ${intervalLabel} (يعادل ${Math.round(commitmentMonthlyShare(c)).toLocaleString('ar-EG')} ج.م/شهر)`:''}${c.dueDay?` — 📅 يستحق يوم ${c.dueDay} من كل شهر استحقاق`:''} — ${c.priority==='deferrable'?'⚖️ ممكن يتأجل':'🔴 ضروري'}${c.remainingMonths!=null?` — 🏁 باقي ${c.remainingMonths} شهر`:''}${paidThisMonth?' — ✅ مدفوع الشهر ده':''}
       </div>
       <div class="btn-row">
-        ${!archived && c.dueDay && !paidThisMonth ? `<button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${c.id}')">✅ اتدفع الشهر ده</button>` : ''}
+        ${!archived && c.dueDay && !paidThisMonth && (interval<=1 || isCommitmentCycleMonth(c, nowYM)) ? `<button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${c.id}')">✅ اتدفع الشهر ده</button>` : ''}
         <button class="btn sm outline" onclick="openCommitmentModal('${c.id}')">✏️ تعديل</button>
         <button class="btn sm danger" onclick="deleteCommitment('${c.id}')">🗑️ حذف</button>
       </div>
@@ -4239,8 +4311,8 @@ function commitmentCardHtml(c, archived){
 
 function renderCommitments(){
   const activeAll = (db.commitments||[]).filter(c=>c.active!==false);
-  const total = activeAll.reduce((s,c)=>s+Number(c.amount||0),0);
-  const totalTxt = total.toLocaleString('ar-EG')+' ج.م / شهر';
+  const total = activeAll.reduce((s,c)=>s+commitmentMonthlyShare(c),0);
+  const totalTxt = Math.round(total).toLocaleString('ar-EG')+' ج.م / شهر';
   const el = document.getElementById('totalCommitmentsTxt');
   if(el) el.textContent = totalTxt;
   const stickyEl = document.getElementById('stickyCommitmentsTotalTxt');
@@ -4278,13 +4350,13 @@ function renderCommitments(){
         const key = c.type||'تانية';
         if(!byType[key]) byType[key] = {count:0, amount:0};
         byType[key].count++;
-        byType[key].amount += Number(c.amount||0);
+        byType[key].amount += commitmentMonthlyShare(c);
       });
       let chips = `<span class="type-chip${commitmentsTypeFilter==='all'?' active':''}" onclick="setCommitmentsTypeFilter('all')">📋 الكل (${activeAll.length})</span>`;
       COMMITMENT_TYPES.forEach(t=>{
         const b = byType[t.key];
         if(!b) return;
-        chips += `<span class="type-chip${commitmentsTypeFilter===t.key?' active':''}" onclick="setCommitmentsTypeFilter('${t.key}')">${t.icon} ${t.key} (${b.amount.toLocaleString('ar-EG')})</span>`;
+        chips += `<span class="type-chip${commitmentsTypeFilter===t.key?' active':''}" onclick="setCommitmentsTypeFilter('${t.key}')">${t.icon} ${t.key} (${Math.round(b.amount).toLocaleString('ar-EG')})</span>`;
       });
       chipsBox.innerHTML = chips;
     } else {
@@ -4340,17 +4412,43 @@ function showMoreCommitments(){
   renderCommitments();
 }
 
+const COMMITMENT_INTERVALS = [
+  {key:1, label:'شهري'},
+  {key:3, label:'كل 3 شهور'},
+  {key:6, label:'كل 6 شهور'},
+  {key:12, label:'سنوي (كل 12 شهر)'},
+];
+
+function onCommitmentIntervalChange(){
+  const interval = Number(document.getElementById('f_commInterval').value)||1;
+  const wrap = document.getElementById('f_commCycleStartWrap');
+  const amountLabel = document.getElementById('f_commAmountLabel');
+  if(wrap) wrap.style.display = interval>1 ? 'block' : 'none';
+  if(amountLabel) amountLabel.textContent = interval>1 ? 'القيمة كل مرة استحقاق (ج.م)' : 'القيمة الشهرية (ج.م)';
+}
+
 function openCommitmentModal(id, presetType, presetDesc){
   const c = id ? (db.commitments||[]).find(x=>x.id===id) : null;
   const hasDuration = !!(c && c.remainingMonths!=null);
   const selectedType = c ? (c.type||'تانية') : (presetType||'تانية');
   const descValue = c ? c.desc : (presetDesc||'');
   const typeOptions = COMMITMENT_TYPES.map(t=>`<option value="${t.key}" ${t.key===selectedType?'selected':''}>${t.label}</option>`).join('');
+  const selectedInterval = c ? (Number(c.intervalMonths)||1) : 1;
+  const intervalOptions = COMMITMENT_INTERVALS.map(i=>`<option value="${i.key}" ${i.key===selectedInterval?'selected':''}>${i.label}</option>`).join('');
+  const cycleStartVal = (c && c.cycleStartYM) ? c.cycleStartYM : currentYM();
   const html = `
-    <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام شهري جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="field"><label>الوصف</label><input id="f_commDesc" placeholder="مثال: قسط سيارة، إيجار، فاتورة كهرباء..." value="${escapeHtml(descValue)}"></div>
-    <div class="field"><label>القيمة الشهرية (ج.م)</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
+    <div class="field"><label id="f_commAmountLabel">${selectedInterval>1?'القيمة كل مرة استحقاق (ج.م)':'القيمة الشهرية (ج.م)'}</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
     <div class="field"><label>النوع</label><select id="f_commType">${typeOptions}</select></div>
+    <div class="field"><label>دورة الاستحقاق</label>
+      <select id="f_commInterval" onchange="onCommitmentIntervalChange()">${intervalOptions}</select>
+      <span class="meta">للالتزامات غير الشهرية (زي تجديد رخصة أو تأمين سنوي)، اكتب القيمة كاملة مرة واحدة، وهنوزّعها تلقائيًا على شهور الدورة عند حساب احتياجك اليومي.</span>
+    </div>
+    <div id="f_commCycleStartWrap" class="field" style="display:${selectedInterval>1?'block':'none'};">
+      <label>شهر أول استحقاق</label>
+      <input id="f_commCycleStart" type="month" value="${cycleStartVal}">
+    </div>
     <div class="field"><label>يوم الاستحقاق من الشهر (اختياري)</label><input id="f_commDueDay" type="number" min="1" max="31" placeholder="مثال: 5" value="${c&&c.dueDay?c.dueDay:''}"></div>
     <div class="field"><label>الأولوية</label>
       <select id="f_commPriority">
@@ -4374,6 +4472,9 @@ function saveCommitment(id){
   const desc = document.getElementById('f_commDesc').value.trim();
   const amount = Number(document.getElementById('f_commAmount').value)||0;
   const type = document.getElementById('f_commType').value || 'تانية';
+  const intervalMonths = Number(document.getElementById('f_commInterval').value)||1;
+  const cycleStartEl = document.getElementById('f_commCycleStart');
+  const cycleStartYM = intervalMonths>1 ? ((cycleStartEl&&cycleStartEl.value)||currentYM()) : null;
   const dueDay = Number(document.getElementById('f_commDueDay').value)||null;
   const priority = document.getElementById('f_commPriority').value==='deferrable' ? 'deferrable' : 'essential';
   const hasDuration = document.getElementById('f_commHasDuration').checked;
@@ -4384,9 +4485,9 @@ function saveCommitment(id){
   if(!db.commitments) db.commitments=[];
   if(id){
     const c = db.commitments.find(x=>x.id===id);
-    if(c){ c.desc=desc; c.amount=amount; c.type=type; c.dueDay=dueDay; c.priority=priority; c.remainingMonths=remainingMonths; }
+    if(c){ c.desc=desc; c.amount=amount; c.type=type; c.intervalMonths=intervalMonths; c.cycleStartYM=cycleStartYM; c.dueDay=dueDay; c.priority=priority; c.remainingMonths=remainingMonths; }
   }else{
-    db.commitments.push({id:uid(), desc, amount, type, dueDay, priority, remainingMonths, lastPaidMonth:null, active:true});
+    db.commitments.push({id:uid(), desc, amount, type, intervalMonths, cycleStartYM, dueDay, priority, remainingMonths, lastPaidMonth:null, active:true});
   }
   saveDB();
   closeModal();
@@ -6021,7 +6122,11 @@ function importBackup(event){
         if(c.remainingMonths===undefined) c.remainingMonths=null;
         if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
         if(!c.type) c.type='تانية';
+        if(!c.intervalMonths) c.intervalMonths=1;
+        if(c.cycleStartYM===undefined) c.cycleStartYM=null;
       });
+      if(db.savingsGoalTransferredAmount===undefined) db.savingsGoalTransferredAmount=0;
+      if(!db.personalLoans) db.personalLoans=[];
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
       if(!db.commitmentPayments) db.commitmentPayments=[];
