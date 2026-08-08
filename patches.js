@@ -3729,10 +3729,15 @@ cloudStatusChanged = function(){
       var styleTag = document.createElement('style');
       styleTag.id = 'topbarMenuStyle';
       styleTag.textContent =
-        '.topbar-menu-wrap{position:relative;display:inline-flex;}'+
-        '.topbar-menu-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:220px;'+
+        '.topbar-menu-wrap{display:inline-flex;}'+
+        /* [إصلاح] الشريط العلوي فيه overflow:hidden على الموبايل عشان يمنع
+           طفح محتواه، وده كان بيقص القائمة المنسدلة لو اتحطت جوّه الشريط
+           كعنصر position:absolute. الحل: القائمة بقت position:fixed ومتضافة
+           لـ body مباشرة (بره الشريط العلوي بالكامل)، ومكانها بيتحسب
+           بالجافاسكريبت وقت الفتح (شوف openPanel) عشان متتقصش. */
+        '.topbar-menu-panel{position:fixed;min-width:220px;max-width:calc(100vw - 24px);'+
           'background:var(--card,#fff);color:var(--text,#1a1a1a);border-radius:12px;'+
-          'box-shadow:0 12px 30px rgba(0,0,0,.28);padding:6px;z-index:999;display:none;}'+
+          'box-shadow:0 12px 30px rgba(0,0,0,.28);padding:6px;z-index:9999;display:none;}'+
         '.topbar-menu-panel.open{display:block;}'+
         '.topbar-menu-item{display:flex;align-items:center;gap:10px;width:100%;'+
           'background:none;border:0;text-align:right;padding:10px 12px;border-radius:8px;'+
@@ -3810,17 +3815,38 @@ cloudStatusChanged = function(){
       });
     }
 
+    function positionPanel(){
+      var rect = toggleBtn.getBoundingClientRect();
+      // نحط القائمة الأول عشان نقدر نقيس عرضها الفعلي (offsetWidth) بعد ما اتملت
+      var panelWidth = panel.offsetWidth || 220;
+      var left = rect.left; // نفس بداية الزر افتراضيًا
+      // لو هتخرج بره يمين الشاشة، نلزقها بحافة الشاشة اليمين بمسافة أمان 12px
+      if(left + panelWidth > window.innerWidth - 12){
+        left = window.innerWidth - panelWidth - 12;
+      }
+      if(left < 12) left = 12;
+      var top = rect.bottom + 8;
+      var maxTop = window.innerHeight - 12;
+      panel.style.left = left + 'px';
+      panel.style.top = Math.min(top, maxTop) + 'px';
+    }
+
     function openPanel(){
       renderPanel();
       panel.classList.add('open');
+      positionPanel(); // تحسب المكان بعد ما تتملى وتظهر عشان offsetWidth يبقى صحيح
       document.addEventListener('click', onOutsideClick, true);
+      window.addEventListener('scroll', positionPanel, true);
+      window.addEventListener('resize', positionPanel);
     }
     function closePanel(){
       panel.classList.remove('open');
       document.removeEventListener('click', onOutsideClick, true);
+      window.removeEventListener('scroll', positionPanel, true);
+      window.removeEventListener('resize', positionPanel);
     }
     function onOutsideClick(e){
-      if(!wrap.contains(e.target)) closePanel();
+      if(!wrap.contains(e.target) && !panel.contains(e.target)) closePanel();
     }
 
     toggleBtn.onclick = function(e){
@@ -3830,8 +3856,8 @@ cloudStatusChanged = function(){
     };
 
     wrap.appendChild(toggleBtn);
-    wrap.appendChild(panel);
     holder.appendChild(wrap);
+    document.body.appendChild(panel); // بره الشريط العلوي خالص عشان overflow:hidden متأثرش عليها
   }
 
   // الأزرار التانية بتتضاف بترتيب مختلف في الملف، فبنستنى لحد ما تخلص كلها
