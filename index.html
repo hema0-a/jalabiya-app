@@ -424,6 +424,20 @@ body{ font-size:15px; line-height:1.5; }
 }
 #commitmentsList .commitment-group-title:first-child{ margin-top:2px; }
 
+/* تجميع مصاريف البيت في مجموعات يومية قابلة للطي — بدل عرضها كلها مكشوفة
+   ("على الحائط") في قائمة واحدة طويلة؛ نفس فكرة أرشيف الالتزامات بالظبط */
+#houseExpensesList .day-toggle{
+  margin-top:8px; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; border-radius:10px; border:1px solid var(--border);
+  background:var(--card-alt);
+  font-weight:700; font-size:13.5px;
+  transition:opacity .15s;
+}
+#houseExpensesList .day-toggle:first-child{ margin-top:0; }
+#houseExpensesList .day-toggle:active{ opacity:.8; }
+#houseExpensesList .day-toggle-arrow{ font-size:11px; color:var(--muted); }
+#houseExpensesList .day-body{ margin-top:6px; margin-bottom:4px; }
+
 /* 3) رسم بياني صغير (Sparkline) جوه بطاقات الإحصائيات */
 .stat-card{ position:relative; }
 .stat-card .spark{ position:absolute; inset-inline-end:10px; bottom:10px; opacity:.55; }
@@ -1062,7 +1076,19 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         </div>
         <div class="card" id="savingsGoalCard" style="margin-top:10px;"></div>
         <div id="commitmentsSummaryLine" class="meta" style="margin:8px 2px 0;"></div>
+        <div class="search-box" style="margin-top:8px;"><input id="commitmentsSearchInput" placeholder="🔍 ابحث في الالتزامات بالاسم..." oninput="renderCommitments()"></div>
+        <div class="field" style="margin-top:6px;">
+          <label>ترتيب حسب</label>
+          <select id="commitmentsSortSelect" onchange="renderCommitments()">
+            <option value="due">📅 الأقرب استحقاقًا</option>
+            <option value="amount_desc">💰 الأعلى مبلغًا</option>
+            <option value="amount_asc">💰 الأقل مبلغًا</option>
+            <option value="name">🔤 الاسم أبجديًا</option>
+            <option value="priority">⚖️ الأولوية (ضروري أولاً)</option>
+          </select>
+        </div>
         <div id="commitmentsTypeChips"></div>
+        <div id="commitmentsPriorityChips" style="margin-top:4px;"></div>
         <div class="sticky-total-bar">
           <span>💳 إجمالي الالتزامات الشهرية</span>
           <b id="stickyCommitmentsTotalTxt"></b>
@@ -1464,6 +1490,12 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <!-- ميزات جديدة: كل ميزة في ملفها الخاص بدل ما نكبّر core.js أو patches.js أكتر -->
 <script src="feature-capacity-reminders.js"></script>
 <script src="feature-today-focus.js"></script>
+<script src="feature-visual-refresh.js"></script>
+<script src="feature-personal-overview.js"></script>
+<script src="feature-personal-controls.js"></script>
+<script src="feature-inventory.js"></script>
+<script src="feature-workers.js"></script>
+<script src="feature-production-board.js"></script>
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
 </body>
