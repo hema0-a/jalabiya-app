@@ -3703,5 +3703,144 @@ cloudStatusChanged = function(){
   };
 })();
 
+/* 35) تجميع الأيقونات الخمسة (قفل / كثافة العرض / تباين / عرض للعميل / وضع ليلي)
+   في قائمة منسدلة واحدة بدل ما تتكدس جنب بعض في الشريط العلوي. الأزرار
+   الأصلية بتفضل موجودة في الـ DOM (مخفية بس) عشان كل المنطق اللي بيقرأ
+   حالتها (applyDarkMode, toggleDisplayMode...) يفضل شغال زي ما هو. */
+(function(){
+  function setup(){
+    if(document.getElementById('topbarMenuBtn')) return; // امنع التكرار
+    var holder = document.querySelector('header.topbar > div:last-child');
+    if(!holder) return;
+
+    var themeBtn    = document.getElementById('themeToggleBtn');
+    var displayBtn  = document.getElementById('displayModeBtn');
+    var contrastBtn = document.getElementById('contrastToggleBtn');
+    var densityBtn  = document.getElementById('densityToggleBtn');
+    var lockBtn     = holder.querySelector('.small-link');
+
+    var originals = [themeBtn, displayBtn, contrastBtn, densityBtn, lockBtn].filter(Boolean);
+    if(originals.length < 5) return; // استنى لحد ما كل الأزرار الخمسة تتعمل
+
+    // نخبّي الأزرار الأصلية بدل ما نمسحها، عشان أي كود تاني بيرجع لها بالـ id يفضل شغال
+    originals.forEach(function(b){ b.style.display = 'none'; });
+
+    if(!document.getElementById('topbarMenuStyle')){
+      var styleTag = document.createElement('style');
+      styleTag.id = 'topbarMenuStyle';
+      styleTag.textContent =
+        '.topbar-menu-wrap{position:relative;display:inline-flex;}'+
+        '.topbar-menu-panel{position:absolute;top:calc(100% + 8px);left:0;min-width:220px;'+
+          'background:var(--card,#fff);color:var(--text,#1a1a1a);border-radius:12px;'+
+          'box-shadow:0 12px 30px rgba(0,0,0,.28);padding:6px;z-index:999;display:none;}'+
+        '.topbar-menu-panel.open{display:block;}'+
+        '.topbar-menu-item{display:flex;align-items:center;gap:10px;width:100%;'+
+          'background:none;border:0;text-align:right;padding:10px 12px;border-radius:8px;'+
+          'font-size:14px;font-weight:700;cursor:pointer;color:inherit;}'+
+        '.topbar-menu-item:active,.topbar-menu-item:hover{background:rgba(31,109,87,0.1);}'+
+        '.topbar-menu-item .tmi-icon{font-size:16px;width:20px;text-align:center;flex-shrink:0;}'+
+        '.topbar-menu-item .tmi-state{margin-inline-start:auto;font-size:11px;color:var(--muted,#888);}';
+      document.head.appendChild(styleTag);
+    }
+
+    var wrap = document.createElement('div');
+    wrap.className = 'topbar-menu-wrap';
+
+    var toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'theme-toggle-btn';
+    toggleBtn.id = 'topbarMenuBtn';
+    toggleBtn.setAttribute('aria-label', 'المزيد من الخيارات');
+    toggleBtn.textContent = '⋮';
+
+    var panel = document.createElement('div');
+    panel.className = 'topbar-menu-panel';
+    panel.id = 'topbarMenuPanel';
+
+    function itemDefs(){
+      return [
+        {
+          icon: themeBtn.textContent.trim() || '🌙',
+          label: 'الوضع الليلي',
+          state: (document.documentElement.getAttribute('data-theme')==='dark') ? 'مفعّل' : 'متوقف',
+          run: function(){ themeBtn.click(); }
+        },
+        {
+          icon: '👁️',
+          label: 'وضع عرض للعميل',
+          state: displayBtn.classList.contains('active-display-mode') ? 'مفعّل' : 'متوقف',
+          run: function(){ displayBtn.click(); }
+        },
+        {
+          icon: '◐',
+          label: 'تباين عالٍ',
+          state: document.documentElement.classList.contains('high-contrast') ? 'مفعّل' : 'متوقف',
+          run: function(){ contrastBtn.click(); }
+        },
+        {
+          icon: densityBtn.textContent.trim() || '☰',
+          label: 'كثافة العرض',
+          state: document.documentElement.classList.contains('compact-view') ? 'مضغوط' : 'مريح',
+          run: function(){ densityBtn.click(); }
+        },
+        {
+          icon: '🔒',
+          label: 'قفل التطبيق',
+          state: '',
+          run: function(){ lockBtn.click(); }
+        }
+      ];
+    }
+
+    function renderPanel(){
+      panel.innerHTML = '';
+      itemDefs().forEach(function(def){
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'topbar-menu-item';
+        item.innerHTML =
+          '<span class="tmi-icon">'+def.icon+'</span>'+
+          '<span>'+def.label+'</span>'+
+          (def.state ? '<span class="tmi-state">'+def.state+'</span>' : '');
+        item.onclick = function(){
+          closePanel();
+          def.run();
+        };
+        panel.appendChild(item);
+      });
+    }
+
+    function openPanel(){
+      renderPanel();
+      panel.classList.add('open');
+      document.addEventListener('click', onOutsideClick, true);
+    }
+    function closePanel(){
+      panel.classList.remove('open');
+      document.removeEventListener('click', onOutsideClick, true);
+    }
+    function onOutsideClick(e){
+      if(!wrap.contains(e.target)) closePanel();
+    }
+
+    toggleBtn.onclick = function(e){
+      e.stopPropagation();
+      if(panel.classList.contains('open')) closePanel();
+      else openPanel();
+    };
+
+    wrap.appendChild(toggleBtn);
+    wrap.appendChild(panel);
+    holder.appendChild(wrap);
+  }
+
+  // الأزرار التانية بتتضاف بترتيب مختلف في الملف، فبنستنى لحد ما تخلص كلها
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(setup, 0); });
+  } else {
+    setTimeout(setup, 0);
+  }
+})();
+
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
 
