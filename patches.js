@@ -1160,11 +1160,19 @@ setTimeout(function(){
 /* 25) مؤشر واضح لحالة الاتصال بالإنترنت (أوفلاين/أونلاين) + تنبيه للتغييرات المعلّقة اللي هتتزامن لاحقًا */
 (function(){
   function badgeState(){
-    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A'};
+    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A', syncing:false};
     if(db && db.cloudSync && db.cloudSync.enabled && cloudPendingChanges){
-      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D'};
+      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D', syncing:true};
     }
     return {show:false};
+  }
+  // أيقونة إبرة صغيرة بتعمل حركة غرز (بديل عن نقطة السبينر) — بتبان وقت
+  // ما فيه تغييرات فعليًا في انتظار المزامنة، يعني وقت "الحفظ" الحقيقي.
+  function needleIcon(color){
+    return '<svg class="needle-stitch-ic" width="13" height="13" viewBox="0 0 14 14" fill="none" style="color:'+color+';flex-shrink:0;">'
+      + '<line x1="3" y1="11" x2="11" y2="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+      + '<ellipse cx="10.3" cy="3.7" rx="1.3" ry="0.75" transform="rotate(45 10.3 3.7)" stroke="currentColor" stroke-width="1.1"/>'
+      + '</svg>';
   }
   function updateOfflineBadge(){
     var state = badgeState();
@@ -1177,7 +1185,10 @@ setTimeout(function(){
         var holder = document.querySelector('header.topbar > div:last-child');
         if(holder) holder.insertAdjacentElement('afterbegin', badge);
       }
-      badge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;"></span>'+state.text;
+      var icon = state.syncing
+        ? needleIcon(state.color)
+        : '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;flex-shrink:0;"></span>';
+      badge.innerHTML = icon+state.text;
     } else if(badge){
       badge.remove();
     }

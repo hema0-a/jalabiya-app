@@ -50,8 +50,83 @@ html[data-theme="dark"].high-contrast .card{ border:2px solid #fff !important; }
 /* أثر السحب على بطاقات الطلبات */
 #ordersList .card{ transition:transform .15s, opacity .15s; touch-action:pan-y; }
 
+/* عداد الأيام المتبقية للتسليم — يبان جنب كل كارت طلب */
+.days-left-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:3px 10px; border-radius:20px;
+  font-size:11px; font-weight:800; white-space:nowrap; flex-shrink:0;
+  background:var(--card-alt); color:var(--muted); border:1px solid var(--border);
+}
+.days-left-chip.today{ background:var(--danger-light); color:var(--danger); border-color:transparent; }
+.days-left-chip.tomorrow{ background:var(--warn-light); color:var(--warn); border-color:transparent; }
+html.high-contrast .days-left-chip{ border:1.5px solid #000; }
+
+/* مؤشر "جاري الحفظ/المزامنة" بشكل إبرة بتخيط — بديل السبينر الدائري */
+.needle-stitch-ic{ display:inline-block; animation:needleStitch .9s ease-in-out infinite; transform-origin:center; }
+@keyframes needleStitch{
+  0%{ transform:translateY(-3px) rotate(-12deg); }
+  50%{ transform:translateY(2px) rotate(10deg); }
+  100%{ transform:translateY(-3px) rotate(-12deg); }
+}
+@media (prefers-reduced-motion: reduce){
+  .needle-stitch-ic{ animation:none; }
+}
+
+/* شريط "طلب مستعجل" — شريط تحذير قماشي بخطوط متقاطعة في ركن الكارت، يبان من نظرة واحدة */
+.card:has(span[title="طلب مستعجل"])::after{
+  content:"مستعجل";
+  position:absolute; top:10px; left:-32px;
+  width:120px; padding:3px 0; text-align:center;
+  font-size:10.5px; font-weight:900; letter-spacing:.5px; color:#fff;
+  background:repeating-linear-gradient(45deg, var(--danger) 0 8px, #7a2318 8px 16px);
+  transform:rotate(-45deg);
+  box-shadow:0 2px 5px rgba(0,0,0,0.25);
+  pointer-events:none;
+  z-index:1;
+}
+html[dir="rtl"] .card:has(span[title="طلب مستعجل"])::after{ left:auto; right:-32px; transform:rotate(45deg); }
+html.high-contrast .card:has(span[title="طلب مستعجل"])::after{ background:repeating-linear-gradient(45deg, #000 0 8px, #fff 8px 16px); color:#000; -webkit-text-stroke:.5px #fff; }
+
+/* حواف الأزرار الأساسية بخياطة مزدوجة — تفصيلة صغيرة على أزرار حفظ/إضافة الأساسية */
+.btn:not(.outline):not(.secondary):not(.sm):not(.danger)::before{
+  content:""; position:absolute; inset:3px;
+  border-radius:calc(var(--btn-radius,12px) - 5px);
+  border:1.3px dashed rgba(255,255,255,0.55);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.22);
+  pointer-events:none;
+}
+html.high-contrast .btn:not(.outline):not(.secondary):not(.sm):not(.danger)::before{ border-color:rgba(255,255,255,0.85); }
+
+/* شرائح الفلاتر بشكل قطع قماش — حافة متعرجة زي مقص الزيجزاج (بديل الشكل الدائري القياسي) */
+#orderStatusFilters .btn, #ordersChipsRow [data-chip], .rc-chip{
+  clip-path: polygon(0% 10%, 7% 0%, 14% 10%, 86% 10%, 93% 0%, 100% 10%, 100% 90%, 93% 100%, 86% 90%, 14% 90%, 7% 100%, 0% 90%);
+  border-radius:0 !important;
+  padding-inline:14px !important;
+}
+
+/* بطاقة "خصم" شكل تيكيت معلق (hangtag) بدل نص عادي */
+.discount-hangtag{
+  position:relative; display:inline-flex; align-items:center;
+  padding:3px 10px 3px 18px; margin-inline-start:6px;
+  font-size:11px; font-weight:800; white-space:nowrap; flex-shrink:0;
+  background:var(--ok-light); color:var(--ok);
+  clip-path:polygon(0% 50%, 15% 0%, 100% 0%, 100% 100%, 15% 100%);
+  transform:rotate(-2deg);
+}
+.discount-hangtag::after{
+  content:""; position:absolute; top:50%; left:7px;
+  width:4px; height:4px; border-radius:50%;
+  background:var(--card); box-shadow:0 0 0 1px currentColor;
+  transform:translateY(-50%);
+}
+html.high-contrast .discount-hangtag{ box-shadow:inset 0 0 0 1.5px #000; }
+
+/* الشارة النصية 🔥 مستعجل بقت مستبدلة بالشريط القماشي فوق — نسيبها في الـ DOM (للـ :has selector) بس نخفيها بصريًا */
+.badge[title="طلب مستعجل"]{ display:none; }
+
 /* توهج الطلبات المستعجلة */
 .card:has(span[title="طلب مستعجل"]) {
+  position:relative; overflow:hidden;
   box-shadow: 0 0 0 2px var(--danger), var(--shadow);
   animation: urgentGlow 1.8s ease-in-out infinite;
 }

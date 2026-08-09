@@ -1223,6 +1223,33 @@ function statusBadge(o){
   return '<span class="badge done">تم التسليم</span>';
 }
 
+// صيغة الجمع العربي الصحيحة لعدد الأيام (يوم/يومين/N أيام/N يوم)
+function arDaysLabel(n){
+  if(n===1) return 'يوم واحد';
+  if(n===2) return 'يومين';
+  if(n>=3 && n<=10) return n+' أيام';
+  return n+' يوم';
+}
+
+// شارة صغيرة بعدد الأيام المتبقية لموعد التسليم — تبان جنب كل كارت طلب
+// عشان تدي فكرة سريعة عن الأولوية من غير ما تفتح الطلب. مش بتظهر للطلبات
+// المتأخرة (أصلاً باين عليها شارة "متأخر") ولا للمُسلَّمة.
+function daysLeftChip(o){
+  if(!o.dateDelivery || o.status==='تم التسليم' || isOverdue(o)) return '';
+  const diff = Math.round((new Date(o.dateDelivery)-new Date(todayStr()))/86400000);
+  if(diff<0) return '';
+  if(diff===0) return '<span class="days-left-chip today" title="موعد التسليم اليوم">اليوم</span>';
+  if(diff===1) return '<span class="days-left-chip tomorrow" title="موعد التسليم غدًا">غدًا</span>';
+  return `<span class="days-left-chip" title="متبقي على موعد التسليم">${arDaysLabel(diff)}</span>`;
+}
+
+// بطاقة "خصم" بشكل تيكيت معلق (hangtag) — تبان جنب سطر الإجمالي في كارت الطلب لو فيه خصم فعلي
+function discountHangtag(o){
+  const amount = orderDiscountAmount(o);
+  if(amount<=0) return '';
+  return `<span class="discount-hangtag" title="قيمة الخصم على هذا الطلب">🏷️ خصم ${Math.round(amount).toLocaleString('ar-EG')} ج.م</span>`;
+}
+
 /* ============================================================
    الصفحة الرئيسية
    ============================================================ */
@@ -1675,10 +1702,10 @@ function renderHome(){
     return `<div class="card">
       <div class="row">
         <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
-        ${statusBadge(o)}
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>
       </div>
       <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)}</div>
-      <div class="meta">💰 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م</div>
+      <div class="meta">💰 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م${discountHangtag(o)}</div>
     </div>`;
   }).join('') : `<div class="empty-msg">لا توجد طلبات قيد العمل حالياً 🎉</div>`;
 
@@ -2053,11 +2080,11 @@ function renderOrders(){
     return `<div class="card" data-status="${escapeHtml(o.status||'')}">
       <div class="row">
         <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
-        ${statusBadge(o)}
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>
       </div>
       <div class="meta">👗 النوع: ${escapeHtml(orderTypeLabel(o))}</div>
       <div class="meta">📅 الاستلام: ${fmtDate(o.dateReceived)} | التسليم: ${fmtDate(o.dateDelivery)}</div>
-      <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
+      <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b>${discountHangtag(o)}</div>
       <div class="meta">⏱️ وقت الشغل الفعلي: ${o.workStartedAt ? `<b style="color:var(--accent);">جاري التسجيل الآن...</b>` : (o.actualMinutes?formatMinutesLabel(o.actualMinutes):'لم يبدأ بعد')}</div>
       ${o.updatedAt?`<div class="meta" style="opacity:.65;font-size:12px;">🕒 آخر تعديل: ${fmtActivityTime(o.updatedAt)}</div>`:''}
       <div class="btn-row">
@@ -2115,7 +2142,10 @@ function renderOrdersKanban(){
     const cards = colOrders.map(o=>{
       const c = customerById(o.customerId);
       return `<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event,'${o.id}')" ondragend="kanbanDragEnd(event)">
-        <div class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <div class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</div>
+          ${daysLeftChip(o)}
+        </div>
         <div class="meta">👗 ${escapeHtml(orderTypeLabel(o))}</div>
         <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)}</div>
         <div class="meta">💰 المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
