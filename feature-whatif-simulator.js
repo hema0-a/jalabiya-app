@@ -39,7 +39,7 @@
   function computeScenario(key){
     const r = currentReq();
     if(!r) return null;
-    const currentCapacity = Number(db.dailyCapacity)||0;
+    const currentCapacity = Number(db.dailyCapacity)||500;
     let newTotal = r.total;
     let note = '';
 

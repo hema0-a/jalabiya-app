@@ -99,7 +99,12 @@
       const rawValue = el ? el.value : null;
       const beforeIds = new Set(db.customers.map(c=>c.id));
       const r = await orig.apply(this, arguments);
-      if(rawValue===null) return r; // الحقل مش موجود لأي سبب — سيبها زي ما هي
+      // لو المودال لسه مفتوح بعد ما انتظرنا orig، يبقى الحفظ ما اتمّش فعليًا
+      // (المستخدم ألغى نافذة التأكيد، أو فشل تحقق زي رقم هاتف غير صحيح) —
+      // في الحالة دي المفروض متتغيّرش بيانات الإحالة خالص
+      const ov = document.getElementById('modalOverlay');
+      const saveDidNotHappen = ov && ov.classList.contains('active');
+      if(rawValue===null || saveDidNotHappen) return r;
       let targetId = id;
       if(!targetId){
         const added = db.customers.find(c=>!beforeIds.has(c.id));

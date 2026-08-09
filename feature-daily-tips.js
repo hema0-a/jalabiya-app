@@ -107,6 +107,19 @@
 
   let manualIndex = null; // لو المستخدم ضغط "التالي" بنفصله عن نصيحة اليوم الثابتة
 
+  // نصيحة اليوم لازم تفضل ثابتة طول اليوم حتى لو بيانات المستخدم اتغيرت
+  // (مصروف جديد، التزام جديد...) وده بيغيّر تركيبة "pool()" الديناميكية.
+  // فبنثبّت النص نفسه (مش الرقم بس) في db أول مرة نحسبه في اليوم ده.
+  function todaysStableTip(){
+    if(!db.dailyTipCache || db.dailyTipCache.date !== todayStr()){
+      const p = pool();
+      const idx = dayOfYear() % p.length;
+      db.dailyTipCache = {date: todayStr(), text: p[idx]};
+      saveDB();
+    }
+    return db.dailyTipCache.text;
+  }
+
   function pickTipIndex(){
     if(manualIndex!=null) return manualIndex;
     const p = pool();
@@ -142,9 +155,7 @@
     const box = document.getElementById('dailyTipCard');
     if(!box) return;
     ensureDefaults();
-    const p = pool();
-    const idx = pickTipIndex() % p.length;
-    const text = p[idx];
+    const text = (manualIndex!=null) ? pool()[pickTipIndex() % pool().length] : todaysStableTip();
     const alreadySaved = db.savedTips.some(t=>t.text===text);
 
     const savedHtml = db.savedTips.length ? `
