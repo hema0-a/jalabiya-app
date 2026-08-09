@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v5'; // v5: تجميع كل ملفات JS في bundle.js واحد + لوحة تحكم الرئيسية + سجل التحديثات
+const CACHE_NAME = 'workshop-app-v7'; // v7: إصلاح باگ علامة الأوفلاين اللي كانت بتقفل شريط التنقل + كل تحديثات v4-v6 (نصايح يومية، محاكي ماذا لو، إحالات، bundle.js، لوحة تحكم، سجل تحديثات، تضييق وضع الاستقبال)
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',

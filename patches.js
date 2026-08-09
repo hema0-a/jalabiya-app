@@ -1173,7 +1173,7 @@ setTimeout(function(){
       if(!badge){
         badge = document.createElement('span');
         badge.id = 'offlineBadge';
-        badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:0;';
+        badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:1;min-width:0;max-width:110px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
         var holder = document.querySelector('header.topbar > div:last-child');
         if(holder) holder.insertAdjacentElement('afterbegin', badge);
       }
