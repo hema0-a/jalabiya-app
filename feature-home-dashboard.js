@@ -64,6 +64,38 @@
     return 'var(--primary)';
   }
 
+  // عداد "صافي اليوم" المتحرك — بيحتفظ بآخر قيمة معروضة، ولو القيمة الجديدة
+  // اختلفت (بعد تسجيل دفعة مثلاً) بيعد لأعلى/لأسفل بحركة سلسة بدل ما يتغيّر فجأة.
+  // أول ظهور للتطبيق بيتعرض الرقم مباشرة من غير حركة.
+  let lastRevValue = null;
+  let revAnimFrame = null;
+
+  function prefersReducedMotion(){
+    return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function animateRevCount(el, from, to, duration){
+    if(revAnimFrame){ cancelAnimationFrame(revAnimFrame); revAnimFrame = null; }
+    if(prefersReducedMotion() || from===to){
+      el.textContent = Math.round(to).toLocaleString('ar-EG') + ' ج.م';
+      return;
+    }
+    const start = performance.now();
+    const diff = to - from;
+    function step(now){
+      const t = Math.min(1, (now-start)/duration);
+      const eased = 1 - Math.pow(1-t, 3); // ease-out
+      el.textContent = Math.round(from + diff*eased).toLocaleString('ar-EG') + ' ج.م';
+      if(t<1){
+        revAnimFrame = requestAnimationFrame(step);
+      } else {
+        el.textContent = Math.round(to).toLocaleString('ar-EG') + ' ج.م';
+        revAnimFrame = null;
+      }
+    }
+    revAnimFrame = requestAnimationFrame(step);
+  }
+
   function renderDashboard(){
     const box = document.getElementById('homeDashboardCard');
     if(!box) return;
@@ -74,11 +106,12 @@
     const nd = nearestDelivery();
     const alert = topAlert();
     const tip = dailyTipShort();
+    const revFrom = lastRevValue==null ? rev : lastRevValue;
 
     const revenueCell = `
       <div class="dash-cell" onclick="showPage('personal')" style="cursor:pointer;">
         <div class="dash-lbl">💰 صافي اليوم</div>
-        <div class="dash-val" style="color:${revOk?'var(--primary)':'var(--danger)'};">${rev.toLocaleString('ar-EG')} ج.م</div>
+        <div class="dash-val" id="dashRevVal" style="color:${revOk?'var(--primary)':'var(--danger)'};">${revFrom.toLocaleString('ar-EG')} ج.م</div>
         ${req!=null ? `<div class="dash-sub">من ${Math.ceil(req).toLocaleString('ar-EG')} مطلوب</div>` : ''}
       </div>
     `;
@@ -129,6 +162,10 @@
         </div>
       </div>
     `;
+
+    const revEl = document.getElementById('dashRevVal');
+    if(revEl) animateRevCount(revEl, revFrom, rev, 650);
+    lastRevValue = rev;
   }
 
   function injectStyles(){

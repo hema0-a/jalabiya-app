@@ -343,6 +343,20 @@ body{ font-size:15px; line-height:1.5; }
 .card{ padding:16px; }
 #ordersList .card, #customersList .card{ margin-bottom:12px; }
 
+/* خط "غرزة الخياطة" — فاصل متقطع ذهبي بين البطاقات المتتالية في القوائم، بدل الفراغ الفاضي */
+#ordersList .card, #customersList .card, #commitmentsList .card{ position:relative; }
+#ordersList .card:not(:first-child)::before,
+#customersList .card:not(:first-child)::before,
+#commitmentsList .card:not(:first-child)::before{
+  content:"";
+  position:absolute; right:14px; left:14px; top:-6px; height:0;
+  border-top:2px dashed var(--stitch);
+  opacity:.7; pointer-events:none;
+}
+html.high-contrast #ordersList .card:not(:first-child)::before,
+html.high-contrast #customersList .card:not(:first-child)::before,
+html.high-contrast #commitmentsList .card:not(:first-child)::before{ display:none; }
+
 /* 2) تلوين حرف/حد جانبي لبطاقة الطلب حسب حالته — تمييز فوري من غير قراءة النص */
 #ordersList .card[data-status]{
   border-inline-start-width:5px; border-inline-start-style:solid; border-inline-start-color:var(--border);
@@ -690,6 +704,10 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     background:var(--primary-light);color:var(--heading);margin-left:9px;vertical-align:middle;
   }
   .avatar.accent{background:#F3E4C8;color:var(--accent-dark);}
+  /* بصمة لون لكل عميل — لون مشتق من اسمه، ثابت دايمًا لنفس الاسم، عشان يتميز بصريًا في القوائم الطويلة */
+  .avatar.by-name{background:hsl(var(--client-hue) 58% 87%);color:hsl(var(--client-hue) 48% 30%);}
+  html[data-theme="dark"] .avatar.by-name{background:hsl(var(--client-hue) 32% 24%);color:hsl(var(--client-hue) 65% 78%);}
+  html.high-contrast .avatar.by-name{background:var(--primary-light) !important;color:var(--heading) !important;}
   .name-row{display:flex;align-items:center;}
 
   .section-title{
