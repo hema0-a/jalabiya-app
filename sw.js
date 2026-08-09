@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v4'; // غيّرت الرقم عمداً عشان يجبر التطبيق يمسح أي كاش قديم فورًا (v4: إضافة نصايح يومية + محاكي ماذا لو + نظام الإحالات، وحذف مرجع ملف قديم مش موجود)
+const CACHE_NAME = 'workshop-app-v5'; // v5: تجميع كل ملفات JS في bundle.js واحد + لوحة تحكم الرئيسية + سجل التحديثات
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',

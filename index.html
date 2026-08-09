@@ -1483,26 +1483,15 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 
-<script src="core.js"></script>
-
-<script src="patches.js"></script>
-
-<!-- ميزات جديدة: كل ميزة في ملفها الخاص بدل ما نكبّر core.js أو patches.js أكتر -->
-<script src="feature-capacity-reminders.js"></script>
-<script src="feature-today-focus.js"></script>
-<script src="feature-visual-refresh.js"></script>
-<script src="feature-personal-overview.js"></script>
-<script src="feature-personal-controls.js"></script>
-<script src="feature-inventory.js"></script>
-<script src="feature-workers.js"></script>
-<script src="feature-production-board.js"></script>
-<script src="feature-expenses-filter-compare.js"></script>
-<script src="feature-financial-wellbeing.js"></script>
-<script src="feature-investment-plan.js"></script>
-<script src="feature-financial-overview.js"></script>
-<script src="feature-daily-tips.js"></script>
-<script src="feature-whatif-simulator.js"></script>
-<script src="feature-referrals.js"></script>
+<!-- ============================================================
+     [تحديث] core.js + patches.js + كل ملفات feature-*.js (19 ملف)
+     بقوا مجمّعين في ملف واحد bundle.js بدل ما يتحمّلوا كـ 19 طلب
+     شبكة منفصل. الملفات الأصلية لسه موجودة في المستودع للتعديل،
+     بس المتصفح دلوقتي بيحمّل bundle.js بس (وبيشمل core.js وpatches.js
+     جواه بالترتيب، فمفيش داعي لتحميلهم لوحدهم تاني هنا). لو عدّلت
+     أي ملف من الأصليين، لازم تتولّد bundle.js من جديد بعدها.
+     ============================================================ -->
+<script src="bundle.js"></script>
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
 </body>
