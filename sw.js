@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v10'; // v10: تراجع عن bundle.js (كان بيفشل في التحميل لكبر حجمه) ورجعنا لتحميل كل ملف لوحده
+const CACHE_NAME = 'workshop-app-v11'; // v11: إصلاح تجاوز أزرار الإجراءات السريعة لحدود الشاشة (سكرول جانبي) في تطوير الصفحة الرئيسية
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',

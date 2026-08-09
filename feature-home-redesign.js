@@ -63,20 +63,17 @@
 
       /* ---------- 3) شرائح الإجراءات السريعة ---------- */
       #homeQuickActionsWrap .btn-row.quick-chips-row{
-        display:grid; grid-template-columns:repeat(4, 1fr);
-        gap:8px; flex-wrap:unset;
+        display:grid; grid-template-columns:repeat(2, 1fr);
+        gap:8px; flex-wrap:unset; width:100%;
       }
       .quick-chip{
         display:flex !important; flex-direction:column; align-items:center; justify-content:center;
-        gap:4px; padding:12px 6px !important; min-height:64px;
+        gap:4px; padding:12px 6px !important; min-height:64px; min-width:0;
         border-radius:14px !important; text-align:center;
         font-size:11.5px !important; font-weight:700 !important;
-        white-space:normal !important; line-height:1.3;
+        white-space:normal !important; line-height:1.3; overflow-wrap:break-word;
       }
       .quick-chip .qc-icon{ font-size:20px; line-height:1; }
-      @media (max-width:360px){
-        #homeQuickActionsWrap .btn-row.quick-chips-row{ grid-template-columns:repeat(2, 1fr); }
-      }
     `;
     document.head.appendChild(style);
   }
