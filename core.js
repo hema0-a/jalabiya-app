@@ -1701,9 +1701,18 @@ function escapeHtml(s){
 }
 
 // دائرة صغيرة بحرف اسم العميل، بتضاف قبل الاسم في قوائم العملاء والطلبات والمواعيد
+// كل عميل بياخد "بصمة لون" ثابتة مشتقة من اسمه (نفس الاسم = نفس اللون دايمًا)، عشان يتميز بصريًا
+// في القوائم الطويلة. عملاء VIP (variant='accent') بيفضلوا باللون الذهبي المميز بدل لون الاسم.
 function avatarChip(name, variant){
-  const letter = (name||'؟').trim().charAt(0) || '؟';
-  return `<span class="avatar${variant?' '+variant:''}">${escapeHtml(letter)}</span>`;
+  const n = (name||'؟').trim();
+  const letter = n.charAt(0) || '؟';
+  if(variant==='accent'){
+    return `<span class="avatar accent">${escapeHtml(letter)}</span>`;
+  }
+  let hash = 0;
+  for(let i=0;i<n.length;i++){ hash = (hash*31 + n.charCodeAt(i)) >>> 0; }
+  const hue = hash % 360;
+  return `<span class="avatar by-name" style="--client-hue:${hue}">${escapeHtml(letter)}</span>`;
 }
 
 // فتح نافذة طباعة بشكل آمن — لو المتصفح منع النوافذ المنبثقة (بيحصل داخل بعض بيئات المعاينة)
