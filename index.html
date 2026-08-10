@@ -121,6 +121,110 @@ html.high-contrast .btn:not(.outline):not(.secondary):not(.sm):not(.danger)::bef
 }
 html.high-contrast .discount-hangtag{ box-shadow:inset 0 0 0 1.5px #000; }
 
+/* ===== دفعة أفكار جديدة (2): شريط قياس / دبوس تثبيت / بكرة خيط / تايم لاين / قماشة ممزقة / فك الغرزة / قص الخيط ===== */
+
+/* شريط قياس (measuring tape) كمؤشر تقدّم — علامات دقيقة كل شوية وعلامة أطول كل مسافة، فوق أي progress bar */
+.progress-track, .savings-progress-track{ position:relative; overflow:hidden; }
+.progress-track::after, .savings-progress-track::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(120,120,120,0.95) 0 1px, transparent 1px 10%),
+    repeating-linear-gradient(90deg, rgba(120,120,120,0.95) 0 1.5px, transparent 1.5px 25%);
+  background-size:100% 45%, 100% 100%;
+  background-position:bottom, bottom;
+  background-repeat:no-repeat;
+  mix-blend-mode:overlay;
+}
+
+/* دبوس دبابيس صغير كمؤشر "مثبّت" — زرار تثبيت الطلب فوق القائمة */
+.pin-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:8px; border:none; background:transparent;
+  color:var(--muted); cursor:pointer; flex-shrink:0; padding:0;
+  transform:rotate(-15deg); transition:color .15s, transform .15s;
+}
+.pin-btn:hover{ color:var(--accent); }
+.pin-btn.pinned{ color:var(--accent); transform:rotate(0deg) scale(1.05); }
+.pin-btn.pinned svg circle{ filter:drop-shadow(0 1px 1px rgba(0,0,0,0.25)); }
+
+/* غلاف "بكرة خيط" لصورة العميل الافتراضية — خطوط خيط ملفوف + حافتين (فلانشتين) أعلى وأسفل الأفاتار */
+.avatar.by-name{
+  position:relative;
+  background:repeating-linear-gradient(0deg, hsl(var(--client-hue) 58% 87%) 0 3px, hsl(var(--client-hue) 58% 80%) 3px 4px);
+}
+.avatar.by-name::before, .avatar.by-name::after{
+  content:""; position:absolute; right:-3px; left:-3px; height:4px; border-radius:2px;
+  background:hsl(var(--client-hue) 45% 55%); box-shadow:0 1px 1px rgba(0,0,0,0.15); pointer-events:none;
+}
+.avatar.by-name::before{ top:-2px; }
+.avatar.by-name::after{ bottom:-2px; }
+html[data-theme="dark"] .avatar.by-name{
+  background:repeating-linear-gradient(0deg, hsl(var(--client-hue) 32% 24%) 0 3px, hsl(var(--client-hue) 32% 30%) 3px 4px);
+}
+html[data-theme="dark"] .avatar.by-name::before, html[data-theme="dark"] .avatar.by-name::after{
+  background:hsl(var(--client-hue) 40% 45%);
+}
+html.high-contrast .avatar.by-name::before, html.high-contrast .avatar.by-name::after{ display:none; }
+
+/* خط تسلسل زمني بشكل "خيط موصول" لمراحل الطلب — داخل نموذج تعديل الطلب */
+.stage-timeline{ position:relative; display:flex; justify-content:space-between; margin:2px 0 20px; padding:0 2px; }
+.stage-thread{
+  position:absolute; top:7px; right:14px; left:14px; height:2px;
+  background-image:repeating-linear-gradient(90deg, var(--border) 0 5px, transparent 5px 9px);
+}
+.stage-thread-fill{ height:2px; background:var(--accent); }
+.stage-step{ position:relative; display:flex; flex-direction:column; align-items:center; gap:5px; flex:1; z-index:1; }
+.stage-dot{
+  width:14px; height:14px; border-radius:50%; background:var(--card-alt);
+  border:2px solid var(--border); position:relative; display:block;
+}
+.stage-step.done .stage-dot{ background:var(--accent); border-color:var(--accent); }
+.stage-step.current .stage-dot{ background:var(--card); border-color:var(--accent); box-shadow:0 0 0 3px rgba(184,134,59,.25); }
+.stage-lbl{ font-size:10.5px; color:var(--muted); font-weight:700; text-align:center; }
+.stage-step.done .stage-lbl, .stage-step.current .stage-lbl{ color:var(--heading); }
+.stage-needle{ position:absolute; top:-11px; left:50%; width:2px; height:11px; background:var(--accent); transform:translateX(-50%) rotate(15deg); }
+.stage-needle::before{ content:""; position:absolute; top:-3px; left:50%; width:5px; height:5px; border-radius:50%; background:var(--accent); transform:translateX(-50%); }
+
+/* كرت "قماشة ممزقة" لتنبيه التأخير الحرج (متأخر أكتر من 3 أيام) */
+.card[data-critical="1"]{
+  clip-path: polygon(0% 4%, 6.25% 0%, 12.5% 4%, 18.75% 0%, 25% 4%, 31.25% 0%, 37.5% 4%, 43.75% 0%, 50% 4%, 56.25% 0%, 62.5% 4%, 68.75% 0%, 75% 4%, 81.25% 0%, 87.5% 4%, 93.75% 0%, 100% 4%, 100% 100%, 0% 100%);
+  box-shadow: 0 10px 22px -10px rgba(0,0,0,0.5), inset 0 8px 10px -10px rgba(0,0,0,0.4);
+}
+
+/* غرزة "تراجع" متحركة عند الحذف — خيط متقطع بيتفكّ وبينسحب قبل ما الكارت يختفي */
+.card.unraveling{ animation:cardUnravel .4s ease-in forwards; pointer-events:none; overflow:hidden; }
+.card.unraveling::after{
+  content:""; position:absolute; right:14px; left:14px; top:50%; height:2px; margin-top:-1px;
+  background-image:repeating-linear-gradient(90deg, var(--danger) 0 9px, transparent 9px 18px);
+  opacity:.9; animation:threadPull .4s ease-in forwards; pointer-events:none;
+}
+@keyframes cardUnravel{ 0%{opacity:1;transform:translateX(0) rotate(0deg);} 100%{opacity:0;transform:translateX(18px) rotate(1.5deg);} }
+@keyframes threadPull{ 0%{transform:translateX(0);opacity:.9;} 100%{transform:translateX(60%);opacity:0;} }
+@media (prefers-reduced-motion: reduce){
+  .card.unraveling{ animation:none; opacity:0; }
+  .card.unraveling::after{ animation:none; display:none; }
+}
+
+/* زرار "🧵 تم الإنجاز" بأثر قص الخيط — بديل مؤقت للتوست العادي */
+.scissor-cut-fx{
+  position:fixed; left:50%; top:16%; transform:translateX(-50%);
+  z-index:9999; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:none;
+}
+.sc-thread{ position:relative; width:140px; height:20px; }
+.sc-half{ position:absolute; top:50%; width:60px; height:2px;
+  background-image:repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 11px); }
+.sc-left{ left:0; transform-origin:left center; animation:scLeftFall .6s .35s ease-in forwards; }
+.sc-right{ right:0; transform-origin:right center; animation:scRightFall .6s .35s ease-in forwards; }
+.sc-scissor{ position:absolute; top:50%; left:50%; font-size:22px; transform:translate(-50%,-50%) rotate(-90deg); animation:scSnap .35s ease-in forwards; }
+.sc-caption{ background:var(--card); color:var(--heading); font-weight:800; font-size:13px; padding:8px 16px;
+  border-radius:20px; box-shadow:0 6px 18px rgba(0,0,0,.18); opacity:0; animation:scCaptionIn .3s .3s ease-out forwards; }
+@keyframes scSnap{ 0%{transform:translate(-50%,-50%) rotate(-90deg) scale(1);} 50%{transform:translate(-50%,-50%) rotate(-60deg) scale(1.15);} 100%{transform:translate(-50%,-50%) rotate(-90deg) scale(1);} }
+@keyframes scLeftFall{ to{ transform:translateY(10px) rotate(-8deg); opacity:0; } }
+@keyframes scRightFall{ to{ transform:translateY(10px) rotate(8deg); opacity:0; } }
+@keyframes scCaptionIn{ from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+.scissor-cut-fx.hide{ animation:scFxOut .3s ease-in forwards; }
+@keyframes scFxOut{ to{ opacity:0; } }
+
 /* الشارة النصية 🔥 مستعجل بقت مستبدلة بالشريط القماشي فوق — نسيبها في الـ DOM (للـ :has selector) بس نخفيها بصريًا */
 .badge[title="طلب مستعجل"]{ display:none; }
 

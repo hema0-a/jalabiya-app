@@ -1250,6 +1250,70 @@ function discountHangtag(o){
   return `<span class="discount-hangtag" title="قيمة الخصم على هذا الطلب">🏷️ خصم ${Math.round(amount).toLocaleString('ar-EG')} ج.م</span>`;
 }
 
+// هل الطلب متأخر بشكل حرج (أكتر من 3 أيام) — بتفرق بصريًا عن التأخير العادي
+function isCriticallyOverdue(o){
+  if(!isOverdue(o)) return false;
+  const diff = Math.round((new Date(todayStr())-new Date(o.dateDelivery))/86400000);
+  return diff>3;
+}
+
+// تثبيت/إلغاء تثبيت طلب فوق قائمة الطلبات
+function toggleOrderPin(id){
+  const o = db.orders.find(x=>x.id===id);
+  if(!o) return;
+  o.pinned = !o.pinned;
+  o.updatedAt = Date.now();
+  saveDB();
+  renderOrders();
+}
+function pinToggleBtn(o){
+  const pinned = !!o.pinned;
+  return `<button type="button" class="pin-btn${pinned?' pinned':''}" onclick="event.stopPropagation();toggleOrderPin('${o.id}')" title="${pinned?'إلغاء تثبيت الطلب':'تثبيت الطلب فوق القائمة'}">
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="4.3" cy="4.3" r="2.6" fill="currentColor"/><line x1="6" y1="6" x2="12.3" y2="12.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+  </button>`;
+}
+
+// خط تسلسل زمني بشكل "خيط موصول" لمراحل الطلب (استلام → قيد العمل → جاهز → تسليم)
+function orderStageTimeline(o){
+  if(!o) return '';
+  const stages = ['استلام','قيد العمل','جاهز للتسليم','تم التسليم'];
+  const statusIndex = {'قيد العمل':1, 'جاهز للتسليم':2, 'تم التسليم':3};
+  const current = statusIndex[o.status]!==undefined ? statusIndex[o.status] : 1;
+  const fillPct = (current/(stages.length-1))*100;
+  const steps = stages.map((s,i)=>{
+    const state = i<current ? 'done' : (i===current ? 'current' : 'todo');
+    const needle = i===current ? '<span class="stage-needle"></span>' : '';
+    return `<div class="stage-step ${state}"><span class="stage-dot">${needle}</span><span class="stage-lbl">${s}</span></div>`;
+  }).join('');
+  return `<div class="stage-timeline"><div class="stage-thread"><div class="stage-thread-fill" style="width:${fillPct}%;"></div></div>${steps}</div>`;
+}
+
+// أثر "قص الخيط" الاحتفالي بدل التوست العادي — بيراعي تفضيل تقليل الحركة
+function celebrateScissorCut(msg){
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){ toast(msg); return; }
+  const old = document.getElementById('scissorCutFx');
+  if(old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'scissorCutFx';
+  el.className = 'scissor-cut-fx';
+  el.innerHTML = '<div class="sc-thread"><span class="sc-half sc-left"></span><span class="sc-half sc-right"></span><span class="sc-scissor">✂️</span></div><div class="sc-caption"></div>';
+  el.querySelector('.sc-caption').textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(()=>{ el.classList.add('hide'); }, 1300);
+  setTimeout(()=>{ el.remove(); }, 1650);
+}
+
+// تشغيل أنيميشن "فك الغرزة" على كارت قبل حذفه فعليًا (لو الكارت باين في الشاشة حاليًا)
+function playUnravelThenRun(selector, afterFn){
+  const el = document.querySelector(selector);
+  if(el){
+    el.classList.add('unraveling');
+    setTimeout(afterFn, 400);
+  } else {
+    afterFn();
+  }
+}
+
 /* ============================================================
    الصفحة الرئيسية
    ============================================================ */
@@ -1415,7 +1479,7 @@ function markOrderDelivered(orderId){
   });
   saveDB();
   renderHome();
-  toast('تم تسجيل الطلب كمُنجز ✅');
+  celebrateScissorCut('تم تسجيل الطلب كمُنجز ✅');
 }
 
 // تحريك عنصر في دور الشغل لأعلى (-1) أو لأسفل (+1) يدوياً
@@ -1712,7 +1776,7 @@ function renderHome(){
   const late = db.orders.filter(isOverdue).sort((a,b)=>(a.dateDelivery||'').localeCompare(b.dateDelivery||''));
   document.getElementById('homeLate').innerHTML = late.length ? late.map(o=>{
     const c = customerById(o.customerId);
-    return `<div class="card" style="border-right-color:var(--danger)">
+    return `<div class="card" style="border-right-color:var(--danger)" data-critical="${isCriticallyOverdue(o)?'1':''}">
       <div class="row">
         <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
         <span class="tag-late-text">متأخر ⏰</span>
@@ -2066,6 +2130,7 @@ function renderOrders(){
   }
   if(dateFrom) list = list.filter(o=> o.dateReceived && o.dateReceived>=dateFrom);
   if(dateTo) list = list.filter(o=> o.dateReceived && o.dateReceived<=dateTo);
+  list.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)); // الطلبات المثبّتة فوق، مع الحفاظ على الترتيب الأصلي بينها
 
   const summaryBox = document.getElementById('orderDateFilterSummary');
   if(dateFrom || dateTo){
@@ -2077,9 +2142,9 @@ function renderOrders(){
 
   const html = list.map(o=>{
     const c = customerById(o.customerId);
-    return `<div class="card" data-status="${escapeHtml(o.status||'')}">
+    return `<div class="card" data-status="${escapeHtml(o.status||'')}" data-order-id="${o.id}" data-critical="${isCriticallyOverdue(o)?'1':''}">
       <div class="row">
-        <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
+        <h3 class="name-row">${pinToggleBtn(o)}${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>
       </div>
       <div class="meta">👗 النوع: ${escapeHtml(orderTypeLabel(o))}</div>
@@ -2369,6 +2434,7 @@ function openOrderModal(id, presetCustomerId){
 
   const html = `
     <div class="modal-head"><h3>${o?'✏️ تعديل طلب':'➕ طلب جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    ${o ? orderStageTimeline(o) : ''}
     <div class="field"><label>العميل</label><select id="f_customer" onchange="renderOrderCustomerMeasurements();maybeApplyVipDiscount();">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
     <div id="orderCustomerMeasurements" style="margin:-6px 0 12px;"></div>
     <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">👗 أصناف الطلب</div>
@@ -2608,14 +2674,16 @@ async function deleteOrder(id){
   if(!await appConfirm('هل تريد حذف هذا الطلب؟ يمكنك استرجاعه خلال 7 أيام من سلة المحذوفات.')) return;
   const o = db.orders.find(x=>x.id===id);
   if(!o) return;
-  const relatedPayments = db.payments.filter(p=>p.orderId===id);
-  db.orders = db.orders.filter(x=>x.id!==id);
-  db.payments = db.payments.filter(p=>p.orderId!==id);
-  db.trash.push({id:uid(), type:'order', deletedAt:todayStr(), data:o, payments:relatedPayments});
-  logActivity(`🗑️ حذف طلب ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
-  saveDB();
-  renderOrders();
-  toast('تم نقل الطلب لسلة المحذوفات');
+  playUnravelThenRun(`.card[data-order-id="${id}"]`, function(){
+    const relatedPayments = db.payments.filter(p=>p.orderId===id);
+    db.orders = db.orders.filter(x=>x.id!==id);
+    db.payments = db.payments.filter(p=>p.orderId!==id);
+    db.trash.push({id:uid(), type:'order', deletedAt:todayStr(), data:o, payments:relatedPayments});
+    logActivity(`🗑️ حذف طلب ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
+    saveDB();
+    renderOrders();
+    toast('تم نقل الطلب لسلة المحذوفات');
+  });
 }
 
 /* ============================================================
@@ -5158,7 +5226,7 @@ function renderExpenses(){
   document.getElementById('totalExpensesTxt').textContent = total.toLocaleString('ar-EG')+' ج.م';
   const list = db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
   document.getElementById('expensesList').innerHTML = list.length ? list.map(e=>`
-    <div class="card">
+    <div class="card" data-expense-id="${e.id}">
       <div class="row">
         <h3>${escapeHtml(e.desc)}</h3>
         <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
@@ -5206,16 +5274,18 @@ async function deleteExpense(id){
   if(!await appConfirm('حذف هذا المصروف؟')) return;
   const removed = db.expenses.find(e=>e.id===id);
   if(!removed) return;
-  db.expenses = db.expenses.filter(e=>e.id!==id);
-  logActivity(`🗑️ حذف مصروف: ${removed.desc}`);
-  setUndo('حذف المصروف', ()=>{
-    db.expenses.push(removed);
+  playUnravelThenRun(`.card[data-expense-id="${id}"]`, function(){
+    db.expenses = db.expenses.filter(e=>e.id!==id);
+    logActivity(`🗑️ حذف مصروف: ${removed.desc}`);
+    setUndo('حذف المصروف', ()=>{
+      db.expenses.push(removed);
+      saveDB();
+      renderExpenses();
+    });
     saveDB();
     renderExpenses();
+    toast('تم الحذف');
   });
-  saveDB();
-  renderExpenses();
-  toast('تم الحذف');
 }
 
 /* ============================================================
