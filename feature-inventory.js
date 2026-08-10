@@ -23,14 +23,19 @@
   /* ---------- خصم/إرجاع تلقائي مربوط بحفظ وحذف الطلبات ---------- */
   if(typeof saveOrder === 'function'){
     const origSaveOrder = saveOrder;
-    window.saveOrder = function(id){
+    // [إصلاح] saveOrder بقت async في patch تاني (نافذة "هل تريد حفظ
+    // التعديلات؟" اللي بتظهر عند تعديل طلب موجود) — لو مانستناش (await)
+    // النتيجة هنا، الكود تحت كان بيقارن قبل/بعد فورًا وهو لسه واقف
+    // مستنّي المستخدم يضغط تأكيد، فكان دايمًا بيلاقي "مفيش فرق" ويتجاهل
+    // تعديل قيمة المخزون تمامًا (حتى لو المستخدم أكّد الحفظ فعلاً).
+    window.saveOrder = async function(id){
       ensureInventoryDefaults();
       if(id){
         const existing = db.orders.find(x=>x.id===id);
         const before = existing ? Number(existing.materialCost)||0 : 0;
         const countBefore = db.orders.length;
-        const r = origSaveOrder.apply(this, arguments);
-        // orig ممكن يرجع من غير تنفيذ لو فيه خطأ تحقق (validation) — التأكد إن التعديل فعلاً حصل
+        const r = await origSaveOrder.apply(this, arguments);
+        // orig ممكن يرجع من غير تنفيذ لو المستخدم لغى نافذة التأكيد أو فيه خطأ تحقق (validation) — التأكد إن التعديل فعلاً حصل
         const after = existing ? Number(existing.materialCost)||0 : 0;
         if(db.orders.length===countBefore && existing && after!==before){
           const diff = after - before;
@@ -42,7 +47,7 @@
         return r;
       } else {
         const countBefore = db.orders.length;
-        const r = origSaveOrder.apply(this, arguments);
+        const r = await origSaveOrder.apply(this, arguments);
         if(db.orders.length===countBefore+1){
           const newOrder = db.orders[db.orders.length-1];
           const mc = Number(newOrder.materialCost)||0;

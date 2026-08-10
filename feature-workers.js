@@ -71,14 +71,28 @@
 
   if(typeof saveOrder === 'function'){
     const origSaveOrder = saveOrder;
-    window.saveOrder = function(id){
+    // [إصلاح] نفس مشكلة feature-inventory.js: saveOrder بقت async
+    // (نافذة تأكيد قبل حفظ تعديل طلب موجود). من غير await، الكود تحت
+    // كان بينفّذ فورًا (قبل ما المستخدم يرد على نافذة التأكيد) ويحفظ
+    // العامل المُسند لوحده بـ saveDB() — يعني حتى لو المستخدم ضغط
+    // "إلغاء" في نافذة التأكيد، العامل المُسند كان بيتحفظ برضه.
+    // الحل: ننتظر (await) النتيجة، ونتأكد كمان إن الحفظ فعلاً حصل
+    // (بمقارنة updatedAt) قبل ما نحفظ العامل.
+    window.saveOrder = async function(id){
       const sel = document.getElementById('f_assignedWorker');
       const workerId = sel ? sel.value : '';
       const countBefore = (db.orders||[]).length;
-      const r = origSaveOrder.apply(this, arguments);
+      const existingBefore = id ? (db.orders||[]).find(x=>x.id===id) : null;
+      const updatedAtBefore = existingBefore ? existingBefore.updatedAt : null;
+      const r = await origSaveOrder.apply(this, arguments);
       let targetOrder = null;
       if(id){
-        targetOrder = (db.orders||[]).find(x=>x.id===id);
+        const existingAfter = (db.orders||[]).find(x=>x.id===id);
+        // لو التعديل اتلغى (المستخدم ضغط "إلغاء" في نافذة التأكيد) أو
+        // فشل التحقق، updatedAt مش هيتغيّر — منسيبش العامل يتحفظ لوحده
+        if(existingAfter && existingAfter.updatedAt !== updatedAtBefore){
+          targetOrder = existingAfter;
+        }
       } else if((db.orders||[]).length===countBefore+1){
         targetOrder = db.orders[db.orders.length-1];
       }
