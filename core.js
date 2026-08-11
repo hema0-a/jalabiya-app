@@ -16,7 +16,6 @@ function defaultDB(){
     commitments:[],
     houseExpenses:[],
     financePassword:null,
-    savingsGoalTarget:0,
     dailyCapacity:500,
     garmentTypes:[],
     vipThreshold:3,
@@ -35,7 +34,7 @@ function defaultDB(){
     btnRadius:12,
     fontSettings:{family:'default', size:'1'},
     skeletonLoading:false,
-    homeWidgets:['alerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
+    homeWidgets:['alerts','personalAlerts','stats','weekly','today','commitment','upcoming','late'].map(id=>({id, visible:true})),
     lastCommitmentsMonthCheck:null,
     commitmentPayments:[],
     missedCommitmentNotices:[],
@@ -53,7 +52,6 @@ function defaultDB(){
     trash:[],
     nextInvoiceNumber:1001,
     taxDefaultPercent:0,
-    urgentFeeDefaultPercent:0,
     holidays:[],
     occasions:[],
     activityLog:[],
@@ -145,12 +143,7 @@ function loadDB(){
         if(!c.priority) c.priority='essential';
         if(c.remainingMonths===undefined) c.remainingMonths=null;
         if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
-        if(!c.type) c.type='تانية';
-        if(!c.intervalMonths) c.intervalMonths=1;
-        if(c.cycleStartYM===undefined) c.cycleStartYM=null;
       });
-      if(db.savingsGoalTransferredAmount===undefined) db.savingsGoalTransferredAmount=0;
-      if(!db.personalLoans) db.personalLoans=[];
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
       if(!db.commitmentPayments) db.commitmentPayments=[];
@@ -159,7 +152,6 @@ function loadDB(){
       if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
       if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
       if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
-      if(db.savingsGoalTarget===undefined) db.savingsGoalTarget=0;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
@@ -187,7 +179,6 @@ function loadDB(){
       if(!db.trash) db.trash=[];
       if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
       if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
-      if(db.urgentFeeDefaultPercent===undefined || db.urgentFeeDefaultPercent===null) db.urgentFeeDefaultPercent=0;
       if(!db.holidays) db.holidays=[];
       if(!db.occasions) db.occasions=[];
       if(!db.activityLog) db.activityLog=[];
@@ -630,8 +621,6 @@ function toggleCloudSetupMode(mode){
    ============================================================ */
 let messagingInstance = null;
 let commitmentPaymentsLogShowCount = 15;
-let commitmentsListShowCount = 8;
-let houseExpensesListShowCount = 8;
 
 function getPushSwUrl(){
   const cfg = db.cloudSync && db.cloudSync.firebaseConfig;
@@ -893,12 +882,10 @@ function updateFinanceLockUI(){
 }
 
 let financeGatePin = '';
-let financeGateTargetPage = 'finance'; // الصفحة اللي نرجعلها بعد فتح القفل (finance أو personal)
-function openFinanceGate(targetPage){
+function openFinanceGate(){
   financeGatePin = '';
-  financeGateTargetPage = targetPage || 'finance';
   openModal(`
-    <div class="modal-head"><h3>💰 الصفحة محمية</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-head"><h3>💰 صفحة المالية محمية</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div style="padding:4px 2px 14px;font-size:14px;line-height:1.7;">الصفحة دي محمية برقم سري منفصل عن رقم قفل التطبيق. اكتب الرقم عشان تكمل.</div>
     <div class="field"><label>رقم سري المالية</label>
       <input type="tel" maxlength="4" id="financeGateInput" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)">
@@ -916,7 +903,7 @@ function openFinanceGate(targetPage){
       window.financeUnlocked = true;
       updateFinanceLockUI();
       closeModal();
-      showPage(financeGateTargetPage||'finance');
+      showPage('finance');
     } else {
       const err = document.getElementById('financeGateError');
       if(err) err.textContent = 'الرقم السري غير صحيح، حاول تاني';
@@ -959,8 +946,6 @@ let currentPage='home';
 let calendarMonth = null; // 'YYYY-MM', يتم تعيينه أول مرة يفتح فيها صفحة المواعيد
 let calendarSelectedDay = null; // 'YYYY-MM-DD' أو null لعرض كل المواعيد
 let currentOrderFilter='all';
-let currentOrdersView='list'; // 'list' أو 'kanban'
-let personalActiveTab = 'overview'; // آخر تاب مفتوح في صفحة "التزاماتي الشخصية" (نظرة عامة/القائمة/التقارير/إعدادات)
 
 const pageTitles = {
   home:'🏠 الرئيسية', customers:'👥 العملاء', orders:'📋 الطلبات',
@@ -974,7 +959,7 @@ function showPage(name){
     toast('🔒 الصفحة دي مش متاحة في وضع الاستقبال');
     name = 'home';
   } else if((name==='finance' || name==='personal') && db && db.financePassword && !window.financeUnlocked){
-    openFinanceGate(name);
+    openFinanceGate();
     return;
   } else if(window.userRole==='manager' && name==='settings'){
     toast('🔒 صفحة الإعدادات متاحة للمالك بس');
@@ -995,15 +980,6 @@ function showPage(name){
     renderAll();
   }
   syncNavState();
-  updateTopbarHeightVar();
-}
-
-// بيقيس ارتفاع الهيدر العلوي (topbar) فعليًا ويحطه في متغيّر CSS، عشان أي عنصر
-// "لاصق" (sticky) تحته يعرف بالظبط تحت أي ارتفاع يقف من غير ما نكتب رقم ثابت
-// ممكن يبوظ مع اختلاف حجم الخط أو الشاشة أو التفاف عنوان الصفحة لسطرين
-function updateTopbarHeightVar(){
-  const tb = document.querySelector('header.topbar');
-  if(tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight+'px');
 }
 
 function openSideNav(){
@@ -1046,21 +1022,12 @@ function renderAll(){
 /* ============================================================
    حسابات مساعدة
    ============================================================ */
-// إجمالي أجرة الأصناف فقط (من غير مصاريف إضافية ولا رسوم استعجال ولا خصم/ضريبة)
-function orderItemsSum(o){
-  if(Array.isArray(o.items) && o.items.length){
-    return o.items.reduce((s,it)=>s+(Number(it.unitPrice)||0)*(Number(it.qty)||1),0);
-  }
-  return Number(o.fee)||0;
-}
-// قيمة رسوم الاستعجال بالجنيه: نسبة % من أجرة الأصناف، لو الطلب مُعلّم كمستعجل
-function orderUrgentFeeAmount(o){
-  if(!o.urgent) return 0;
-  const pct = Number(o.urgentFeePercent)||0;
-  return orderItemsSum(o) * pct/100;
-}
 function orderSubtotal(o){
-  return orderItemsSum(o) + (Number(o.extra)||0) + orderUrgentFeeAmount(o);
+  if(Array.isArray(o.items) && o.items.length){
+    const itemsSum = o.items.reduce((s,it)=>s+(Number(it.unitPrice)||0)*(Number(it.qty)||1),0);
+    return itemsSum + (Number(o.extra)||0);
+  }
+  return (Number(o.fee)||0) + (Number(o.extra)||0);
 }
 // قيمة الخصم بالجنيه (يدعم خصم نسبة % أو مبلغ ثابت، ولا يتعدى قيمة الإجمالي الفرعي)
 function orderDiscountAmount(o){
@@ -1221,97 +1188,6 @@ function statusBadge(o){
   if(o.status==='قيد العمل') return urgentTag+'<span class="badge progress">قيد العمل</span>';
   if(o.status==='جاهز للتسليم') return urgentTag+'<span class="badge ready">جاهز للتسليم</span>';
   return '<span class="badge done">تم التسليم</span>';
-}
-
-// صيغة الجمع العربي الصحيحة لعدد الأيام (يوم/يومين/N أيام/N يوم)
-function arDaysLabel(n){
-  if(n===1) return 'يوم واحد';
-  if(n===2) return 'يومين';
-  if(n>=3 && n<=10) return n+' أيام';
-  return n+' يوم';
-}
-
-// شارة صغيرة بعدد الأيام المتبقية لموعد التسليم — تبان جنب كل كارت طلب
-// عشان تدي فكرة سريعة عن الأولوية من غير ما تفتح الطلب. مش بتظهر للطلبات
-// المتأخرة (أصلاً باين عليها شارة "متأخر") ولا للمُسلَّمة.
-function daysLeftChip(o){
-  if(!o.dateDelivery || o.status==='تم التسليم' || isOverdue(o)) return '';
-  const diff = Math.round((new Date(o.dateDelivery)-new Date(todayStr()))/86400000);
-  if(diff<0) return '';
-  if(diff===0) return '<span class="days-left-chip today" title="موعد التسليم اليوم">اليوم</span>';
-  if(diff===1) return '<span class="days-left-chip tomorrow" title="موعد التسليم غدًا">غدًا</span>';
-  return `<span class="days-left-chip" title="متبقي على موعد التسليم">${arDaysLabel(diff)}</span>`;
-}
-
-// بطاقة "خصم" بشكل تيكيت معلق (hangtag) — تبان جنب سطر الإجمالي في كارت الطلب لو فيه خصم فعلي
-function discountHangtag(o){
-  const amount = orderDiscountAmount(o);
-  if(amount<=0) return '';
-  return `<span class="discount-hangtag" title="قيمة الخصم على هذا الطلب">🏷️ خصم ${Math.round(amount).toLocaleString('ar-EG')} ج.م</span>`;
-}
-
-// هل الطلب متأخر بشكل حرج (أكتر من 3 أيام) — بتفرق بصريًا عن التأخير العادي
-function isCriticallyOverdue(o){
-  if(!isOverdue(o)) return false;
-  const diff = Math.round((new Date(todayStr())-new Date(o.dateDelivery))/86400000);
-  return diff>3;
-}
-
-// تثبيت/إلغاء تثبيت طلب فوق قائمة الطلبات
-function toggleOrderPin(id){
-  const o = db.orders.find(x=>x.id===id);
-  if(!o) return;
-  o.pinned = !o.pinned;
-  o.updatedAt = Date.now();
-  saveDB();
-  renderOrders();
-}
-function pinToggleBtn(o){
-  const pinned = !!o.pinned;
-  return `<button type="button" class="pin-btn${pinned?' pinned':''}" onclick="event.stopPropagation();toggleOrderPin('${o.id}')" title="${pinned?'إلغاء تثبيت الطلب':'تثبيت الطلب فوق القائمة'}">
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="4.3" cy="4.3" r="2.6" fill="currentColor"/><line x1="6" y1="6" x2="12.3" y2="12.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-  </button>`;
-}
-
-// خط تسلسل زمني بشكل "خيط موصول" لمراحل الطلب (استلام → قيد العمل → جاهز → تسليم)
-function orderStageTimeline(o){
-  if(!o) return '';
-  const stages = ['استلام','قيد العمل','جاهز للتسليم','تم التسليم'];
-  const statusIndex = {'قيد العمل':1, 'جاهز للتسليم':2, 'تم التسليم':3};
-  const current = statusIndex[o.status]!==undefined ? statusIndex[o.status] : 1;
-  const fillPct = (current/(stages.length-1))*100;
-  const steps = stages.map((s,i)=>{
-    const state = i<current ? 'done' : (i===current ? 'current' : 'todo');
-    const needle = i===current ? '<span class="stage-needle"></span>' : '';
-    return `<div class="stage-step ${state}"><span class="stage-dot">${needle}</span><span class="stage-lbl">${s}</span></div>`;
-  }).join('');
-  return `<div class="stage-timeline"><div class="stage-thread"><div class="stage-thread-fill" style="width:${fillPct}%;"></div></div>${steps}</div>`;
-}
-
-// أثر "قص الخيط" الاحتفالي بدل التوست العادي — بيراعي تفضيل تقليل الحركة
-function celebrateScissorCut(msg){
-  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){ toast(msg); return; }
-  const old = document.getElementById('scissorCutFx');
-  if(old) old.remove();
-  const el = document.createElement('div');
-  el.id = 'scissorCutFx';
-  el.className = 'scissor-cut-fx';
-  el.innerHTML = '<div class="sc-thread"><span class="sc-half sc-left"></span><span class="sc-half sc-right"></span><span class="sc-scissor">✂️</span></div><div class="sc-caption"></div>';
-  el.querySelector('.sc-caption').textContent = msg;
-  document.body.appendChild(el);
-  setTimeout(()=>{ el.classList.add('hide'); }, 1300);
-  setTimeout(()=>{ el.remove(); }, 1650);
-}
-
-// تشغيل أنيميشن "فك الغرزة" على كارت قبل حذفه فعليًا (لو الكارت باين في الشاشة حاليًا)
-function playUnravelThenRun(selector, afterFn){
-  const el = document.querySelector(selector);
-  if(el){
-    el.classList.add('unraveling');
-    setTimeout(afterFn, 400);
-  } else {
-    afterFn();
-  }
 }
 
 /* ============================================================
@@ -1479,7 +1355,7 @@ function markOrderDelivered(orderId){
   });
   saveDB();
   renderHome();
-  celebrateScissorCut('تم تسجيل الطلب كمُنجز ✅');
+  toast('تم تسجيل الطلب كمُنجز ✅');
 }
 
 // تحريك عنصر في دور الشغل لأعلى (-1) أو لأسفل (+1) يدوياً
@@ -1686,7 +1562,7 @@ function renderGlobalSearch(){
   if(matchedCustomers.length){
     html += `<div class="section-title" style="margin-top:6px;">👥 عملاء (${matchedCustomers.length})</div>`;
     html += matchedCustomers.map(c=>`
-      <div class="card" onclick="showPage('customers');document.getElementById('custSearch').value='${escapeHtml(c.name.replace(/'/g,"\\'"))}';renderCustomers();" style="cursor:pointer;">
+      <div class="card" onclick="showPage('customers');document.getElementById('custSearch').value='${escapeHtml(c.name).replace(/'/g,"\\'")}';renderCustomers();" style="cursor:pointer;">
         <h3 class="name-row">${avatarChip(c.name)}${escapeHtml(c.name)}</h3>
         <div class="meta">📞 ${escapeHtml(c.phone||'-')}</div>
       </div>
@@ -1766,17 +1642,17 @@ function renderHome(){
     return `<div class="card">
       <div class="row">
         <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>
+        ${statusBadge(o)}
       </div>
       <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)}</div>
-      <div class="meta">💰 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م${discountHangtag(o)}</div>
+      <div class="meta">💰 المتبقي: ${orderRemaining(o).toLocaleString('ar-EG')} ج.م</div>
     </div>`;
   }).join('') : `<div class="empty-msg">لا توجد طلبات قيد العمل حالياً 🎉</div>`;
 
   const late = db.orders.filter(isOverdue).sort((a,b)=>(a.dateDelivery||'').localeCompare(b.dateDelivery||''));
   document.getElementById('homeLate').innerHTML = late.length ? late.map(o=>{
     const c = customerById(o.customerId);
-    return `<div class="card" style="border-right-color:var(--danger)" data-critical="${isCriticallyOverdue(o)?'1':''}">
+    return `<div class="card" style="border-right-color:var(--danger)">
       <div class="row">
         <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'} - ${escapeHtml(orderTypeLabel(o))}</h3>
         <span class="tag-late-text">متأخر ⏰</span>
@@ -1792,18 +1668,9 @@ function escapeHtml(s){
 }
 
 // دائرة صغيرة بحرف اسم العميل، بتضاف قبل الاسم في قوائم العملاء والطلبات والمواعيد
-// كل عميل بياخد "بصمة لون" ثابتة مشتقة من اسمه (نفس الاسم = نفس اللون دايمًا)، عشان يتميز بصريًا
-// في القوائم الطويلة. عملاء VIP (variant='accent') بيفضلوا باللون الذهبي المميز بدل لون الاسم.
 function avatarChip(name, variant){
-  const n = (name||'؟').trim();
-  const letter = n.charAt(0) || '؟';
-  if(variant==='accent'){
-    return `<span class="avatar accent">${escapeHtml(letter)}</span>`;
-  }
-  let hash = 0;
-  for(let i=0;i<n.length;i++){ hash = (hash*31 + n.charCodeAt(i)) >>> 0; }
-  const hue = hash % 360;
-  return `<span class="avatar by-name" style="--client-hue:${hue}">${escapeHtml(letter)}</span>`;
+  const letter = (name||'؟').trim().charAt(0) || '؟';
+  return `<span class="avatar${variant?' '+variant:''}">${escapeHtml(letter)}</span>`;
 }
 
 // فتح نافذة طباعة بشكل آمن — لو المتصفح منع النوافذ المنبثقة (بيحصل داخل بعض بيئات المعاينة)
@@ -1883,7 +1750,7 @@ function renderCustomers(){
         <span class="meta">${ordersCount} طلب</span>
       </div>
       <div class="meta">📞 ${escapeHtml(c.phone||'-')}</div>
-      ${c.family?`<div class="meta" style="cursor:pointer;" onclick="document.getElementById('custSearch').value='${escapeHtml(c.family.replace(/'/g,"\\'"))}'; renderCustomers();">👪 عائلة ${escapeHtml(c.family)} <span style="text-decoration:underline;">(عرض الكل)</span></div>`:''}
+      ${c.family?`<div class="meta" style="cursor:pointer;" onclick="document.getElementById('custSearch').value='${escapeHtml(c.family).replace(/'/g,"\\'")}'; renderCustomers();">👪 عائلة ${escapeHtml(c.family)} <span style="text-decoration:underline;">(عرض الكل)</span></div>`:''}
       <div class="meas-row">
         <span class="meas-chip m-length">📏 <span class="meas-lbl">الطول</span> ${c.length||'-'}</span>
         <span class="meas-chip m-sleeve">📏 <span class="meas-lbl">طول الكم</span> ${c.sleeve||'-'}</span>
@@ -2130,7 +1997,6 @@ function renderOrders(){
   }
   if(dateFrom) list = list.filter(o=> o.dateReceived && o.dateReceived>=dateFrom);
   if(dateTo) list = list.filter(o=> o.dateReceived && o.dateReceived<=dateTo);
-  list.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)); // الطلبات المثبّتة فوق، مع الحفاظ على الترتيب الأصلي بينها
 
   const summaryBox = document.getElementById('orderDateFilterSummary');
   if(dateFrom || dateTo){
@@ -2142,21 +2008,14 @@ function renderOrders(){
 
   const html = list.map(o=>{
     const c = customerById(o.customerId);
-    // [تحسين أداء] كنا بنعتمد على CSS selector من نوع :has() عشان
-    // نلوّن/نعلّم الطلبات المستعجلة — ده بيضطر المتصفح يفحص جوّه كل
-    // كارت (كل الكروت، مش بس المستعجلة) في كل مرة الصفحة بترندر، وده
-    // بطيء جدًا مع عدد طلبات كبير (اختبرناه: بيضاعف وقت الرندر 2-3
-    // مرات مع 300 طلب). الحل: نحسب الشرط جافاسكريبت مرة واحدة هنا
-    // ونضيف class مباشر على الكارت — نفس الشكل بالظبط، أسرع بكتير.
-    const isUrgentVisible = o.urgent && o.status!=='تم التسليم';
-    return `<div class="card${isUrgentVisible?' urgent-order':''}" data-status="${escapeHtml(o.status||'')}" data-order-id="${o.id}" data-critical="${isCriticallyOverdue(o)?'1':''}">
+    return `<div class="card" data-status="${escapeHtml(o.status||'')}">
       <div class="row">
-        <h3 class="name-row">${pinToggleBtn(o)}${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>
+        <h3 class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
+        ${statusBadge(o)}
       </div>
       <div class="meta">👗 النوع: ${escapeHtml(orderTypeLabel(o))}</div>
       <div class="meta">📅 الاستلام: ${fmtDate(o.dateReceived)} | التسليم: ${fmtDate(o.dateDelivery)}</div>
-      <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b>${discountHangtag(o)}</div>
+      <div class="meta">💰 الإجمالي: ${orderTotal(o).toLocaleString('ar-EG')} ج.م | المدفوع: ${(Number(o.paid)||0).toLocaleString('ar-EG')} | المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
       <div class="meta">⏱️ وقت الشغل الفعلي: ${o.workStartedAt ? `<b style="color:var(--accent);">جاري التسجيل الآن...</b>` : (o.actualMinutes?formatMinutesLabel(o.actualMinutes):'لم يبدأ بعد')}</div>
       ${o.updatedAt?`<div class="meta" style="opacity:.65;font-size:12px;">🕒 آخر تعديل: ${fmtActivityTime(o.updatedAt)}</div>`:''}
       <div class="btn-row">
@@ -2172,114 +2031,6 @@ function renderOrders(){
     </div>`;
   }).join('');
   document.getElementById('ordersList').innerHTML = html || `<div class="empty-msg">لا توجد طلبات مطابقة. اضغط ➕ لإضافة طلب جديد</div>`;
-  renderOrdersKanban();
-}
-
-const ORDER_KANBAN_STATUSES = ['قيد العمل', 'جاهز للتسليم', 'تم التسليم'];
-
-// تبديل عرض صفحة الطلبات بين القائمة والكانبان
-function setOrdersView(view){
-  currentOrdersView = view;
-  const listBox = document.getElementById('ordersList');
-  const kanbanBox = document.getElementById('ordersKanban');
-  const listBtn = document.getElementById('ordersViewListBtn');
-  const kanbanBtn = document.getElementById('ordersViewKanbanBtn');
-  if(listBox) listBox.style.display = view==='kanban' ? 'none' : '';
-  if(kanbanBox) kanbanBox.style.display = view==='kanban' ? '' : 'none';
-  if(listBtn) listBtn.classList.toggle('active', view==='list');
-  if(kanbanBtn) kanbanBtn.classList.toggle('active', view==='kanban');
-  if(view==='kanban') renderOrdersKanban();
-}
-
-function renderOrdersKanban(){
-  const box = document.getElementById('ordersKanban');
-  if(!box) return;
-  if(currentOrdersView!=='kanban'){ return; } // مفيش داعي نرسم الكانبان لو مش ظاهر
-
-  const q = (document.getElementById('orderSearch').value||'').trim();
-  const dateFrom = document.getElementById('orderDateFrom').value;
-  const dateTo = document.getElementById('orderDateTo').value;
-  let list = db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||''));
-  if(q){
-    list = list.filter(o=>{
-      const c = customerById(o.customerId);
-      return (c && c.name.includes(q)) || orderTypeLabel(o).includes(q);
-    });
-  }
-  if(dateFrom) list = list.filter(o=> o.dateReceived && o.dateReceived>=dateFrom);
-  if(dateTo) list = list.filter(o=> o.dateReceived && o.dateReceived<=dateTo);
-
-  box.innerHTML = `<div class="kanban-wrap">${ORDER_KANBAN_STATUSES.map(status=>{
-    const colOrders = list.filter(o=>o.status===status);
-    const cards = colOrders.map(o=>{
-      const c = customerById(o.customerId);
-      return `<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event,'${o.id}')" ondragend="kanbanDragEnd(event)">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-          <div class="name-row">${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</div>
-          ${daysLeftChip(o)}
-        </div>
-        <div class="meta">👗 ${escapeHtml(orderTypeLabel(o))}</div>
-        <div class="meta">📅 التسليم: ${fmtDate(o.dateDelivery)}</div>
-        <div class="meta">💰 المتبقي: <b style="color:${orderRemaining(o)>0?'var(--danger)':'var(--ok)'}">${orderRemaining(o).toLocaleString('ar-EG')}</b></div>
-        <div class="btn-row">
-          <button class="btn sm secondary" onclick="openOrderModal('${o.id}')">✏️ تعديل</button>
-          ${ORDER_KANBAN_STATUSES.filter(s=>s!==status).map(s=>`<button class="btn sm outline" onclick="changeOrderStatus('${o.id}','${s}')">➡️ ${s}</button>`).join('')}
-        </div>
-      </div>`;
-    }).join('');
-    return `<div class="kanban-col" data-status="${status}" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event,'${status}')">
-      <div class="kanban-col-head"><span>${status}</span><span class="cnt">${colOrders.length}</span></div>
-      ${cards || `<div class="kanban-empty-col">لا توجد طلبات</div>`}
-    </div>`;
-  }).join('')}</div>`;
-}
-
-let kanbanDraggedOrderId = null;
-function kanbanDragStart(ev, orderId){
-  kanbanDraggedOrderId = orderId;
-  ev.target.classList.add('dragging');
-  if(ev.dataTransfer) ev.dataTransfer.setData('text/plain', orderId);
-}
-function kanbanDragEnd(ev){
-  ev.target.classList.remove('dragging');
-  kanbanDraggedOrderId = null;
-}
-function kanbanDragOver(ev){
-  ev.preventDefault();
-  ev.currentTarget.classList.add('drag-over');
-}
-function kanbanDragLeave(ev){
-  ev.currentTarget.classList.remove('drag-over');
-}
-function kanbanDrop(ev, status){
-  ev.preventDefault();
-  ev.currentTarget.classList.remove('drag-over');
-  const orderId = kanbanDraggedOrderId || (ev.dataTransfer && ev.dataTransfer.getData('text/plain'));
-  if(orderId) changeOrderStatus(orderId, status);
-}
-
-// تغيير حالة الطلب (مستخدمة في الكانبان)
-function changeOrderStatus(orderId, newStatus){
-  const o = db.orders.find(x=>x.id===orderId);
-  if(!o || o.status===newStatus) return;
-  if(newStatus==='تم التسليم'){
-    markOrderDelivered(orderId);
-    renderOrders();
-    return;
-  }
-  const before = {status:o.status, deliveredDate:o.deliveredDate};
-  o.status = newStatus;
-  o.updatedAt = Date.now();
-  logActivity(`🔄 تغيير حالة طلب ${customerById(o.customerId)?customerById(o.customerId).name:''} إلى "${newStatus}"`);
-  setUndo('تغيير حالة الطلب', ()=>{
-    o.status = before.status;
-    o.deliveredDate = before.deliveredDate;
-    saveDB();
-    renderOrders();
-  });
-  saveDB();
-  renderOrders();
-  toast('تم تحديث الحالة ✅');
 }
 
 function customerOptions(selectedId){
@@ -2359,14 +2110,6 @@ function onItemQtyPriceInput(){
 }
 
 // تبديل تسمية حقل قيمة الخصم حسب نوعه (نسبة % أو مبلغ ثابت)
-// إظهار/إخفاء حقل نسبة رسوم الاستعجال حسب حالة checkbox "طلب مستعجل"
-function onUrgentToggle(){
-  const checked = document.getElementById('f_urgent').checked;
-  const wrap = document.getElementById('urgentFeeFieldWrap');
-  if(wrap) wrap.style.display = checked ? 'block' : 'none';
-  recalcItemsTotal();
-}
-
 function onDiscountTypeChange(){
   const type = document.getElementById('f_discountType').value;
   const lbl = document.getElementById('f_discountValueLabel');
@@ -2387,16 +2130,7 @@ function recalcItemsTotal(){
 
   const extraEl = document.getElementById('f_extra');
   const extra = extraEl ? (Number(extraEl.value)||0) : 0;
-
-  const urgentEl = document.getElementById('f_urgent');
-  const urgentFeePctEl = document.getElementById('f_urgentFeePercent');
-  const isUrgent = urgentEl ? urgentEl.checked : false;
-  const urgentFeeAmount = isUrgent ? sum * (Math.max(0, Number(urgentFeePctEl && urgentFeePctEl.value)||0))/100 : 0;
-
-  const subtotal = sum + extra + urgentFeeAmount;
-
-  const urgentFeeRow = document.getElementById('sumUrgentFeeRow');
-  if(urgentFeeRow) urgentFeeRow.style.display = urgentFeeAmount>0 ? '' : 'none';
+  const subtotal = sum + extra;
 
   const discTypeEl = document.getElementById('f_discountType');
   const discValEl = document.getElementById('f_discountValue');
@@ -2414,7 +2148,6 @@ function recalcItemsTotal(){
 
     const set = (id, val)=>{ const el=document.getElementById(id); if(el) el.textContent = Math.round(val).toLocaleString('ar-EG')+' ج.م'; };
     set('sumSubtotal', subtotal);
-    set('sumUrgentFee', urgentFeeAmount);
     set('sumDiscount', discountAmount);
     set('sumTax', taxAmount);
     set('sumFinal', final);
@@ -2441,7 +2174,6 @@ function openOrderModal(id, presetCustomerId){
 
   const html = `
     <div class="modal-head"><h3>${o?'✏️ تعديل طلب':'➕ طلب جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    ${o ? orderStageTimeline(o) : ''}
     <div class="field"><label>العميل</label><select id="f_customer" onchange="renderOrderCustomerMeasurements();maybeApplyVipDiscount();">${customerOptions(o?o.customerId:presetCustomerId)}</select></div>
     <div id="orderCustomerMeasurements" style="margin:-6px 0 12px;"></div>
     <div class="section-title" style="margin:6px 0 8px;font-size:14.5px;">👗 أصناف الطلب</div>
@@ -2472,19 +2204,14 @@ function openOrderModal(id, presetCustomerId){
     </div>
     <div id="vipDiscountBadge" class="meta" style="display:none;color:#9a6b00;margin:-6px 0 6px;">⭐ العميل ده VIP — تم اقتراح خصم تلقائي، وتقدر تغيّره أو تلغيه من فوق</div>
     <div class="field"><label>نسبة ضريبة/رسوم إضافية على هذا الطلب (%)</label><input id="f_taxPercent" type="number" min="0" step="0.1" value="${o?(o.taxPercent!==undefined?o.taxPercent:0):(db.taxDefaultPercent||0)}" oninput="recalcItemsTotal()"></div>
-    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="f_urgent" type="checkbox" style="width:18px;height:18px;" ${o&&o.urgent?'checked':''} onchange="onUrgentToggle()"> 🔥 طلب مستعجل</label></div>
-    <div class="field" id="urgentFeeFieldWrap" style="display:${o&&o.urgent?'block':'none'};">
-      <label>نسبة رسوم الاستعجال (%)</label>
-      <input id="f_urgentFeePercent" type="number" min="0" step="0.1" value="${o&&o.urgentFeePercent!==undefined?o.urgentFeePercent:(db.urgentFeeDefaultPercent||0)}" oninput="recalcItemsTotal()">
-    </div>
     <div class="card" id="orderTotalsBox" style="margin:4px 0 14px;padding:12px;background:var(--card-alt);">
       <div class="row"><span class="meta">الإجمالي الفرعي</span><b id="sumSubtotal">0 ج.م</b></div>
-      <div class="row" id="sumUrgentFeeRow" style="display:none;"><span class="meta">🔥 رسوم الاستعجال</span><b id="sumUrgentFee">0 ج.م</b></div>
       <div class="row"><span class="meta">الخصم</span><b id="sumDiscount" style="color:var(--danger);">0 ج.م</b></div>
       <div class="row"><span class="meta">الضريبة/الرسوم</span><b id="sumTax">0 ج.م</b></div>
       <div class="row" style="border-top:1px dashed var(--stitch);margin-top:6px;padding-top:6px;"><span style="font-weight:700;">الإجمالي النهائي</span><b style="color:var(--heading);font-size:16px;" id="sumFinal">0 ج.م</b></div>
     </div>
     <div class="field"><label>تكلفة الخامة/القماش (ج.م) <span class="meta">— اختياري، لحساب صافي الربح</span></label><input id="f_materialCost" type="number" value="${o?o.materialCost||0:0}"></div>
+    <div class="field"><label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input id="f_urgent" type="checkbox" style="width:18px;height:18px;" ${o&&o.urgent?'checked':''}> 🔥 طلب مستعجل</label></div>
     <div class="field"><label>المدفوع مقدماً (ج.م)</label><input id="f_paid" type="number" value="${o?o.paid||0:0}" ${o?'disabled':''}></div>
     ${o?'<p class="meta">لتسجيل دفعة جديدة استخدم زر "تسجيل دفعة" من قائمة الطلبات.</p>':''}
     <div class="field"><label>الحالة</label>
@@ -2607,8 +2334,6 @@ function saveOrder(id){
   const extra = Number(document.getElementById('f_extra').value)||0;
   const materialCost = Number(document.getElementById('f_materialCost').value)||0;
   const urgent = document.getElementById('f_urgent').checked;
-  const urgentFeePercentEl = document.getElementById('f_urgentFeePercent');
-  const urgentFeePercent = Math.max(0, Number(urgentFeePercentEl && urgentFeePercentEl.value)||0);
   const status = document.getElementById('f_status').value;
   const fee = items.reduce((s,it)=>s+it.qty*it.unitPrice,0);
   const discountType = document.getElementById('f_discountType').value;
@@ -2634,7 +2359,7 @@ function saveOrder(id){
     const o = db.orders.find(x=>x.id===id);
     const before = JSON.parse(JSON.stringify(o));
     const wasDelivered = o.status==='تم التسليم';
-    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, urgentFeePercent, status, discountType, discountValue, taxPercent, updatedAt:Date.now()});
+    Object.assign(o, {customerId, items, type:legacyType, qty:undefined, unitPrice:undefined, dateReceived, dateDelivery, fee, extra, materialCost, urgent, status, discountType, discountValue, taxPercent, updatedAt:Date.now()});
     if(status==='تم التسليم' && !wasDelivered && !o.deliveredDate){
       o.deliveredDate = todayStr();
       finalizeWorkTimeIfRunning(o);
@@ -2653,7 +2378,7 @@ function saveOrder(id){
   } else {
     const paid = Number(document.getElementById('f_paid').value)||0;
     if(paid<0){ toast('المبلغ المدفوع لا يمكن أن يكون رقماً سالباً'); return; }
-    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, urgentFeePercent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001, updatedAt:Date.now()};
+    const newOrder = {id:uid(), customerId, items, type:legacyType, dateReceived, dateDelivery, fee, extra, materialCost, urgent, paid, status, discountType, discountValue, taxPercent, deliveredDate: status==='تم التسليم'?todayStr():null, invoiceNumber: db.nextInvoiceNumber||1001, updatedAt:Date.now()};
     db.nextInvoiceNumber = (db.nextInvoiceNumber||1001) + 1;
     if(paid>orderTotal(newOrder)){ toast('المبلغ المدفوع أكبر من إجمالي الطلب، تأكد من الرقم'); db.nextInvoiceNumber--; return; }
     db.orders.push(newOrder);
@@ -2681,16 +2406,14 @@ async function deleteOrder(id){
   if(!await appConfirm('هل تريد حذف هذا الطلب؟ يمكنك استرجاعه خلال 7 أيام من سلة المحذوفات.')) return;
   const o = db.orders.find(x=>x.id===id);
   if(!o) return;
-  playUnravelThenRun(`.card[data-order-id="${id}"]`, function(){
-    const relatedPayments = db.payments.filter(p=>p.orderId===id);
-    db.orders = db.orders.filter(x=>x.id!==id);
-    db.payments = db.payments.filter(p=>p.orderId!==id);
-    db.trash.push({id:uid(), type:'order', deletedAt:todayStr(), data:o, payments:relatedPayments});
-    logActivity(`🗑️ حذف طلب ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
-    saveDB();
-    renderOrders();
-    toast('تم نقل الطلب لسلة المحذوفات');
-  });
+  const relatedPayments = db.payments.filter(p=>p.orderId===id);
+  db.orders = db.orders.filter(x=>x.id!==id);
+  db.payments = db.payments.filter(p=>p.orderId!==id);
+  db.trash.push({id:uid(), type:'order', deletedAt:todayStr(), data:o, payments:relatedPayments});
+  logActivity(`🗑️ حذف طلب ${customerById(o.customerId)?customerById(o.customerId).name:''}`);
+  saveDB();
+  renderOrders();
+  toast('تم نقل الطلب لسلة المحذوفات');
 }
 
 /* ============================================================
@@ -3035,7 +2758,6 @@ function buildReceiptBodyHtml(orderId, opts){
   if(!o) return '';
   if(!opts.preview && !o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
-  const urgentFee = orderUrgentFeeAmount(o);
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
@@ -3090,7 +2812,6 @@ function buildReceiptBodyHtml(orderId, opts){
         <div class="totals-box">
           <table>
             <tr><td class="lbl">${escapeHtml(L.extraLabel)}</td><td class="val">${o.extra||0} ج.م</td></tr>
-            ${urgentFee>0?`<tr><td class="lbl">🔥 رسوم استعجال</td><td class="val">+${Math.round(urgentFee).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
             ${discount>0?`<tr><td class="lbl">${escapeHtml(L.discountLabel)}</td><td class="val">-${Math.round(discount).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
             ${tax>0?`<tr><td class="lbl">${escapeHtml(L.taxLabel)}</td><td class="val">+${Math.round(tax).toLocaleString('ar-EG')} ج.م</td></tr>`:''}
             <tr class="total-row"><td class="lbl">${escapeHtml(L.totalLabel)}</td><td class="val">${Math.round(total).toLocaleString('ar-EG')} ج.م</td></tr>
@@ -3222,7 +2943,6 @@ async function drawReceiptCanvas(orderId){
   const o = db.orders.find(x=>x.id===orderId);
   if(!o.invoiceNumber){ o.invoiceNumber = db.nextInvoiceNumber||1001; db.nextInvoiceNumber=(db.nextInvoiceNumber||1001)+1; saveDB(); }
   const c = customerById(o.customerId);
-  const urgentFee = orderUrgentFeeAmount(o);
   const discount = orderDiscountAmount(o);
   const tax = orderTaxAmount(o);
   const total = orderTotal(o);
@@ -3248,7 +2968,6 @@ async function drawReceiptCanvas(orderId){
     [L.deliveryLabel, fmtDate(o.dateDelivery)]
   ];
   const totalsRows = [[L.extraLabel, (o.extra||0)+' ج.م', false, false]];
-  if(urgentFee>0) totalsRows.push(['🔥 رسوم استعجال', '+'+Math.round(urgentFee).toLocaleString('ar-EG')+' ج.م', false, false]);
   if(discount>0) totalsRows.push([L.discountLabel, '-'+Math.round(discount).toLocaleString('ar-EG')+' ج.م', false, false]);
   if(tax>0) totalsRows.push([L.taxLabel, '+'+Math.round(tax).toLocaleString('ar-EG')+' ج.م', false, false]);
   totalsRows.push([L.totalLabel, Math.round(total).toLocaleString('ar-EG')+' ج.م', true, false]);
@@ -3651,32 +3370,14 @@ function renderFinance(){
 }
 
 function renderPersonalPage(){
-  renderPersonalAlerts();
   renderRequiredCapacityCard();
-  commitmentsListShowCount = 8;
   renderCommitments();
-  houseExpensesListShowCount = 8;
   renderHouseExpenses();
   commitmentPaymentsLogShowCount = 15;
   renderCommitmentPaymentsLog();
   renderCommitmentsSettingsCard();
   populatePersonalMonthSelect();
   renderPersonalCommitmentsReport();
-  showPersonalTab(personalActiveTab); // يحافظ على آخر تاب كان مفتوح بدل ما يرجّع لـ"نظرة عامة" كل مرة
-}
-
-// تبديل التابات الفرعية لصفحة "التزاماتي الشخصية" (نظرة عامة / القائمة / التقارير / إعدادات)
-function showPersonalTab(tab){
-  personalActiveTab = tab;
-  document.querySelectorAll('#page-personal .personal-tab-content').forEach(el=>{
-    el.classList.toggle('active', el.id === 'personalTab-'+tab);
-  });
-  document.querySelectorAll('#personalTabs .settings-tab-btn').forEach(b=>{
-    b.classList.toggle('active', b.getAttribute('data-personal-tab')===tab);
-  });
-  // إعادة رسم أي محتوى بصري (زي رسم بياني) لو كان جوه تاب متخفي وقت أول رسم،
-  // عشان الـ canvas مايطلعش فاضي بسبب إنه كان display:none وقت الرسم الأول
-  if(tab==='list' && typeof renderHouseExpenses==='function') renderHouseExpenses();
 }
 
 function populatePersonalMonthSelect(){
@@ -3715,25 +3416,10 @@ function workDaysInLastNDays(n){
   return Math.max(count,1);
 }
 
-// نصيب أي التزام شهريًا: الالتزامات العادية بقيمتها كاملة، أما الالتزامات
-// غير الشهرية (كل 3/6/12 شهر عبر intervalMonths) فبنقسم قيمتها على دورتها
-// عشان نوزّع تكلفتها على شهور الدورة كلها بدل ما تتحسب مرة واحدة بس
-function commitmentMonthlyShare(c){
-  const interval = Number(c.intervalMonths)||1;
-  return Number(c.amount||0) / Math.max(1, interval);
-}
-
-// نصيب القروض الشخصية شهريًا (بند 34) — منفصلة عن db.commitments لكن لازم
-// تدخل في حساب الاحتياج اليومي زي أي التزام تاني، وإلا هيبقى الرقم ناقص
-function personalLoansMonthlyShare(){
-  return (db.personalLoans||[]).filter(l=>l.active!==false).reduce((s,l)=>s+Number(l.monthlyPayment||0),0);
-}
-
 function calcRequiredDailyCapacity(){
-  const monthlyCommitments = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+commitmentMonthlyShare(c),0);
-  const loanMonthly = personalLoansMonthlyShare();
+  const monthlyCommitments = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
   const wdays = workDaysInLastNDays(30); // متوسط أيام الشغل في الشهر
-  const commitmentsPerDay = (monthlyCommitments+loanMonthly) / wdays;
+  const commitmentsPerDay = monthlyCommitments / wdays;
 
   const since = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
   const houseRecent = (db.houseExpenses||[]).filter(e=>e.date>=since);
@@ -3741,7 +3427,7 @@ function calcRequiredDailyCapacity(){
   const housePerDay = houseTotal / 30;
 
   const total = commitmentsPerDay + housePerDay;
-  return {monthlyCommitments, loanMonthly, wdays, commitmentsPerDay, houseTotal, housePerDay, total};
+  return {monthlyCommitments, wdays, commitmentsPerDay, houseTotal, housePerDay, total};
 }
 
 function renderRequiredCapacityCard(){
@@ -3749,7 +3435,7 @@ function renderRequiredCapacityCard(){
   if(!box) return;
   const r = calcRequiredDailyCapacity();
   const currentCapacity = Number(db.dailyCapacity)||500;
-  const hasData = r.monthlyCommitments>0 || r.houseTotal>0 || r.loanMonthly>0;
+  const hasData = r.monthlyCommitments>0 || r.houseTotal>0;
   if(!hasData){
     box.innerHTML = `<div class="card"><div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك اليومية تحت، وهنحسبلك تلقائي قد إيه محتاج تكسب يوميًا من الورشة.</div></div>`;
     return;
@@ -3759,8 +3445,7 @@ function renderRequiredCapacityCard(){
     <div class="card" style="${diff>0?'border-right:4px solid var(--danger);':''}">
       <div class="row"><h3>💡 الحد الأدنى المطلوب يوميًا من الورشة</h3><b style="color:${diff>0?'var(--danger)':'var(--primary)'};font-size:18px;">${Math.ceil(r.total).toLocaleString('ar-EG')} ج.م</b></div>
       <div class="meta" style="line-height:1.8;">
-        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا (شامل أي بند "💰 ادخار" مسجّل، ومحسوب بالتناسب لأي التزام غير شهري): ${Math.ceil((r.monthlyCommitments)/r.wdays).toLocaleString('ar-EG')} ج.م (من إجمالي ${Math.round(r.monthlyCommitments).toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
-        ${r.loanMonthly>0?`💳 نصيب أقساط القروض الشخصية يوميًا: ${Math.ceil(r.loanMonthly/r.wdays).toLocaleString('ar-EG')} ج.م (من إجمالي ${Math.round(r.loanMonthly).toLocaleString('ar-EG')} ج.م شهريًا)<br>`:''}
+        📌 نصيب الأقساط/الالتزامات الثابتة يوميًا: ${Math.ceil(r.commitmentsPerDay).toLocaleString('ar-EG')} ج.م (من إجمالي ${r.monthlyCommitments.toLocaleString('ar-EG')} ج.م شهريًا ÷ ${r.wdays} يوم شغل)<br>
         🏠 متوسط مصاريف البيت اليومية (آخر 30 يوم): ${Math.round(r.housePerDay).toLocaleString('ar-EG')} ج.م
       </div>
       ${diff>0
@@ -3802,27 +3487,6 @@ function diffMonthsYM(fromYM, toYM){
   return (ty-fy)*12 + (tm-fm);
 }
 
-// بيضيف n شهر على شهر بصيغة 'YYYY-MM' ويرجّع نفس الصيغة
-function addMonthsYM(ym, n){
-  const [y,m] = ym.split('-').map(Number);
-  const total = (y*12+(m-1))+n;
-  const ny = Math.floor(total/12), nm = (total%12)+1;
-  return ny+'-'+String(nm).padStart(2,'0');
-}
-
-// هل الشهر ده (ym) هو شهر استحقاق فعلي لالتزام غير شهري (كل 3/6/12 شهر)؟
-// الالتزامات الشهرية العادية (intervalMonths=1 أو مش متسجل) مستحقة كل شهر
-// زي ما هو معتاد. أما غير الشهرية فبتستحق بس كل N شهر بدءًا من cycleStartYM
-// (أو الشهر الحالي وقت إضافتها لو مالهاش شهر بداية محدد).
-function isCommitmentCycleMonth(c, ym){
-  const interval = Number(c.intervalMonths)||1;
-  if(interval<=1) return true;
-  const anchor = c.cycleStartYM || currentYM();
-  const diff = diffMonthsYM(anchor, ym);
-  if(diff<0) return false; // لسه قبل أول استحقاق للالتزام ده
-  return diff % interval === 0;
-}
-
 // بينزّل عداد "باقي كام شهر" لأي التزام له مدة محددة، مرة واحدة لكل شهر
 // جديد (بيحسب كل الشهور اللي فاتت من غير ما تفتح التطبيق كمان). لما العداد
 // يوصل صفر، الالتزام بيتوقف تلقائياً (active=false) زي ما لو دفعته وخلص.
@@ -3834,11 +3498,9 @@ function rolloverCommitmentsMonthly(){
   const prevYM = db.lastCommitmentsMonthCheck;
   if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
   (db.commitments||[]).forEach(c=>{
-    // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص،
-    // وبس لو الشهر اللي فات ده أصلاً شهر استحقاق فعلي للالتزام ده — عشان الالتزامات غير الشهرية
-    // متتحسبش "فاتتك" في شهور مش من حقها)
-    if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM && isCommitmentCycleMonth(c, prevYM)){
-      db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, type:c.type||'تانية', month:prevYM});
+    // فاتك تعليم الدفع؟ (بس للأقساط اللي ليها يوم استحقاق ومكانتش متعلّمة كمدفوعة قبل ما الشهر يخلص)
+    if(c.active!==false && c.dueDay && c.lastPaidMonth!==prevYM){
+      db.missedCommitmentNotices.push({id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, month:prevYM});
     }
     if(c.remainingMonths!=null && c.active!==false){
       c.remainingMonths = Math.max(0, c.remainingMonths - elapsed);
@@ -3863,15 +3525,6 @@ function commitmentDueDateStr(c, refStr){
   return `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 }
 
-// عدد الأيام المتبقية لاستحقاق الالتزام (سالب لو فات موعده)، أو null لو مالوش يوم استحقاق
-// أو كان متدفوع بالفعل الشهر ده (يبقى مالوش استحقاق "قريب" حاليًا)
-function commitmentDaysUntilDue(c){
-  if(!c.dueDay || c.lastPaidMonth===currentYM()) return null;
-  if(!isCommitmentCycleMonth(c, currentYM())) return null; // التزام غير شهري ومش مستحق الشهر ده
-  const due = commitmentDueDateStr(c);
-  return Math.round((new Date(due)-new Date(todayStr()))/86400000);
-}
-
 // الأقساط اللي مستحقة خلال 3 أيام أو متأخرة، ولسه ملحّقتش تتعلّم كمدفوعة الشهر ده
 function getCommitmentDueAlerts(){
   const today = todayStr();
@@ -3879,7 +3532,6 @@ function getCommitmentDueAlerts(){
   const alerts = [];
   (db.commitments||[]).filter(c=>c.active!==false && c.dueDay).forEach(c=>{
     if(c.lastPaidMonth===nowYM) return;
-    if(!isCommitmentCycleMonth(c, nowYM)) return; // مش شهر استحقاق للالتزام ده (غير شهري)
     const due = commitmentDueDateStr(c);
     const diff = Math.round((new Date(due)-new Date(today))/86400000);
     if(diff<=3) alerts.push({c, diff, due});
@@ -3910,7 +3562,7 @@ function houseExpenseAnomalyToday(){
 // شريط تقدّم الشهر: كسبت كام من إجمالي المطلوب لتغطية التزاماتك الشهر ده
 function monthlyCommitmentProgress(){
   const r = calcRequiredDailyCapacity();
-  const requiredMonthly = r.monthlyCommitments + r.loanMonthly + r.housePerDay*30;
+  const requiredMonthly = r.monthlyCommitments + r.housePerDay*30;
   if(requiredMonthly<=0) return null;
   const yearMonth = currentYM();
   const collectedMonth = db.payments.filter(p=>p.date.slice(0,7)===yearMonth).reduce((s,p)=>s+Number(p.amount||0),0);
@@ -3934,7 +3586,7 @@ function deferrableSuggestion(){
   if(currentCapacity >= r.total) return null;
   const deferrable = (db.commitments||[]).filter(c=>c.active!==false && c.priority==='deferrable');
   if(!deferrable.length) return null;
-  const deferrableTotal = deferrable.reduce((s,c)=>s+commitmentMonthlyShare(c),0);
+  const deferrableTotal = deferrable.reduce((s,c)=>s+Number(c.amount||0),0);
   const reducedTotal = r.total - (deferrableTotal/r.wdays);
   return {count:deferrable.length, deferrableTotal, reducedTotal, currentTotal:r.total};
 }
@@ -3951,7 +3603,7 @@ function markCommitmentPaidThisMonth(id){
   const before = c.lastPaidMonth;
   c.lastPaidMonth = currentYM();
   if(!db.commitmentPayments) db.commitmentPayments=[];
-  const paymentRecord = {id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, type:c.type||'تانية', date:todayStr(), month:currentYM()};
+  const paymentRecord = {id:uid(), commitmentId:c.id, desc:c.desc, amount:c.amount, date:todayStr(), month:currentYM()};
   db.commitmentPayments.push(paymentRecord);
   if(db.commitmentPayments.length>200) db.commitmentPayments = db.commitmentPayments.slice(-200);
   saveDB();
@@ -3977,7 +3629,7 @@ function acknowledgeMissedCommitmentNotice(id, alsoLogPaid){
   if(!n) return;
   if(alsoLogPaid){
     if(!db.commitmentPayments) db.commitmentPayments=[];
-    db.commitmentPayments.push({id:uid(), commitmentId:n.commitmentId, desc:n.desc, amount:n.amount, type:n.type||'تانية', date:todayStr(), month:n.month});
+    db.commitmentPayments.push({id:uid(), commitmentId:n.commitmentId, desc:n.desc, amount:n.amount, date:todayStr(), month:n.month});
   }
   db.missedCommitmentNotices = (db.missedCommitmentNotices||[]).filter(x=>x.id!==id);
   saveDB();
@@ -4000,7 +3652,6 @@ function dismissOldMissedNotices(){
 // سجل دفعات الأقساط (تاريخ فعلي لكل مرة اتعلّم فيها القسط كمدفوع)
 function renderCommitmentPaymentsLog(){
   const box = document.getElementById('commitmentPaymentsLog');
-  renderSavingsGoalCard();
   if(!box) return;
   const all = (db.commitmentPayments||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
   const list = all.slice(0, commitmentPaymentsLogShowCount);
@@ -4024,78 +3675,6 @@ function renderCommitmentPaymentsLog(){
 function showMoreCommitmentPayments(){
   commitmentPaymentsLogShowCount += 15;
   renderCommitmentPaymentsLog();
-}
-
-/* ---- هدف الادخار: بند "💰 ادخار" جوه نفس قائمة الالتزامات، والمتجمّع
-   بيتحسب من سجل الدفعات نفسه (نفس زرار "✅ اتدفع الشهر ده") من غير عداد منفصل
-   عشان نضمن إنه دايمًا متطابق مع السجل، حتى لو السجل اتعدّل أو اتحذف منه دفعة ---- */
-// إجمالي المُدّخر لهدف الادخار الحالي: من سجل دفعات بند "💰 ادخار" مطروحًا
-// منه أي مبلغ اترحّل بالفعل لصندوق الطوارئ (عشان لما ترحّل هدف محقق، العداد
-// يرجع يبدأ من الصفر للهدف الجديد بدل ما يفضل شايل رصيد قديم اترحّل بالفعل)
-function totalSavedAmount(){
-  const raw = (db.commitmentPayments||[]).filter(p=>p.type==='ادخار').reduce((s,p)=>s+Number(p.amount||0),0);
-  return Math.max(0, raw - Number(db.savingsGoalTransferredAmount||0));
-}
-
-// ترحيل رصيد هدف الادخار الحالي (كله أو اللي اتجمع لحد دلوقتي) لصندوق
-// الطوارئ — بيربط المفهومين ببعض بدل ما يفضلوا منفصلين تمامًا: هدف الادخار
-// بيتجمع لغرض معيّن، ولما يتحقق (أو حتى قبل كده) تقدر ترحّله كاحتياطي جاهز
-function transferSavingsToEmergencyFund(){
-  const saved = totalSavedAmount();
-  if(saved<=0){ toast('لا يوجد مبلغ للترحيل دلوقتي'); return; }
-  db.emergencyFundBalance = Number(db.emergencyFundBalance||0) + saved;
-  db.savingsGoalTransferredAmount = Number(db.savingsGoalTransferredAmount||0) + saved;
-  saveDB();
-  renderSavingsGoalCard();
-  if(typeof renderEmergencyFundCard==='function') renderEmergencyFundCard();
-  if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
-  toast(`✅ اترحّل ${saved.toLocaleString('ar-EG')} ج.م لصندوق الطوارئ`);
-}
-
-function renderSavingsGoalCard(){
-  const box = document.getElementById('savingsGoalCard');
-  if(!box) return;
-  const target = Number(db.savingsGoalTarget)||0;
-  const saved = totalSavedAmount();
-  const linkNote = `<div class="meta" style="margin-top:6px;">ℹ️ هدف الادخار لغرض بتحدده بمبلغ معيّن، وصندوق الطوارئ احتياطي جاهز لو الدخل وقف فجأة — لما توصل لهدفك (أو حتى قبل كده) ينفع ترحّل اللي اتجمع لصندوق الطوارئ.</div>`;
-  if(!target && !saved){
-    box.innerHTML = `
-      <div class="row"><h3>🎯 هدف الادخار</h3></div>
-      <div class="meta">حدد مبلغ تستهدف توفيره (زي مصاريف طوارئ لكذا شهر) وتابع تقدمك هنا. سجّل التوفير الشهري كبند "💰 ادخار" فوق واضغط "✅ اتدفع الشهر ده" عشان يتحسب هنا.</div>
-      <div class="btn-row" style="margin-top:8px;"><button class="btn sm outline" onclick="openSavingsGoalModal()">🎯 تحديد هدف</button></div>
-      ${linkNote}
-    `;
-    return;
-  }
-  const pct = target ? Math.min(100, Math.round(saved/target*100)) : 0;
-  const goalReached = target>0 && saved>=target;
-  box.innerHTML = `
-    <div class="row"><h3>🎯 هدف الادخار</h3><button class="btn sm outline" onclick="openSavingsGoalModal()">✏️ تعديل الهدف</button></div>
-    <div class="meta">اتجمع <b style="color:var(--ok)">${saved.toLocaleString('ar-EG')} ج.م</b>${target?` من ${target.toLocaleString('ar-EG')} ج.م (${pct}%)`:' — لسه محدّدتش هدف بمبلغ'}</div>
-    ${target ? `<div class="savings-progress-track"><div class="savings-progress-fill" style="width:${pct}%;"></div></div>` : ''}
-    ${goalReached ? `<div class="meta" style="color:var(--primary);margin-top:6px;">🎉 مبروك، حققت هدف الادخار!</div>` : ''}
-    ${saved>0 ? `<div class="btn-row" style="margin-top:8px;"><button class="btn sm outline" onclick="transferSavingsToEmergencyFund()">🧳 رحّل ${saved.toLocaleString('ar-EG')} ج.م لصندوق الطوارئ</button></div>` : ''}
-    ${linkNote}
-  `;
-}
-
-function openSavingsGoalModal(){
-  const html = `
-    <div class="modal-head"><h3>🎯 هدف الادخار</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>المبلغ المستهدف (ج.م)</label><input id="f_savingsTarget" type="number" min="0" placeholder="مثال: 15000" value="${db.savingsGoalTarget?db.savingsGoalTarget:''}"></div>
-    <div class="meta">اقتراح: تقدر تحسبه كـ 3 أشهر من (إجمالي التزاماتك الشهرية + متوسط مصروف بيتك).</div>
-    <button class="btn" onclick="saveSavingsGoal()">💾 حفظ</button>
-  `;
-  openModal(html);
-}
-
-function saveSavingsGoal(){
-  const target = Math.max(0, Number(document.getElementById('f_savingsTarget').value)||0);
-  db.savingsGoalTarget = target;
-  saveDB();
-  closeModal();
-  renderSavingsGoalCard();
-  toast('تم الحفظ ✅');
 }
 
 function editCommitmentPayment(id){
@@ -4291,14 +3870,14 @@ function renderPersonalAlerts(){
   if(!box) return;
   if(window.userRole==='receptionist'){ box.innerHTML=''; return; }
   if(db.financePassword && !window.financeUnlocked){
-    box.innerHTML = `<div class="alert-banner warn"><span class="ic">🔒</span><div><b>تنبيهات التزاماتك الشخصية محمية</b>افتح الصفحة بالرقم السري لعرضها هنا.
-      <div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="openFinanceGate('personal')">🔓 فتح</button></div>
+    box.innerHTML = `<div class="alert-banner warn"><span class="ic">🔒</span><div><b>تنبيهات التزاماتك الشخصية محمية</b>افتح صفحة المالية بالرقم السري لعرضها هنا.
+      <div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="openFinanceGate()">🔓 فتح</button></div>
     </div></div>`;
     return;
   }
   const hasData = (db.commitments||[]).length>0 || (db.houseExpenses||[]).length>0;
   if(!hasData){
-    box.innerHTML = `<div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك من تاب "📋 القائمة" عشان تظهر هنا تنبيهاتك الشخصية.</div>`;
+    box.innerHTML = `<div class="empty-msg">أضف التزاماتك الشهرية ومصاريف بيتك من صفحة المالية عشان تظهر هنا تنبيهاتك الشخصية.</div>`;
     return;
   }
 
@@ -4373,196 +3952,41 @@ function renderPersonalAlerts(){
 }
 
 /* ---- الالتزامات الشهرية الثابتة (أقساط، إيجار، فواتير...) ---- */
-/* ---- تصنيف الالتزامات الشهرية بالنوع ---- */
-const COMMITMENT_TYPES = [
-  {key:'إيجار', icon:'🏠', label:'🏠 إيجار'},
-  {key:'قسط', icon:'💳', label:'💳 قسط'},
-  {key:'فاتورة', icon:'🧾', label:'🧾 فاتورة'},
-  {key:'اشتراك', icon:'🔁', label:'🔁 اشتراك'},
-  {key:'ادخار', icon:'💰', label:'💰 ادخار'},
-  {key:'تانية', icon:'📌', label:'📌 تانية'},
-];
-function commitmentTypeInfo(key){
-  return COMMITMENT_TYPES.find(t=>t.key===key) || COMMITMENT_TYPES[COMMITMENT_TYPES.length-1];
-}
-
-let commitmentsArchiveOpen = false;
-function toggleCommitmentsArchive(){
-  commitmentsArchiveOpen = !commitmentsArchiveOpen;
-  renderCommitments();
-}
-
-let commitmentsTypeFilter = 'all';
-function setCommitmentsTypeFilter(type){
-  commitmentsTypeFilter = type;
-  commitmentsListShowCount = 8;
-  renderCommitments();
-}
-
-function commitmentCardHtml(c, archived){
+function renderCommitments(){
+  const total = (db.commitments||[]).filter(c=>c.active!==false).reduce((s,c)=>s+Number(c.amount||0),0);
+  const el = document.getElementById('totalCommitmentsTxt');
+  if(el) el.textContent = total.toLocaleString('ar-EG')+' ج.م / شهر';
+  const list = (db.commitments||[]).slice().sort((a,b)=>Number(b.amount)-Number(a.amount));
+  const box = document.getElementById('commitmentsList');
+  if(!box) return;
   const nowYM = currentYM();
-  const paidThisMonth = c.lastPaidMonth===nowYM;
-  const info = commitmentTypeInfo(c.type);
-  const interval = Number(c.intervalMonths)||1;
-  const intervalLabel = (COMMITMENT_INTERVALS.find(i=>i.key===interval)||{}).label || 'شهري';
-  return `
-    <div class="card" data-type="${escapeHtml(c.type||'تانية')}">
+  box.innerHTML = list.length ? list.map(c=>{
+    const paidThisMonth = c.lastPaidMonth===nowYM;
+    return `
+    <div class="card">
       <div class="row">
-        <h3>${info.icon} ${escapeHtml(c.desc)}${archived?' <span class="meta">(متوقف)</span>':''}</h3>
-        <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م${interval>1?` <span class="meta">/ ${intervalLabel}</span>`:''}</b>
+        <h3>${escapeHtml(c.desc)}${c.active===false?' <span class="meta">(متوقف)</span>':''}</h3>
+        <b style="color:var(--danger)">${Number(c.amount).toLocaleString('ar-EG')} ج.م</b>
       </div>
       <div class="meta">
-        ${info.label}${interval>1?` — 🔁 ${intervalLabel} (يعادل ${Math.round(commitmentMonthlyShare(c)).toLocaleString('ar-EG')} ج.م/شهر)`:''}${c.dueDay?` — 📅 يستحق يوم ${c.dueDay} من كل شهر استحقاق`:''} — ${c.priority==='deferrable'?'⚖️ ممكن يتأجل':'🔴 ضروري'}${c.remainingMonths!=null?` — 🏁 باقي ${c.remainingMonths} شهر`:''}${paidThisMonth?' — ✅ مدفوع الشهر ده':''}
+        ${c.dueDay?`📅 يستحق يوم ${c.dueDay} من كل شهر — `:''}${c.priority==='deferrable'?'⚖️ ممكن يتأجل':'🔴 ضروري'}${c.remainingMonths!=null?` — 🏁 باقي ${c.remainingMonths} شهر`:''}${paidThisMonth?' — ✅ مدفوع الشهر ده':''}
       </div>
       <div class="btn-row">
-        ${!archived && c.dueDay && !paidThisMonth && (interval<=1 || isCommitmentCycleMonth(c, nowYM)) ? `<button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${c.id}')">✅ اتدفع الشهر ده</button>` : ''}
+        ${c.active!==false && c.dueDay && !paidThisMonth ? `<button class="btn sm outline" onclick="markCommitmentPaidThisMonth('${c.id}')">✅ اتدفع الشهر ده</button>` : ''}
         <button class="btn sm outline" onclick="openCommitmentModal('${c.id}')">✏️ تعديل</button>
         <button class="btn sm danger" onclick="deleteCommitment('${c.id}')">🗑️ حذف</button>
       </div>
     </div>
-  `;
+  `;}).join('') : `<div class="empty-msg">لا توجد التزامات مسجلة</div>`;
 }
 
-function renderCommitments(){
-  const activeAll = (db.commitments||[]).filter(c=>c.active!==false);
-  const total = activeAll.reduce((s,c)=>s+commitmentMonthlyShare(c),0);
-  const totalTxt = Math.round(total).toLocaleString('ar-EG')+' ج.م / شهر';
-  const el = document.getElementById('totalCommitmentsTxt');
-  if(el) el.textContent = totalTxt;
-  const stickyEl = document.getElementById('stickyCommitmentsTotalTxt');
-  const stickyBar = document.querySelector('.sticky-total-bar');
-  if(stickyEl) stickyEl.textContent = totalTxt;
-  if(stickyBar) stickyBar.style.display = activeAll.length ? 'flex' : 'none';
-
-  const box = document.getElementById('commitmentsList');
-  if(!box) return;
-
-  // --- تحديث السطر الملخّص وعداد التاب: بنفس تعريف "مستحق قريب" اللي هيتقسم بيه القائمة تحت (خلال أسبوع أو متأخر)
-  //     وده غير عتبة تنبيهات الهوم/الإشعارات (3 أيام) المستخدمة في مكان تاني، لأن الغرض هنا عرض تجميعي مش تنبيه فوري
-  const dueSoonCount = activeAll.filter(c=>{
-    const d = commitmentDaysUntilDue(c);
-    return d!=null && d<=7;
-  }).length;
-  const summaryEl = document.getElementById('commitmentsSummaryLine');
-  if(summaryEl){
-    summaryEl.textContent = activeAll.length
-      ? `📊 عندك ${activeAll.length} التزام نشط${dueSoonCount?` — منها ${dueSoonCount} مستحق قريب أو متأخر`:''}`
-      : '';
-  }
-  const tabBadge = document.getElementById('commTabBadge');
-  if(tabBadge){
-    tabBadge.textContent = dueSoonCount;
-    tabBadge.style.display = dueSoonCount ? 'inline-flex' : 'none';
-  }
-
-  // --- شرائح الفلترة حسب النوع مع الإجمالي الفرعي لكل نوع ---
-  const chipsBox = document.getElementById('commitmentsTypeChips');
-  if(chipsBox){
-    if(activeAll.length){
-      const byType = {};
-      activeAll.forEach(c=>{
-        const key = c.type||'تانية';
-        if(!byType[key]) byType[key] = {count:0, amount:0};
-        byType[key].count++;
-        byType[key].amount += commitmentMonthlyShare(c);
-      });
-      let chips = `<span class="type-chip${commitmentsTypeFilter==='all'?' active':''}" onclick="setCommitmentsTypeFilter('all')">📋 الكل (${activeAll.length})</span>`;
-      COMMITMENT_TYPES.forEach(t=>{
-        const b = byType[t.key];
-        if(!b) return;
-        chips += `<span class="type-chip${commitmentsTypeFilter===t.key?' active':''}" onclick="setCommitmentsTypeFilter('${t.key}')">${t.icon} ${t.key} (${Math.round(b.amount).toLocaleString('ar-EG')})</span>`;
-      });
-      chipsBox.innerHTML = chips;
-    } else {
-      chipsBox.innerHTML = '';
-    }
-  }
-
-  // --- تطبيق فلتر النوع على القائمتين النشطة والمؤرشفة ---
-  const matchesFilter = c => commitmentsTypeFilter==='all' || (c.type||'تانية')===commitmentsTypeFilter;
-  const allActive = activeAll.filter(matchesFilter).slice();
-  const allArchived = (db.commitments||[]).filter(c=>c.active===false).filter(matchesFilter).slice().sort((a,b)=>Number(b.amount)-Number(a.amount));
-
-  // --- تقسيم الالتزامات النشطة لمجموعتين: مستحق قريب (خلال أسبوع أو متأخر) ولسه بعيد ---
-  const nearDue = allActive.filter(c=>{
-    const d = commitmentDaysUntilDue(c);
-    return d!=null && d<=7;
-  }).sort((a,b)=>commitmentDaysUntilDue(a)-commitmentDaysUntilDue(b));
-  const farDue = allActive.filter(c=>{
-    const d = commitmentDaysUntilDue(c);
-    return d==null || d>7;
-  }).sort((a,b)=>Number(b.amount)-Number(a.amount));
-
-  const nearSection = nearDue.length ? `
-    <div class="commitment-group-title">🔔 مستحق قريب (${nearDue.length})</div>
-    ${nearDue.map(c=>commitmentCardHtml(c, false)).join('')}
-  ` : '';
-
-  const farList = farDue.slice(0, commitmentsListShowCount);
-  const farSection = farDue.length ? `
-    ${nearDue.length ? `<div class="commitment-group-title">🕒 لسه بعيد (${farDue.length})</div>` : ''}
-    ${farList.map(c=>commitmentCardHtml(c, false)).join('')}
-    ${farDue.length>farList.length ? `<button class="btn sm outline" style="margin-top:6px;" onclick="showMoreCommitments()">⬇️ عرض المزيد (${farDue.length-farList.length} متبقي)</button>` : ''}
-  ` : '';
-
-  const rows = (nearSection || farSection) ? (nearSection + farSection) : `<div class="empty-msg">${activeAll.length?'لا توجد التزامات من هذا النوع':'لا توجد التزامات نشطة مسجلة'}</div>`;
-
-  let archiveSection = '';
-  if(allArchived.length){
-    archiveSection = `
-      <div class="archive-toggle" onclick="toggleCommitmentsArchive()">
-        <span>📦 متوقفة (${allArchived.length})</span>
-        <span class="archive-toggle-arrow">${commitmentsArchiveOpen?'▲':'▼'}</span>
-      </div>
-      ${commitmentsArchiveOpen ? `<div class="archive-body">${allArchived.map(c=>commitmentCardHtml(c, true)).join('')}</div>` : ''}
-    `;
-  }
-
-  box.innerHTML = rows + archiveSection;
-}
-
-function showMoreCommitments(){
-  commitmentsListShowCount += 8;
-  renderCommitments();
-}
-
-const COMMITMENT_INTERVALS = [
-  {key:1, label:'شهري'},
-  {key:3, label:'كل 3 شهور'},
-  {key:6, label:'كل 6 شهور'},
-  {key:12, label:'سنوي (كل 12 شهر)'},
-];
-
-function onCommitmentIntervalChange(){
-  const interval = Number(document.getElementById('f_commInterval').value)||1;
-  const wrap = document.getElementById('f_commCycleStartWrap');
-  const amountLabel = document.getElementById('f_commAmountLabel');
-  if(wrap) wrap.style.display = interval>1 ? 'block' : 'none';
-  if(amountLabel) amountLabel.textContent = interval>1 ? 'القيمة كل مرة استحقاق (ج.م)' : 'القيمة الشهرية (ج.م)';
-}
-
-function openCommitmentModal(id, presetType, presetDesc){
+function openCommitmentModal(id){
   const c = id ? (db.commitments||[]).find(x=>x.id===id) : null;
   const hasDuration = !!(c && c.remainingMonths!=null);
-  const selectedType = c ? (c.type||'تانية') : (presetType||'تانية');
-  const descValue = c ? c.desc : (presetDesc||'');
-  const typeOptions = COMMITMENT_TYPES.map(t=>`<option value="${t.key}" ${t.key===selectedType?'selected':''}>${t.label}</option>`).join('');
-  const selectedInterval = c ? (Number(c.intervalMonths)||1) : 1;
-  const intervalOptions = COMMITMENT_INTERVALS.map(i=>`<option value="${i.key}" ${i.key===selectedInterval?'selected':''}>${i.label}</option>`).join('');
-  const cycleStartVal = (c && c.cycleStartYM) ? c.cycleStartYM : currentYM();
   const html = `
-    <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>الوصف</label><input id="f_commDesc" placeholder="مثال: قسط سيارة، إيجار، فاتورة كهرباء..." value="${escapeHtml(descValue)}"></div>
-    <div class="field"><label id="f_commAmountLabel">${selectedInterval>1?'القيمة كل مرة استحقاق (ج.م)':'القيمة الشهرية (ج.م)'}</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
-    <div class="field"><label>النوع</label><select id="f_commType">${typeOptions}</select></div>
-    <div class="field"><label>دورة الاستحقاق</label>
-      <select id="f_commInterval" onchange="onCommitmentIntervalChange()">${intervalOptions}</select>
-      <span class="meta">للالتزامات غير الشهرية (زي تجديد رخصة أو تأمين سنوي)، اكتب القيمة كاملة مرة واحدة، وهنوزّعها تلقائيًا على شهور الدورة عند حساب احتياجك اليومي.</span>
-    </div>
-    <div id="f_commCycleStartWrap" class="field" style="display:${selectedInterval>1?'block':'none'};">
-      <label>شهر أول استحقاق</label>
-      <input id="f_commCycleStart" type="month" value="${cycleStartVal}">
-    </div>
+    <div class="modal-head"><h3>${c?'✏️ تعديل التزام':'➕ التزام شهري جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="field"><label>الوصف</label><input id="f_commDesc" placeholder="مثال: قسط سيارة، إيجار، فاتورة كهرباء..." value="${c?escapeHtml(c.desc):''}"></div>
+    <div class="field"><label>القيمة الشهرية (ج.م)</label><input id="f_commAmount" type="number" placeholder="0" value="${c?c.amount:''}"></div>
     <div class="field"><label>يوم الاستحقاق من الشهر (اختياري)</label><input id="f_commDueDay" type="number" min="1" max="31" placeholder="مثال: 5" value="${c&&c.dueDay?c.dueDay:''}"></div>
     <div class="field"><label>الأولوية</label>
       <select id="f_commPriority">
@@ -4585,10 +4009,6 @@ function openCommitmentModal(id, presetType, presetDesc){
 function saveCommitment(id){
   const desc = document.getElementById('f_commDesc').value.trim();
   const amount = Number(document.getElementById('f_commAmount').value)||0;
-  const type = document.getElementById('f_commType').value || 'تانية';
-  const intervalMonths = Number(document.getElementById('f_commInterval').value)||1;
-  const cycleStartEl = document.getElementById('f_commCycleStart');
-  const cycleStartYM = intervalMonths>1 ? ((cycleStartEl&&cycleStartEl.value)||currentYM()) : null;
   const dueDay = Number(document.getElementById('f_commDueDay').value)||null;
   const priority = document.getElementById('f_commPriority').value==='deferrable' ? 'deferrable' : 'essential';
   const hasDuration = document.getElementById('f_commHasDuration').checked;
@@ -4599,9 +4019,9 @@ function saveCommitment(id){
   if(!db.commitments) db.commitments=[];
   if(id){
     const c = db.commitments.find(x=>x.id===id);
-    if(c){ c.desc=desc; c.amount=amount; c.type=type; c.intervalMonths=intervalMonths; c.cycleStartYM=cycleStartYM; c.dueDay=dueDay; c.priority=priority; c.remainingMonths=remainingMonths; }
+    if(c){ c.desc=desc; c.amount=amount; c.dueDay=dueDay; c.priority=priority; c.remainingMonths=remainingMonths; }
   }else{
-    db.commitments.push({id:uid(), desc, amount, type, intervalMonths, cycleStartYM, dueDay, priority, remainingMonths, lastPaidMonth:null, active:true});
+    db.commitments.push({id:uid(), desc, amount, dueDay, priority, remainingMonths, lastPaidMonth:null, active:true});
   }
   saveDB();
   closeModal();
@@ -4631,133 +4051,32 @@ async function deleteCommitment(id){
 }
 
 /* ---- مصاريف البيت اليومية ---- */
-const HOUSE_EXPENSE_CATEGORIES = [
-  {key:'أكل', label:'🍽️ أكل', color:'#1F6D57'},
-  {key:'مواصلات', label:'🚌 مواصلات', color:'#B08900'},
-  {key:'فواتير', label:'🧾 فواتير', color:'#B0463C'},
-  {key:'صحة', label:'💊 صحة', color:'#6A4EA8'},
-  {key:'أخرى', label:'📦 أخرى', color:'#847c6c'},
-];
-function houseExpenseCategoryInfo(key){
-  return HOUSE_EXPENSE_CATEGORIES.find(c=>c.key===key) || HOUSE_EXPENSE_CATEGORIES[HOUSE_EXPENSE_CATEGORIES.length-1];
-}
-
 function renderHouseExpenses(){
   const total = (db.houseExpenses||[]).reduce((s,e)=>s+Number(e.amount||0),0);
   const el = document.getElementById('totalHouseExpensesTxt');
   if(el) el.textContent = total.toLocaleString('ar-EG')+' ج.م (إجمالي كل الوقت)';
-  const all = (db.houseExpenses||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
-  const list = all.slice(0, houseExpensesListShowCount);
+  const list = (db.houseExpenses||[]).slice().sort((a,b)=>b.date.localeCompare(a.date)).slice(0,20);
   const box = document.getElementById('houseExpensesList');
-  if(box){
-    const rows = list.length ? list.map(e=>`
-      <div class="card">
-        <div class="row">
-          <h3>${escapeHtml(e.desc)}</h3>
-          <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
-        </div>
-        <div class="meta">${houseExpenseCategoryInfo(e.category).label} | 📅 ${fmtDate(e.date)}</div>
-        <div class="btn-row">
-          <button class="btn sm danger" onclick="deleteHouseExpense('${e.id}')">🗑️ حذف</button>
-        </div>
-      </div>
-    `).join('') : `<div class="empty-msg">لا توجد مصاريف بيت مسجلة بعد</div>`;
-    const more = all.length>list.length ? `<button class="btn sm outline" style="margin-top:6px;" onclick="showMoreHouseExpenses()">⬇️ عرض المزيد (${all.length-list.length} متبقي)</button>` : '';
-    box.innerHTML = rows + more;
-  }
-  renderHouseExpenseCategoryBreakdown();
-  renderHouseExpenseChart();
-}
-
-function showMoreHouseExpenses(){
-  houseExpensesListShowCount += 8;
-  renderHouseExpenses();
-}
-
-function renderHouseExpenseCategoryBreakdown(){
-  const box = document.getElementById('houseExpenseCategoryBreakdown');
   if(!box) return;
-  const all = db.houseExpenses||[];
-  const total = all.reduce((s,e)=>s+Number(e.amount||0),0);
-  if(!total){
-    box.innerHTML = `<div class="empty-msg">لا توجد بيانات كافية بعد</div>`;
-    return;
-  }
-  const sums = {};
-  all.forEach(e=>{
-    const key = e.category || 'أخرى';
-    sums[key] = (sums[key]||0) + Number(e.amount||0);
-  });
-  const rows = Object.keys(sums)
-    .map(key=>({key, amount:sums[key], info:houseExpenseCategoryInfo(key)}))
-    .sort((a,b)=>b.amount-a.amount);
-  box.innerHTML = rows.map(r=>{
-    const pct = Math.round((r.amount/total)*100);
-    return `
-      <div style="margin-bottom:8px;">
-        <div class="row" style="margin-bottom:3px;">
-          <span>${r.info.label}</span>
-          <span><b>${r.amount.toLocaleString('ar-EG')} ج.م</b> <span style="color:var(--muted);font-size:12px;">(${pct}%)</span></span>
-        </div>
-        <div style="background:var(--card-alt);border-radius:20px;height:8px;overflow:hidden;">
-          <div style="width:${pct}%;height:100%;background:${r.info.color};"></div>
-        </div>
+  box.innerHTML = list.length ? list.map(e=>`
+    <div class="card">
+      <div class="row">
+        <h3>${escapeHtml(e.desc)}</h3>
+        <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
       </div>
-    `;
-  }).join('');
-}
-
-function renderHouseExpenseChart(){
-  const canvas = document.getElementById('houseExpenseChart');
-  if(!canvas) return;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-  ctx.clearRect(0,0,W,H);
-
-  const now = new Date();
-  const months = [];
-  for(let i=5;i>=0;i--){
-    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({key:d.toISOString().slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
-  }
-  const values = months.map(m=>(db.houseExpenses||[]).filter(e=>e.date.slice(0,7)===m.key).reduce((s,e)=>s+Number(e.amount||0),0));
-  const maxVal = Math.max(...values, 1);
-
-  const padL=40, padB=26, padT=14, padR=10;
-  const chartW = W-padL-padR, chartH = H-padT-padB;
-  const barGap = 14;
-  const barW = (chartW - barGap*(months.length-1)) / months.length;
-
-  ctx.strokeStyle = '#e4d9bf';
-  ctx.beginPath();
-  ctx.moveTo(padL, padT); ctx.lineTo(padL, H-padB); ctx.lineTo(W-padR, H-padB);
-  ctx.stroke();
-
-  ctx.font = '11px "IBM Plex Sans Arabic", Tahoma, Arial, sans-serif';
-  ctx.textAlign = 'center';
-
-  months.forEach((m,i)=>{
-    const x = padL + i*(barW+barGap);
-    const h = (values[i]/maxVal) * (chartH-16);
-    const y = H-padB-h;
-    ctx.fillStyle = '#B0463C';
-    ctx.beginPath();
-    if(ctx.roundRect){ ctx.roundRect(x, y, barW, h, [5,5,0,0]); ctx.fill(); }
-    else { ctx.fillRect(x,y,barW,h); }
-    ctx.fillStyle = '#123C2F';
-    ctx.fillText(values[i].toLocaleString('ar-EG'), x+barW/2, y-5);
-    ctx.fillStyle = '#847c6c';
-    ctx.fillText(m.label, x+barW/2, H-padB+14);
-  });
+      <div class="meta">📅 ${fmtDate(e.date)}</div>
+      <div class="btn-row">
+        <button class="btn sm danger" onclick="deleteHouseExpense('${e.id}')">🗑️ حذف</button>
+      </div>
+    </div>
+  `).join('') : `<div class="empty-msg">لا توجد مصاريف بيت مسجلة بعد</div>`;
 }
 
 function openHouseExpenseModal(){
-  const catOptions = HOUSE_EXPENSE_CATEGORIES.map(c=>`<option value="${c.key}">${c.label}</option>`).join('');
   const html = `
     <div class="modal-head"><h3>➕ مصروف بيت</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
     <div class="field"><label>وصف المصروف</label><input id="f_houseDesc" placeholder="مثال: أكل، مواصلات، فواتير..."></div>
     <div class="field"><label>المبلغ (ج.م)</label><input id="f_houseAmount" type="number" placeholder="0"></div>
-    <div class="field"><label>النوع</label><select id="f_houseCategory">${catOptions}</select></div>
     <div class="field"><label>التاريخ</label><input id="f_houseDate" type="date" value="${todayStr()}"></div>
     <button class="btn" onclick="saveHouseExpense()">💾 حفظ</button>
   `;
@@ -4767,12 +4086,11 @@ function openHouseExpenseModal(){
 function saveHouseExpense(){
   const desc = document.getElementById('f_houseDesc').value.trim();
   const amount = Number(document.getElementById('f_houseAmount').value)||0;
-  const category = document.getElementById('f_houseCategory').value || 'أخرى';
   const date = document.getElementById('f_houseDate').value || todayStr();
   if(!desc){ toast('أدخل وصف المصروف'); return; }
   if(amount<=0){ toast('أدخل مبلغاً صحيحاً'); return; }
   if(!db.houseExpenses) db.houseExpenses=[];
-  const record = {id:uid(), desc, amount, category, date};
+  const record = {id:uid(), desc, amount, date};
   db.houseExpenses.push(record);
   setUndo('إضافة مصروف البيت', ()=>{
     db.houseExpenses = db.houseExpenses.filter(e=>e.id!==record.id);
@@ -4931,9 +4249,6 @@ function renderAdvancedAnalytics(){
   const urgentActive = activeOrders.filter(o=>o.urgent);
   const urgentPct = activeOrders.length ? Math.round((urgentActive.length/activeOrders.length)*100) : 0;
   const urgentLateCount = urgentActive.filter(isOverdue).length;
-  const urgentFeeThisMonth = db.orders
-    .filter(o=>o.urgent && (o.dateReceived||'').slice(0,7)===thisMonthKey)
-    .reduce((s,o)=>s+orderUrgentFeeAmount(o),0);
 
   // 9) خريطة حرارية شهرية لمواعيد التسليم
   const heatMonthKey = todayS.slice(0,7);
@@ -4968,7 +4283,6 @@ function renderAdvancedAnalytics(){
       <div class="stat-card ${utilizationPct>100?'danger':''}"><div class="stat-ic">⚙️</div><div><div class="num">${utilizationPct}%</div><div class="lbl">استخدام الطاقة (آخر 7 أيام)</div></div></div>
       <div class="stat-card ${delayCost>0?'danger':''}"><div class="stat-ic">⏳</div><div><div class="num">${delayCost.toLocaleString('ar-EG')}</div><div class="lbl">قيمة الطلبات المتأخرة (ج.م)</div></div></div>
       <div class="stat-card ${urgentPct>30?'warn':''}"><div class="stat-ic">🔥</div><div><div class="num">${urgentPct}%</div><div class="lbl">نسبة الطلبات المستعجلة${urgentLateCount>0?` (${urgentLateCount} متأخر منها)`:''}</div></div></div>
-      ${urgentFeeThisMonth>0?`<div class="stat-card"><div class="stat-ic">💰</div><div><div class="num">${Math.round(urgentFeeThisMonth).toLocaleString('ar-EG')}</div><div class="lbl">رسوم استعجال الشهر ده (ج.م)</div></div></div>`:''}
     </div>
     ${topCustomers.length?`
     <div class="card">
@@ -5233,7 +4547,7 @@ function renderExpenses(){
   document.getElementById('totalExpensesTxt').textContent = total.toLocaleString('ar-EG')+' ج.م';
   const list = db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
   document.getElementById('expensesList').innerHTML = list.length ? list.map(e=>`
-    <div class="card" data-expense-id="${e.id}">
+    <div class="card">
       <div class="row">
         <h3>${escapeHtml(e.desc)}</h3>
         <b style="color:var(--danger)">${Number(e.amount).toLocaleString('ar-EG')} ج.م</b>
@@ -5281,18 +4595,16 @@ async function deleteExpense(id){
   if(!await appConfirm('حذف هذا المصروف؟')) return;
   const removed = db.expenses.find(e=>e.id===id);
   if(!removed) return;
-  playUnravelThenRun(`.card[data-expense-id="${id}"]`, function(){
-    db.expenses = db.expenses.filter(e=>e.id!==id);
-    logActivity(`🗑️ حذف مصروف: ${removed.desc}`);
-    setUndo('حذف المصروف', ()=>{
-      db.expenses.push(removed);
-      saveDB();
-      renderExpenses();
-    });
+  db.expenses = db.expenses.filter(e=>e.id!==id);
+  logActivity(`🗑️ حذف مصروف: ${removed.desc}`);
+  setUndo('حذف المصروف', ()=>{
+    db.expenses.push(removed);
     saveDB();
     renderExpenses();
-    toast('تم الحذف');
   });
+  saveDB();
+  renderExpenses();
+  toast('تم الحذف');
 }
 
 /* ============================================================
@@ -5321,7 +4633,6 @@ function renderSettings(){
   document.getElementById('dayOffInput').value = String(db.dayOffWeekday ?? 0);
   document.getElementById('nextInvoiceInput').value = db.nextInvoiceNumber||1001;
   document.getElementById('taxDefaultInput').value = db.taxDefaultPercent||0;
-  document.getElementById('urgentFeeDefaultInput').value = db.urgentFeeDefaultPercent||0;
   document.getElementById('lastBackupTxt').textContent = db.lastBackupDate ? ('📅 آخر نسخة احتياطية: '+fmtDate(db.lastBackupDate)) : '⚠️ لم يتم عمل نسخة احتياطية بعد';
   renderTrash();
   renderGarmentTypes();
@@ -5561,20 +4872,17 @@ function fillWideModeInput(){
 /* ============================================================
    تخصيص الشاشة الرئيسية (ترتيب/إخفاء الودجت)
    ============================================================ */
-const HOME_WIDGETS_DEFAULT = ['alerts','stats','weekly','today','commitment','upcoming','late'];
+const HOME_WIDGETS_DEFAULT = ['alerts','personalAlerts','stats','weekly','today','commitment','upcoming','late'];
 const HOME_WIDGET_LABELS = {
-  alerts:'🔔 التنبيهات', stats:'📊 الإحصائيات', weekly:'📅 نظرة الأسبوع', today:'🌅 خطة النهاردة',
+  alerts:'🔔 التنبيهات', personalAlerts:'💳 تنبيهات الالتزامات الشخصية', stats:'📊 الإحصائيات', weekly:'📅 نظرة الأسبوع', today:'🌅 خطة النهاردة',
   commitment:'📈 الالتزام بالخطة', upcoming:'📅 أقرب مواعيد التسليم', late:'⏰ طلبات متأخرة'
 };
 
 // يرجّع ترتيب الودجت المحفوظ، وبينشئ واحد افتراضي أول مرة أو لو فيه ودجت جديدة اتضافت في تحديث لاحق
-// (وبيشيل أي ودجت قديم بقى مش موجود في القايمة الحالية، زي "تنبيهات الالتزامات الشخصية"
-// اللي بقت جزء من تاب "نظرة عامة" جوه صفحة "التزاماتي الشخصية" بدل الشاشة الرئيسية)
 function getHomeWidgetsOrder(){
   if(!Array.isArray(db.homeWidgets) || !db.homeWidgets.length){
     db.homeWidgets = HOME_WIDGETS_DEFAULT.map(id=>({id, visible:true}));
   }
-  db.homeWidgets = db.homeWidgets.filter(w=>HOME_WIDGETS_DEFAULT.includes(w.id));
   HOME_WIDGETS_DEFAULT.forEach(id=>{
     if(!db.homeWidgets.some(w=>w.id===id)) db.homeWidgets.push({id, visible:true});
   });
@@ -5949,13 +5257,10 @@ async function saveDailyCapacity(){
 function saveInvoiceTaxSettings(){
   const nextInv = Number(document.getElementById('nextInvoiceInput').value);
   const taxDef = Number(document.getElementById('taxDefaultInput').value);
-  const urgentFeeDef = Number(document.getElementById('urgentFeeDefaultInput').value);
   if(!nextInv || nextInv<=0){ toast('أدخل رقم فاتورة صحيح أكبر من صفر'); return; }
   if(!Number.isFinite(taxDef) || taxDef<0){ toast('نسبة الضريبة لا يمكن أن تكون رقماً سالباً'); return; }
-  if(!Number.isFinite(urgentFeeDef) || urgentFeeDef<0){ toast('نسبة رسوم الاستعجال لا يمكن أن تكون رقماً سالباً'); return; }
   db.nextInvoiceNumber = Math.round(nextInv);
   db.taxDefaultPercent = taxDef;
-  db.urgentFeeDefaultPercent = urgentFeeDef;
   saveDB();
   toast('تم الحفظ ✅');
 }
@@ -6056,7 +5361,7 @@ function renderFinancePasswordCard(){
   if(!box) return;
   const isSet = !!db.financePassword;
   box.innerHTML = `
-    <h3>🔐 رقم سري إضافي لصفحتي المالية والتزاماتي الشخصية</h3>
+    <h3>🔐 رقم سري إضافي لصفحة المالية</h3>
     <p class="meta">حماية منفصلة عن رقم قفل التطبيق العام — تفيدك لو في حد تاني بيستخدم التطبيق (موظف استقبال مثلاً) ومش عايزه يشوف أرباحك أو التزاماتك الشخصية.</p>
     <p class="meta">الحالة: ${isSet?'🔒 مفعّلة':'🔓 غير مفعّلة'}</p>
     ${isSet?`<div class="field"><label>الرقم الحالي</label><input type="tel" maxlength="4" id="financeOldPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div>`:''}
@@ -6237,12 +5542,7 @@ function importBackup(event){
         if(!c.priority) c.priority='essential';
         if(c.remainingMonths===undefined) c.remainingMonths=null;
         if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
-        if(!c.type) c.type='تانية';
-        if(!c.intervalMonths) c.intervalMonths=1;
-        if(c.cycleStartYM===undefined) c.cycleStartYM=null;
       });
-      if(db.savingsGoalTransferredAmount===undefined) db.savingsGoalTransferredAmount=0;
-      if(!db.personalLoans) db.personalLoans=[];
       if(!db.houseExpenses) db.houseExpenses=[];
       if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
       if(!db.commitmentPayments) db.commitmentPayments=[];
@@ -6251,7 +5551,6 @@ function importBackup(event){
       if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
       if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
       if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
-      if(db.savingsGoalTarget===undefined) db.savingsGoalTarget=0;
       rolloverCommitmentsMonthly();
       if(db.financePassword===undefined) db.financePassword=null;
       if(!db.dailyCapacity) db.dailyCapacity=500;
@@ -6278,7 +5577,6 @@ function importBackup(event){
       if(!db.trash) db.trash=[];
       if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
       if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
-      if(db.urgentFeeDefaultPercent===undefined || db.urgentFeeDefaultPercent===null) db.urgentFeeDefaultPercent=0;
       if(!db.holidays) db.holidays=[];
       if(!db.occasions) db.occasions=[];
       if(!db.activityLog) db.activityLog=[];
@@ -6566,9 +5864,6 @@ window.BACK_NAV_DEBUG = false;
    بدء التشغيل
    ============================================================ */
 initLock();
-updateTopbarHeightVar();
-window.addEventListener('resize', updateTopbarHeightVar);
-window.addEventListener('load', updateTopbarHeightVar);
 
 // تسجيل الـ Service Worker (يفعّل التثبيت كتطبيق وتشغيل الأوفلاين)
 // شرط أساسي: لازم الملف يكون شغال من سيرفر HTTPS أو localhost (مش file:// مباشرة)
