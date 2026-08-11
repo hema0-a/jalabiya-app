@@ -50,8 +50,187 @@ html[data-theme="dark"].high-contrast .card{ border:2px solid #fff !important; }
 /* أثر السحب على بطاقات الطلبات */
 #ordersList .card{ transition:transform .15s, opacity .15s; touch-action:pan-y; }
 
+/* عداد الأيام المتبقية للتسليم — يبان جنب كل كارت طلب */
+.days-left-chip{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:3px 10px; border-radius:20px;
+  font-size:11px; font-weight:800; white-space:nowrap; flex-shrink:0;
+  background:var(--card-alt); color:var(--muted); border:1px solid var(--border);
+}
+.days-left-chip.today{ background:var(--danger-light); color:var(--danger); border-color:transparent; }
+.days-left-chip.tomorrow{ background:var(--warn-light); color:var(--warn); border-color:transparent; }
+html.high-contrast .days-left-chip{ border:1.5px solid #000; }
+
+/* مؤشر "جاري الحفظ/المزامنة" بشكل إبرة بتخيط — بديل السبينر الدائري */
+.needle-stitch-ic{ display:inline-block; animation:needleStitch .9s ease-in-out infinite; transform-origin:center; }
+@keyframes needleStitch{
+  0%{ transform:translateY(-3px) rotate(-12deg); }
+  50%{ transform:translateY(2px) rotate(10deg); }
+  100%{ transform:translateY(-3px) rotate(-12deg); }
+}
+@media (prefers-reduced-motion: reduce){
+  .needle-stitch-ic{ animation:none; }
+}
+
+/* شريط "طلب مستعجل" — شريط تحذير قماشي بخطوط متقاطعة في ركن الكارت، يبان من نظرة واحدة */
+.card.urgent-order::after{
+  content:"مستعجل";
+  position:absolute; top:10px; left:-32px;
+  width:120px; padding:3px 0; text-align:center;
+  font-size:10.5px; font-weight:900; letter-spacing:.5px; color:#fff;
+  background:repeating-linear-gradient(45deg, var(--danger) 0 8px, #7a2318 8px 16px);
+  transform:rotate(-45deg);
+  box-shadow:0 2px 5px rgba(0,0,0,0.25);
+  pointer-events:none;
+  z-index:1;
+}
+html[dir="rtl"] .card.urgent-order::after{ left:auto; right:-32px; transform:rotate(45deg); }
+html.high-contrast .card.urgent-order::after{ background:repeating-linear-gradient(45deg, #000 0 8px, #fff 8px 16px); color:#000; -webkit-text-stroke:.5px #fff; }
+
+/* حواف الأزرار الأساسية بخياطة مزدوجة — تفصيلة صغيرة على أزرار حفظ/إضافة الأساسية */
+.btn:not(.outline):not(.secondary):not(.sm):not(.danger)::before{
+  content:""; position:absolute; inset:3px;
+  border-radius:calc(var(--btn-radius,12px) - 5px);
+  border:1.3px dashed rgba(255,255,255,0.55);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.22);
+  pointer-events:none;
+}
+html.high-contrast .btn:not(.outline):not(.secondary):not(.sm):not(.danger)::before{ border-color:rgba(255,255,255,0.85); }
+
+/* شرائح الفلاتر بشكل قطع قماش — حافة متعرجة زي مقص الزيجزاج (بديل الشكل الدائري القياسي) */
+#orderStatusFilters .btn, #ordersChipsRow [data-chip], .rc-chip{
+  clip-path: polygon(0% 10%, 7% 0%, 14% 10%, 86% 10%, 93% 0%, 100% 10%, 100% 90%, 93% 100%, 86% 90%, 14% 90%, 7% 100%, 0% 90%);
+  border-radius:0 !important;
+  padding-inline:14px !important;
+}
+
+/* بطاقة "خصم" شكل تيكيت معلق (hangtag) بدل نص عادي */
+.discount-hangtag{
+  position:relative; display:inline-flex; align-items:center;
+  padding:3px 10px 3px 18px; margin-inline-start:6px;
+  font-size:11px; font-weight:800; white-space:nowrap; flex-shrink:0;
+  background:var(--ok-light); color:var(--ok);
+  clip-path:polygon(0% 50%, 15% 0%, 100% 0%, 100% 100%, 15% 100%);
+  transform:rotate(-2deg);
+}
+.discount-hangtag::after{
+  content:""; position:absolute; top:50%; left:7px;
+  width:4px; height:4px; border-radius:50%;
+  background:var(--card); box-shadow:0 0 0 1px currentColor;
+  transform:translateY(-50%);
+}
+html.high-contrast .discount-hangtag{ box-shadow:inset 0 0 0 1.5px #000; }
+
+/* ===== دفعة أفكار جديدة (2): شريط قياس / دبوس تثبيت / بكرة خيط / تايم لاين / قماشة ممزقة / فك الغرزة / قص الخيط ===== */
+
+/* شريط قياس (measuring tape) كمؤشر تقدّم — علامات دقيقة كل شوية وعلامة أطول كل مسافة، فوق أي progress bar */
+.progress-track, .savings-progress-track{ position:relative; overflow:hidden; }
+.progress-track::after, .savings-progress-track::after{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  background-image:
+    repeating-linear-gradient(90deg, rgba(120,120,120,0.95) 0 1px, transparent 1px 10%),
+    repeating-linear-gradient(90deg, rgba(120,120,120,0.95) 0 1.5px, transparent 1.5px 25%);
+  background-size:100% 45%, 100% 100%;
+  background-position:bottom, bottom;
+  background-repeat:no-repeat;
+  mix-blend-mode:overlay;
+}
+
+/* دبوس دبابيس صغير كمؤشر "مثبّت" — زرار تثبيت الطلب فوق القائمة */
+.pin-btn{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:26px; height:26px; border-radius:8px; border:none; background:transparent;
+  color:var(--muted); cursor:pointer; flex-shrink:0; padding:0;
+  transform:rotate(-15deg); transition:color .15s, transform .15s;
+}
+.pin-btn:hover{ color:var(--accent); }
+.pin-btn.pinned{ color:var(--accent); transform:rotate(0deg) scale(1.05); }
+.pin-btn.pinned svg circle{ filter:drop-shadow(0 1px 1px rgba(0,0,0,0.25)); }
+
+/* غلاف "بكرة خيط" لصورة العميل الافتراضية — خطوط خيط ملفوف + حافتين (فلانشتين) أعلى وأسفل الأفاتار */
+.avatar.by-name{
+  position:relative;
+  background:repeating-linear-gradient(0deg, hsl(var(--client-hue) 58% 87%) 0 3px, hsl(var(--client-hue) 58% 80%) 3px 4px);
+}
+.avatar.by-name::before, .avatar.by-name::after{
+  content:""; position:absolute; right:-3px; left:-3px; height:4px; border-radius:2px;
+  background:hsl(var(--client-hue) 45% 55%); box-shadow:0 1px 1px rgba(0,0,0,0.15); pointer-events:none;
+}
+.avatar.by-name::before{ top:-2px; }
+.avatar.by-name::after{ bottom:-2px; }
+html[data-theme="dark"] .avatar.by-name{
+  background:repeating-linear-gradient(0deg, hsl(var(--client-hue) 32% 24%) 0 3px, hsl(var(--client-hue) 32% 30%) 3px 4px);
+}
+html[data-theme="dark"] .avatar.by-name::before, html[data-theme="dark"] .avatar.by-name::after{
+  background:hsl(var(--client-hue) 40% 45%);
+}
+html.high-contrast .avatar.by-name::before, html.high-contrast .avatar.by-name::after{ display:none; }
+
+/* خط تسلسل زمني بشكل "خيط موصول" لمراحل الطلب — داخل نموذج تعديل الطلب */
+.stage-timeline{ position:relative; display:flex; justify-content:space-between; margin:2px 0 20px; padding:0 2px; }
+.stage-thread{
+  position:absolute; top:7px; right:14px; left:14px; height:2px;
+  background-image:repeating-linear-gradient(90deg, var(--border) 0 5px, transparent 5px 9px);
+}
+.stage-thread-fill{ height:2px; background:var(--accent); }
+.stage-step{ position:relative; display:flex; flex-direction:column; align-items:center; gap:5px; flex:1; z-index:1; }
+.stage-dot{
+  width:14px; height:14px; border-radius:50%; background:var(--card-alt);
+  border:2px solid var(--border); position:relative; display:block;
+}
+.stage-step.done .stage-dot{ background:var(--accent); border-color:var(--accent); }
+.stage-step.current .stage-dot{ background:var(--card); border-color:var(--accent); box-shadow:0 0 0 3px rgba(184,134,59,.25); }
+.stage-lbl{ font-size:10.5px; color:var(--muted); font-weight:700; text-align:center; }
+.stage-step.done .stage-lbl, .stage-step.current .stage-lbl{ color:var(--heading); }
+.stage-needle{ position:absolute; top:-11px; left:50%; width:2px; height:11px; background:var(--accent); transform:translateX(-50%) rotate(15deg); }
+.stage-needle::before{ content:""; position:absolute; top:-3px; left:50%; width:5px; height:5px; border-radius:50%; background:var(--accent); transform:translateX(-50%); }
+
+/* كرت "قماشة ممزقة" لتنبيه التأخير الحرج (متأخر أكتر من 3 أيام) */
+.card[data-critical="1"]{
+  clip-path: polygon(0% 4%, 6.25% 0%, 12.5% 4%, 18.75% 0%, 25% 4%, 31.25% 0%, 37.5% 4%, 43.75% 0%, 50% 4%, 56.25% 0%, 62.5% 4%, 68.75% 0%, 75% 4%, 81.25% 0%, 87.5% 4%, 93.75% 0%, 100% 4%, 100% 100%, 0% 100%);
+  box-shadow: 0 10px 22px -10px rgba(0,0,0,0.5), inset 0 8px 10px -10px rgba(0,0,0,0.4);
+}
+
+/* غرزة "تراجع" متحركة عند الحذف — خيط متقطع بيتفكّ وبينسحب قبل ما الكارت يختفي */
+.card.unraveling{ animation:cardUnravel .4s ease-in forwards; pointer-events:none; overflow:hidden; }
+.card.unraveling::after{
+  content:""; position:absolute; right:14px; left:14px; top:50%; height:2px; margin-top:-1px;
+  background-image:repeating-linear-gradient(90deg, var(--danger) 0 9px, transparent 9px 18px);
+  opacity:.9; animation:threadPull .4s ease-in forwards; pointer-events:none;
+}
+@keyframes cardUnravel{ 0%{opacity:1;transform:translateX(0) rotate(0deg);} 100%{opacity:0;transform:translateX(18px) rotate(1.5deg);} }
+@keyframes threadPull{ 0%{transform:translateX(0);opacity:.9;} 100%{transform:translateX(60%);opacity:0;} }
+@media (prefers-reduced-motion: reduce){
+  .card.unraveling{ animation:none; opacity:0; }
+  .card.unraveling::after{ animation:none; display:none; }
+}
+
+/* زرار "🧵 تم الإنجاز" بأثر قص الخيط — بديل مؤقت للتوست العادي */
+.scissor-cut-fx{
+  position:fixed; left:50%; top:16%; transform:translateX(-50%);
+  z-index:9999; display:flex; flex-direction:column; align-items:center; gap:10px; pointer-events:none;
+}
+.sc-thread{ position:relative; width:140px; height:20px; }
+.sc-half{ position:absolute; top:50%; width:60px; height:2px;
+  background-image:repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 11px); }
+.sc-left{ left:0; transform-origin:left center; animation:scLeftFall .6s .35s ease-in forwards; }
+.sc-right{ right:0; transform-origin:right center; animation:scRightFall .6s .35s ease-in forwards; }
+.sc-scissor{ position:absolute; top:50%; left:50%; font-size:22px; transform:translate(-50%,-50%) rotate(-90deg); animation:scSnap .35s ease-in forwards; }
+.sc-caption{ background:var(--card); color:var(--heading); font-weight:800; font-size:13px; padding:8px 16px;
+  border-radius:20px; box-shadow:0 6px 18px rgba(0,0,0,.18); opacity:0; animation:scCaptionIn .3s .3s ease-out forwards; }
+@keyframes scSnap{ 0%{transform:translate(-50%,-50%) rotate(-90deg) scale(1);} 50%{transform:translate(-50%,-50%) rotate(-60deg) scale(1.15);} 100%{transform:translate(-50%,-50%) rotate(-90deg) scale(1);} }
+@keyframes scLeftFall{ to{ transform:translateY(10px) rotate(-8deg); opacity:0; } }
+@keyframes scRightFall{ to{ transform:translateY(10px) rotate(8deg); opacity:0; } }
+@keyframes scCaptionIn{ from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+.scissor-cut-fx.hide{ animation:scFxOut .3s ease-in forwards; }
+@keyframes scFxOut{ to{ opacity:0; } }
+
+/* الشارة النصية 🔥 مستعجل بقت مستبدلة بالشريط القماشي فوق، فبنخفيها بصريًا (باقية في الـ DOM كمرجع نصي بس، من غير أي استخدام في الـ CSS دلوقتي) */
+.badge[title="طلب مستعجل"]{ display:none; }
+
 /* توهج الطلبات المستعجلة */
-.card:has(span[title="طلب مستعجل"]) {
+.card.urgent-order {
+  position:relative; overflow:hidden;
   box-shadow: 0 0 0 2px var(--danger), var(--shadow);
   animation: urgentGlow 1.8s ease-in-out infinite;
 }
@@ -156,7 +335,7 @@ html.role-receptionist .navbtn[data-page="personal"],
 html.role-receptionist .navbtn[data-page="settings"],
 html.role-receptionist #navAuditDay,
 html.role-receptionist button[onclick="showWeeklySummary()"],
-html.role-receptionist .btn.danger{
+html.role-receptionist .btn.danger:not(#appConfirmOk){
   display:none !important;
 }
 html.role-receptionist #homeStats .stat-card:nth-child(3),
@@ -234,6 +413,10 @@ html.finance-locked .field:has(#f_materialCost){
   cursor:pointer; font-family:inherit; white-space:nowrap;
 }
 .settings-tab-btn.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
+
+/* 30) تابات صفحة "التزاماتي الشخصية" (نظرة عامة / القائمة / التقارير / إعدادات) */
+.personal-tab-content{ display:none; }
+.personal-tab-content.active{ display:block; }
 
 /* 27) تمييز بصري للطلبات عالية القيمة والقريبة من موعد التسليم */
 .card.high-value-alert{
@@ -339,6 +522,20 @@ body{ font-size:15px; line-height:1.5; }
 .card{ padding:16px; }
 #ordersList .card, #customersList .card{ margin-bottom:12px; }
 
+/* خط "غرزة الخياطة" — فاصل متقطع ذهبي بين البطاقات المتتالية في القوائم، بدل الفراغ الفاضي */
+#ordersList .card, #customersList .card, #commitmentsList .card{ position:relative; }
+#ordersList .card:not(:first-child)::before,
+#customersList .card:not(:first-child)::before,
+#commitmentsList .card:not(:first-child)::before{
+  content:"";
+  position:absolute; right:14px; left:14px; top:-6px; height:0;
+  border-top:2px dashed var(--stitch);
+  opacity:.7; pointer-events:none;
+}
+html.high-contrast #ordersList .card:not(:first-child)::before,
+html.high-contrast #customersList .card:not(:first-child)::before,
+html.high-contrast #commitmentsList .card:not(:first-child)::before{ display:none; }
+
 /* 2) تلوين حرف/حد جانبي لبطاقة الطلب حسب حالته — تمييز فوري من غير قراءة النص */
 #ordersList .card[data-status]{
   border-inline-start-width:5px; border-inline-start-style:solid; border-inline-start-color:var(--border);
@@ -346,6 +543,93 @@ body{ font-size:15px; line-height:1.5; }
 #ordersList .card[data-status="قيد العمل"]{ border-inline-start-color:var(--warn); }
 #ordersList .card[data-status="جاهز للتسليم"]{ border-inline-start-color:var(--accent); }
 #ordersList .card[data-status="تم التسليم"]{ border-inline-start-color:var(--ok); opacity:.82; }
+
+/* تلوين حرف/حد جانبي لبطاقة الالتزام الشهري حسب نوعه — تمييز فوري من غير قراءة النص */
+#commitmentsList .card[data-type]{
+  border-inline-start-width:5px; border-inline-start-style:solid; border-inline-start-color:var(--border);
+}
+#commitmentsList .card[data-type="إيجار"]{ border-inline-start-color:var(--primary); }
+#commitmentsList .card[data-type="قسط"]{ border-inline-start-color:var(--info); }
+#commitmentsList .card[data-type="فاتورة"]{ border-inline-start-color:var(--warn); }
+#commitmentsList .card[data-type="اشتراك"]{ border-inline-start-color:var(--accent); }
+#commitmentsList .card[data-type="ادخار"]{ border-inline-start-color:var(--ok); }
+#commitmentsList .card[data-type="تانية"]{ border-inline-start-color:var(--border); }
+
+/* قسم الالتزامات المتوقفة (مؤرشفة) — مطوي افتراضيًا */
+#commitmentsList .archive-toggle{
+  margin-top:12px; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; border-radius:10px; border:1px solid var(--border);
+  background:var(--card-alt);
+  font-weight:700; font-size:13.5px; color:var(--muted);
+  transition:opacity .15s;
+}
+#commitmentsList .archive-toggle:active{ opacity:.8; }
+#commitmentsList .archive-toggle-arrow{ font-size:11px; }
+#commitmentsList .archive-body{ margin-top:8px; }
+#commitmentsList .archive-body .card{ opacity:.82; }
+
+/* شرائح فلترة الالتزامات حسب النوع، مع الإجمالي الفرعي لكل نوع */
+#commitmentsTypeChips{ display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 4px; }
+#commitmentsTypeChips .type-chip{
+  display:inline-flex; align-items:center; gap:5px; padding:5px 12px; border-radius:20px;
+  font-size:12px; font-weight:700; border:1px solid var(--border); background:var(--card-alt); color:var(--muted);
+  cursor:pointer; white-space:nowrap; transition:background .15s, color .15s, border-color .15s;
+}
+#commitmentsTypeChips .type-chip.active{ background:var(--primary); border-color:var(--primary); color:#fff; }
+#commitmentsTypeChips .type-chip:active{ opacity:.85; }
+
+/* عداد صغير على تاب "القائمة" لعدد الالتزامات المستحقة قريبًا/المتأخرة وغير المدفوعة */
+.settings-tab-btn .tab-badge{
+  display:inline-flex; align-items:center; justify-content:center; min-width:17px; height:17px;
+  padding:0 4px; border-radius:20px; background:var(--danger); color:#fff; font-size:10.5px; font-weight:800;
+  margin-inline-start:5px; vertical-align:middle;
+}
+
+/* شريط الإجمالي اللاصق فوق قائمة الالتزامات — يفضل ظاهر أثناء السكرول
+   var(--topbar-h) بيتحسب فعليًا بالجافاسكريبت (updateTopbarHeightVar) عشان
+   يقف بالظبط تحت الهيدر العلوي مهما اختلف ارتفاعه؛ فيه قيمة احتياطية 64px */
+.sticky-total-bar{
+  position:sticky; top:var(--topbar-h, 64px); z-index:20;
+  display:flex; align-items:center; justify-content:space-between;
+  margin:8px 0; padding:9px 14px; border-radius:10px;
+  background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow);
+  font-size:12.5px; font-weight:700; color:var(--muted);
+}
+.sticky-total-bar b{ color:var(--danger); font-size:14px; }
+
+/* أزرار القوالب السريعة لإضافة التزام شائع بضغطة واحدة */
+#commitmentsTemplates .btn.sm{ font-size:12px; }
+
+/* شريط تقدّم هدف الادخار */
+#savingsGoalCard .savings-progress-track{
+  margin-top:8px; height:10px; border-radius:6px; background:var(--card-alt);
+  border:1px solid var(--border); overflow:hidden;
+}
+#savingsGoalCard .savings-progress-fill{
+  height:100%; background:var(--ok); border-radius:6px; transition:width .3s;
+}
+
+/* عنوان فرعي صغير لتقسيم قائمة الالتزامات لمجموعات (مستحق قريب / لسه بعيد)
+   — بسيط من غير رقم دائري زي section-title، عشان ميتلخبطش مع ترقيم أقسام الصفحة */
+#commitmentsList .commitment-group-title{
+  font-size:12.5px; font-weight:800; color:var(--muted);
+  margin:12px 2px 6px; display:flex; align-items:center; gap:5px;
+}
+#commitmentsList .commitment-group-title:first-child{ margin-top:2px; }
+
+/* تجميع مصاريف البيت في مجموعات يومية قابلة للطي — بدل عرضها كلها مكشوفة
+   ("على الحائط") في قائمة واحدة طويلة؛ نفس فكرة أرشيف الالتزامات بالظبط */
+#houseExpensesList .day-toggle{
+  margin-top:8px; cursor:pointer; display:flex; align-items:center; justify-content:space-between;
+  padding:11px 14px; border-radius:10px; border:1px solid var(--border);
+  background:var(--card-alt);
+  font-weight:700; font-size:13.5px;
+  transition:opacity .15s;
+}
+#houseExpensesList .day-toggle:first-child{ margin-top:0; }
+#houseExpensesList .day-toggle:active{ opacity:.8; }
+#houseExpensesList .day-toggle-arrow{ font-size:11px; color:var(--muted); }
+#houseExpensesList .day-body{ margin-top:6px; margin-bottom:4px; }
 
 /* 3) رسم بياني صغير (Sparkline) جوه بطاقات الإحصائيات */
 .stat-card{ position:relative; }
@@ -599,6 +883,10 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     background:var(--primary-light);color:var(--heading);margin-left:9px;vertical-align:middle;
   }
   .avatar.accent{background:#F3E4C8;color:var(--accent-dark);}
+  /* بصمة لون لكل عميل — لون مشتق من اسمه، ثابت دايمًا لنفس الاسم، عشان يتميز بصريًا في القوائم الطويلة */
+  .avatar.by-name{background:hsl(var(--client-hue) 58% 87%);color:hsl(var(--client-hue) 48% 30%);}
+  html[data-theme="dark"] .avatar.by-name{background:hsl(var(--client-hue) 32% 24%);color:hsl(var(--client-hue) 65% 78%);}
+  html.high-contrast .avatar.by-name{background:var(--primary-light) !important;color:var(--heading) !important;}
   .name-row{display:flex;align-items:center;}
 
   .section-title{
@@ -775,6 +1063,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
   header.topbar{ overflow:hidden; gap:8px; }
   .topbar-brand{ min-width:0; flex:1 1 auto; overflow:hidden; }
   .topbar-brand > div:last-child{ min-width:0; overflow:hidden; }
+  .menu-btn, .brand-emblem.sm{ flex-shrink:0; } /* زرار القائمة والشعار لازم يفضلوا ظاهرين مهما ضاقت المساحة */
   header.topbar h2{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
   header.topbar .date{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
   header.topbar > div:last-child{ flex-shrink:0; display:flex; align-items:center; gap:6px; }
@@ -861,10 +1150,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           <div id="widget-alerts" class="home-widget">
             <div id="homeAlerts"></div>
           </div>
-          <div id="widget-personalAlerts" class="home-widget">
-            <div class="section-title">💳 تنبيهات الالتزامات الشخصية</div>
-            <div id="personalAlerts"></div>
-          </div>
           <div id="widget-stats" class="home-widget">
             <div class="grid-cards" id="homeStats"></div>
           </div>
@@ -905,7 +1190,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     <section class="page" id="page-orders">
       <div class="search-box"><input id="orderSearch" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." oninput="renderOrders()"></div>
       <div class="btn-row" style="margin-bottom:8px;">
-        <button class="btn sm outline" id="ordersViewListBtn" onclick="setOrdersView('list')">☰ قائمة</button>
+        <button class="btn sm outline active" id="ordersViewListBtn" onclick="setOrdersView('list')">☰ قائمة</button>
         <button class="btn sm outline" id="ordersViewKanbanBtn" onclick="setOrdersView('kanban')">🗂️ كانبان</button>
       </div>
       <div class="btn-row" style="margin-bottom:12px;" id="orderStatusFilters">
@@ -958,42 +1243,89 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 
     <!-- ---------- التزاماتي الشخصية ---------- -->
     <section class="page" id="page-personal">
-      <div id="requiredCapacityCard"></div>
-
-      <div class="section-title">💳 الالتزامات الشهرية الثابتة</div>
-      <div class="card">
-        <div class="row"><h3>أقساط، إيجار، فواتير ثابتة...</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
-        <div class="meta">أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا — سجّلها هنا عشان التطبيق يحسب نصيبها اليومي ويقدّر احتياجك الحقيقي.</div>
-      </div>
-      <button class="btn outline" onclick="openCommitmentModal()">➕ إضافة التزام شهري</button>
-      <div id="commitmentsList" style="margin-top:8px;"></div>
-
-      <div class="section-title">🏠 مصاريف البيت اليومية</div>
-      <div class="card">
-        <div class="row"><h3>مصاريف البيت</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
-        <div class="meta">سجّلها يوم بيوم عشان التطبيق يقدر يحسب متوسطك الحقيقي</div>
-      </div>
-      <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
-      <div id="houseExpensesList" style="margin-top:8px;"></div>
-      <div class="card" style="margin-top:8px;">
-        <h3>🏷️ مصروف البيت حسب النوع</h3>
-        <div id="houseExpenseCategoryBreakdown"></div>
-      </div>
-      <div class="card" style="margin-top:8px;">
-        <h3>📉 مصروف البيت آخر 6 شهور</h3>
-        <canvas id="houseExpenseChart" width="600" height="180" style="width:100%;height:auto;"></canvas>
+      <div class="settings-tabs" id="personalTabs">
+        <button class="settings-tab-btn active" data-personal-tab="overview" onclick="showPersonalTab('overview')">🏠 نظرة عامة</button>
+        <button class="settings-tab-btn" data-personal-tab="list" onclick="showPersonalTab('list')">📋 القائمة<span id="commTabBadge" class="tab-badge" style="display:none;"></span></button>
+        <button class="settings-tab-btn" data-personal-tab="reports" onclick="showPersonalTab('reports')">📊 التقارير</button>
+        <button class="settings-tab-btn" data-personal-tab="settings" onclick="showPersonalTab('settings')">⚙️ إعدادات</button>
       </div>
 
-      <div class="section-title">📜 سجل دفعات الأقساط</div>
-      <div id="commitmentPaymentsLog"></div>
+      <!-- تاب 1: نظرة عامة -->
+      <div class="personal-tab-content active" id="personalTab-overview">
+        <div class="section-title">💳 تنبيهات الالتزامات الشخصية</div>
+        <div id="personalAlerts"></div>
+        <div id="requiredCapacityCard"></div>
+      </div>
 
-      <div class="section-title">⚙️ إعدادات تنبيهات الالتزامات</div>
-      <div class="card" id="commitmentsSettingsCard"></div>
+      <!-- تاب 2: القائمة (الإدخال والتشغيل اليومي) -->
+      <div class="personal-tab-content" id="personalTab-list">
+        <div class="section-title">💳 الالتزامات الشهرية الثابتة</div>
+        <div class="card">
+          <div class="row"><h3>أقساط، إيجار، فواتير ثابتة...</h3><span id="totalCommitmentsTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+          <div class="meta">أي حاجة بتتدفع كل شهر بنفس القيمة تقريبًا — سجّلها هنا عشان التطبيق يحسب نصيبها اليومي ويقدّر احتياجك الحقيقي.</div>
+        </div>
+        <button class="btn outline" onclick="openCommitmentModal()">➕ إضافة التزام شهري</button>
+        <div id="commitmentsTemplates" class="btn-row" style="flex-wrap:wrap;margin-top:8px;">
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'إيجار','إيجار الشقة')">🏠 إيجار</button>
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'قسط','قسط السيارة')">🚗 قسط سيارة</button>
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'فاتورة','فاتورة الكهرباء')">🧾 فاتورة كهرباء</button>
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'اشتراك','اشتراك إنترنت')">🔁 اشتراك إنترنت</button>
+          <button class="btn sm outline" onclick="openCommitmentModal(null,'ادخار','ادخار شهري')">💰 ادخار</button>
+        </div>
+        <div class="card" id="savingsGoalCard" style="margin-top:10px;"></div>
+        <div id="commitmentsSummaryLine" class="meta" style="margin:8px 2px 0;"></div>
+        <div class="search-box" style="margin-top:8px;"><input id="commitmentsSearchInput" placeholder="🔍 ابحث في الالتزامات بالاسم..." oninput="renderCommitments()"></div>
+        <div class="field" style="margin-top:6px;">
+          <label>ترتيب حسب</label>
+          <select id="commitmentsSortSelect" onchange="renderCommitments()">
+            <option value="due">📅 الأقرب استحقاقًا</option>
+            <option value="amount_desc">💰 الأعلى مبلغًا</option>
+            <option value="amount_asc">💰 الأقل مبلغًا</option>
+            <option value="name">🔤 الاسم أبجديًا</option>
+            <option value="priority">⚖️ الأولوية (ضروري أولاً)</option>
+          </select>
+        </div>
+        <div id="commitmentsTypeChips"></div>
+        <div id="commitmentsPriorityChips" style="margin-top:4px;"></div>
+        <div class="sticky-total-bar">
+          <span>💳 إجمالي الالتزامات الشهرية</span>
+          <b id="stickyCommitmentsTotalTxt"></b>
+        </div>
+        <div id="commitmentsList" style="margin-top:8px;"></div>
 
-      <div class="section-title">📆 تقرير شهري لالتزاماتك الشخصية</div>
-      <div class="card">
-        <div class="field"><label>اختر الشهر</label><select id="personalMonthSelect" onchange="renderPersonalCommitmentsReport()"></select></div>
-        <div id="personalCommitmentsReportBody"></div>
+        <div class="section-title">🏠 مصاريف البيت اليومية</div>
+        <div class="card">
+          <div class="row"><h3>مصاريف البيت</h3><span id="totalHouseExpensesTxt" style="font-weight:900;color:var(--danger);font-size:15px;"></span></div>
+          <div class="meta">سجّلها يوم بيوم عشان التطبيق يقدر يحسب متوسطك الحقيقي</div>
+        </div>
+        <button class="btn outline" onclick="openHouseExpenseModal()">➕ إضافة مصروف بيت اليوم</button>
+        <div id="houseExpensesList" style="margin-top:8px;"></div>
+        <div class="card" style="margin-top:8px;">
+          <h3>🏷️ مصروف البيت حسب النوع</h3>
+          <div id="houseExpenseCategoryBreakdown"></div>
+        </div>
+        <div class="card" style="margin-top:8px;">
+          <h3>📉 مصروف البيت آخر 6 شهور</h3>
+          <canvas id="houseExpenseChart" width="600" height="180" style="width:100%;height:auto;"></canvas>
+        </div>
+
+        <div class="section-title">📜 سجل دفعات الأقساط</div>
+        <div id="commitmentPaymentsLog"></div>
+      </div>
+
+      <!-- تاب 3: التقارير والتحليل -->
+      <div class="personal-tab-content" id="personalTab-reports">
+        <div class="section-title">📆 تقرير شهري لالتزاماتك الشخصية</div>
+        <div class="card">
+          <div class="field"><label>اختر الشهر</label><select id="personalMonthSelect" onchange="renderPersonalCommitmentsReport()"></select></div>
+          <div id="personalCommitmentsReportBody"></div>
+        </div>
+      </div>
+
+      <!-- تاب 4: إعدادات الصفحة -->
+      <div class="personal-tab-content" id="personalTab-settings">
+        <div class="section-title">⚙️ إعدادات تنبيهات الالتزامات</div>
+        <div class="card" id="commitmentsSettingsCard"></div>
       </div>
     </section>
 
@@ -1263,6 +1595,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         <p class="meta">رقم الفاتورة التسلسلي بيتضاف تلقائيًا لكل طلب جديد ويظهر في الإيصال وفاتورة الواتساب. غيّر رقم البداية لو حابب تكمل من نفس ترقيم فواتيرك الورقية القديمة.</p>
         <div class="field"><label>رقم الفاتورة القادم</label><input id="nextInvoiceInput" type="number" min="1"></div>
         <div class="field"><label>نسبة ضريبة/رسوم افتراضية للطلبات الجديدة (%)</label><input id="taxDefaultInput" type="number" min="0" step="0.1"></div>
+        <div class="field"><label>🔥 نسبة رسوم الاستعجال الافتراضية (%)</label><input id="urgentFeeDefaultInput" type="number" min="0" step="0.1"></div>
         <button class="btn" onclick="saveInvoiceTaxSettings()">💾 حفظ</button>
       </div>
       <div class="card">
@@ -1348,13 +1681,33 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 
+<!-- ============================================================
+     [تراجع عن bundle.js] ملف bundle.js كان كبير جدًا (720KB) وبيفشل
+     في التحميل من المحادثة، فرجعنا نحمّل كل ملف لوحده زي الأول —
+     كل ملف صغير وده كان بيشتغل عادي من قبل.
+     ============================================================ -->
 <script src="core.js"></script>
-
 <script src="patches.js"></script>
-
-<!-- ميزات جديدة: كل ميزة في ملفها الخاص بدل ما نكبّر core.js أو patches.js أكتر -->
 <script src="feature-capacity-reminders.js"></script>
 <script src="feature-today-focus.js"></script>
+<script src="feature-visual-refresh.js"></script>
+<script src="feature-personal-overview.js"></script>
+<script src="feature-personal-controls.js"></script>
+<script src="feature-inventory.js"></script>
+<script src="feature-workers.js"></script>
+<script src="feature-production-board.js"></script>
+<script src="feature-expenses-filter-compare.js"></script>
+<script src="feature-financial-wellbeing.js"></script>
+<script src="feature-investment-plan.js"></script>
+<script src="feature-financial-overview.js"></script>
+<script src="feature-daily-tips.js"></script>
+<script src="feature-whatif-simulator.js"></script>
+<script src="feature-referrals.js"></script>
+<script src="feature-home-dashboard.js"></script>
+<script src="feature-changelog.js"></script>
+<script src="feature-receptionist-restrict.js"></script>
+<script src="feature-home-redesign.js"></script>
+<script src="feature-craft-visuals-2.js"></script>
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
 </body>

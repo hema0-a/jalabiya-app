@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v3'; // غيّرت الرقم عمداً عشان يجبر التطبيق يمسح أي كاش قديم فورًا
+const CACHE_NAME = 'workshop-app-v11'; // v11: إصلاح تجاوز أزرار الإجراءات السريعة لحدود الشاشة (سكرول جانبي) في تطوير الصفحة الرئيسية
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',

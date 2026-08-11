@@ -303,8 +303,41 @@ var __skipUnsavedCheckOnce = false;
   };
 })();
 
-/* 8) مستحقات مالية متوقعة خلال أسبوع في صفحة المالية */
+/* 8) مستحقات مالية متوقعة خلال أسبوع في صفحة المالية — مربوطة بالتزاماتك
+   (أقساط + قروض) المستحقة في نفس الأسبوع، عشان الرقم "المتوقع تحصيله"
+   ميدّيش إحساس مضلل بالراحة من غير ما تعرف قد إيه منه لازم يروح لالتزاماتك */
 (function(){
+  // إجمالي الأقساط + أقساط القروض المستحقة عليك خلال N يوم جايين (متأخر
+  // محسوب برضه، زي منطق getCommitmentDueAlerts بالظبط بس بنافذة أوسع من 3 أيام)
+  function dueWithinDays(days){
+    var today = todayStr();
+    var commitmentsTotal = 0, commitmentsCount = 0;
+    try{
+      var nowYM = currentYM();
+      (db.commitments||[]).filter(function(c){ return c.active!==false && c.dueDay; }).forEach(function(c){
+        if(c.lastPaidMonth===nowYM) return;
+        if(!isCommitmentCycleMonth(c, nowYM)) return; // مش شهر استحقاق للالتزام ده
+        var due = commitmentDueDateStr(c);
+        var diff = Math.round((new Date(due)-new Date(today))/86400000);
+        if(diff<=days){ commitmentsTotal += Number(c.amount||0); commitmentsCount++; }
+      });
+    }catch(e){}
+    var loanTotal = 0, loanCount = 0;
+    try{
+      var nowYM2 = currentYM();
+      var parts = today.split('-').map(Number);
+      var lastDay = new Date(Date.UTC(parts[0], parts[1], 0)).getUTCDate();
+      (db.personalLoans||[]).filter(function(l){ return l.active!==false && l.dueDay; }).forEach(function(l){
+        if(l.lastPaidMonth===nowYM2) return;
+        var day = Math.min(Number(l.dueDay), lastDay);
+        var due = nowYM2+'-'+String(day).padStart(2,'0');
+        var diff = Math.round((new Date(due)-new Date(today))/86400000);
+        if(diff<=days){ loanTotal += Number(l.monthlyPayment||0); loanCount++; }
+      });
+    }catch(e){}
+    return {total:commitmentsTotal+loanTotal, count:commitmentsCount+loanCount};
+  }
+
   var origRF = renderFinance;
   renderFinance = function(){
     origRF.apply(this, arguments);
@@ -316,17 +349,34 @@ var __skipUnsavedCheckOnce = false;
         return o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery>=today && o.dateDelivery<=in7Str;
       });
       var expectedTotal = upcoming.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+      var noDeposit = upcoming.filter(function(o){ return (Number(o.paid)||0)===0; });
+      var noDepositAmount = noDeposit.reduce(function(s,o){ return s+orderRemaining(o); }, 0);
+      var owed = dueWithinDays(7);
+      var net = expectedTotal - owed.total;
       var box = document.getElementById('expectedCashflowBox');
       if(!box){
         box = document.createElement('div');
         box.id='expectedCashflowBox';
         document.getElementById('financeStats').insertAdjacentElement('afterend', box);
       }
+      var riskLine = noDeposit.length>0
+        ? '<div class="meta" style="margin-top:6px;color:var(--warn,#b8860b);">⚠️ منها '+noDeposit.length+' طلب من غير أي عربون بإجمالي '+Math.round(noDepositAmount).toLocaleString('ar-EG')+' ج.م — تحصيله وقت التسليم مش مضمون زي الطلبات اللي أخدت عربون.</div>'
+        : '';
+      var owedLine = owed.count>0
+        ? '<div class="row" style="margin-top:8px;"><span class="meta">مستحق عليك في نفس الفترة (أقساط/قروض)</span>'
+          + '<b style="color:var(--danger);">'+Math.round(owed.total).toLocaleString('ar-EG')+' ج.م</b></div>'
+          + '<div class="meta">من '+owed.count+' قسط/التزام مستحق خلال 7 أيام</div>'
+          + '<div class="row" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;"><span class="meta">'+(net>=0?'الصافي المتوقع بعد التزاماتك':'العجز المتوقع لو اتحصّل المتوقع بس')+'</span>'
+          + '<b style="color:'+(net>=0?'var(--ok)':'var(--danger)')+';">'+Math.round(net).toLocaleString('ar-EG')+' ج.م</b></div>'
+        : '<div class="meta" style="margin-top:6px;">مفيش أقساط أو قروض مستحقة عليك في نفس الفترة.</div>';
       box.innerHTML =
         '<div class="section-title">📥 مستحقات متوقعة (الأسبوع القادم)</div>'
         + '<div class="card"><div class="row"><h3>إجمالي المتوقع تحصيله</h3>'
         + '<b style="color:var(--ok);font-size:17px;">'+expectedTotal.toLocaleString('ar-EG')+' ج.م</b></div>'
-        + '<div class="meta">من '+upcoming.length+' طلب مجدول للتسليم خلال 7 أيام</div></div>';
+        + '<div class="meta">من '+upcoming.length+' طلب مجدول للتسليم خلال 7 أيام</div>'
+        + riskLine
+        + owedLine
+        + '</div>';
     }catch(e){}
   };
 })();
@@ -481,6 +531,21 @@ setTimeout(function(){
 
   document.addEventListener('touchstart', function(e){
     if(e.target.closest('.swipe-reveal-deliver')) return; // سيب الزر المكشوف يستقبل الضغطة من غير ما نقفله تحته
+    // [إصلاح] لمسة بادئة على أي زرار في الكارت (تعديل / فاتورة واتساب /
+    // المزيد، وكل اللي جوه قائمة "⋮ المزيد" زي حذف / تسجيل دفعة / بدء
+    // الشغل / إيصال) كانت بتتسجل كبداية سحب. لو إصبع المستخدم اهتز شعرة
+    // بسيطة أثناء الضغطة العادية (طبيعي جدًا على شاشة موبايل)، الكود تحت
+    // كان بيحسبها "سحب" ويحرك الكارت بالكامل (transform)، وده كان بيلغي
+    // حدث الـ click اللي المفروض ينفّذ زرار الحذف (أو أي زرار تاني جوه
+    // الكارت) — فيبان للمستخدم إن الزرار "مش شغال" مع إنه شغال فعليًا.
+    // الحل: أي لمسة بادئة على زرار متتسجلش كبداية سحب أصلًا.
+    // [إصلاح] وسّعت الاستثناء ليشمل مش بس الأزرار، كمان أي عنصر تحكّم
+    // تفاعلي تاني بيتضاف جوه كارت الطلب من ملفات تانية زي checkbox
+    // "تحديد للتحويل الجماعي" (feature-today-focus.js) — نفس مشكلة
+    // زرار الحذف بالظبط: لمسة فيها اهتزاز بسيط على الـ checkbox كانت
+    // بتتحسب "سحب" وتحرك الكارت، فيفشل تحديد الـ checkbox من غير أي
+    // رسالة خطأ توضح السبب.
+    if(e.target.closest('button, input, select, textarea, label, a')) return;
     var card = e.target.closest('#ordersList .card');
     if(!card){
       // لمسة برّه أي كارت مفتوح تقفله
@@ -739,12 +804,23 @@ setTimeout(function(){
   };
 })();
 
-/* 18) هدف شهري للإيرادات مع شريط تقدم في صفحة المالية */
+/* 18) هدف شهري للإيرادات مع شريط تقدم في صفحة المالية — مربوط باحتياجك
+   الشخصي الشهري (المحسوب تلقائيًا من صفحة الالتزامات) عشان متحطش هدف
+   إيرادات أقل من اللي محتاجه فعليًا من غير ما تاخد بالك */
 (function(){
   function monthRevenue(){
     var prefix = todayStr().slice(0,7);
     return db.payments.filter(function(p){ return p.date && p.date.slice(0,7)===prefix; })
       .reduce(function(s,p){ return s+(Number(p.amount)||0); }, 0);
+  }
+
+  // نفس الرقم اللي بيظهر في "📊 كسبت X من Y المطلوبين الشهر ده" بصفحة
+  // الالتزامات الشخصية — بنجيبه هنا عشان نقارنه بالهدف اللي صاحب الورشة حدده بنفسه
+  function requiredPersonalMonthly(){
+    try{
+      var prog = monthlyCommitmentProgress();
+      return prog ? prog.requiredMonthly : 0;
+    }catch(e){ return 0; }
   }
 
   window.saveMonthlyGoal = function(){
@@ -756,10 +832,20 @@ setTimeout(function(){
     renderFinance();
   };
 
+  window.useRequiredAsGoal = function(){
+    var required = requiredPersonalMonthly();
+    var input = document.getElementById('f_monthlyGoal');
+    if(required>0 && input) input.value = Math.ceil(required);
+  };
+
   window.editMonthlyGoalModal = function(){
+    var required = requiredPersonalMonthly();
     openModal(
       '<div class="modal-head"><h3>🎯 تحديد الهدف الشهري</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
       + '<div class="field"><label>الهدف الشهري (ج.م)</label><input id="f_monthlyGoal" type="number" value="'+(db.monthlyRevenueGoal||0)+'"></div>'
+      + (required>0
+          ? '<div class="meta" style="margin-bottom:10px;">💡 احتياجك الشخصي الشهري (من التزاماتك المسجلة) هو <b>'+Math.round(required).toLocaleString('ar-EG')+' ج.م</b>. <span style="text-decoration:underline;cursor:pointer;" onclick="useRequiredAsGoal()">استخدمه كهدف</span></div>'
+          : '')
       + '<button class="btn" onclick="saveMonthlyGoal()">💾 حفظ</button>'
     );
   };
@@ -771,6 +857,7 @@ setTimeout(function(){
       var goal = Number(db.monthlyRevenueGoal)||0;
       var revenue = monthRevenue();
       var pct = goal>0 ? Math.min(100, Math.round(revenue/goal*100)) : 0;
+      var required = requiredPersonalMonthly();
       var box = document.getElementById('monthlyGoalBox');
       if(!box){
         box = document.createElement('div');
@@ -778,6 +865,9 @@ setTimeout(function(){
         var anchor = document.getElementById('expectedCashflowBox') || document.getElementById('financeStats');
         anchor.insertAdjacentElement('afterend', box);
       }
+      var warnLine = (goal>0 && required>0 && goal<required)
+        ? '<div class="alert-banner warn" style="margin-top:10px;"><span class="ic">⚠️</span><div><b>الهدف اللي حددته أقل من احتياجك الشخصي الشهري</b>احتياجك الفعلي (من التزاماتك) '+Math.round(required).toLocaleString('ar-EG')+' ج.م — يعني حتى لو حققت الهدف بالكامل هتفضل ناقص '+Math.round(required-goal).toLocaleString('ar-EG')+' ج.م لتغطية التزاماتك.</div></div>'
+        : '';
       box.innerHTML = '<div class="section-title">🎯 الهدف الشهري للإيرادات</div>'
         + '<div class="card" style="padding:10px 12px;">'
         + (goal>0
@@ -785,9 +875,10 @@ setTimeout(function(){
             + '<div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;margin-top:8px;">'
             + '<div style="width:'+pct+'%;height:100%;background:var(--accent);"></div></div>'
             + '<div class="meta" style="margin-top:6px;">'+pct+'% من الهدف</div>'
-          : '<div class="empty-msg">لسه معملتش هدف شهري</div>')
+          : '<div class="empty-msg">لسه معملتش هدف شهري'+(required>0?' — احتياجك الشخصي الشهري (من التزاماتك) '+Math.round(required).toLocaleString('ar-EG')+' ج.م':'')+'</div>')
         + '<button class="btn sm secondary" style="margin-top:10px;" onclick="editMonthlyGoalModal()">'+(goal>0?'✏️ تعديل الهدف':'🎯 تحديد الهدف')+'</button>'
-        + '</div>';
+        + '</div>'
+        + warnLine;
     }catch(e){}
   };
 })();
@@ -1084,11 +1175,19 @@ setTimeout(function(){
 /* 25) مؤشر واضح لحالة الاتصال بالإنترنت (أوفلاين/أونلاين) + تنبيه للتغييرات المعلّقة اللي هتتزامن لاحقًا */
 (function(){
   function badgeState(){
-    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A'};
+    if(!navigator.onLine) return {show:true, text:'📴 أوفلاين — شغّال عادي وهيتزامن لما يرجع النت', color:'#E0796A', syncing:false};
     if(db && db.cloudSync && db.cloudSync.enabled && cloudPendingChanges){
-      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D'};
+      return {show:true, text:'⏳ في انتظار المزامنة', color:'#D9A93D', syncing:true};
     }
     return {show:false};
+  }
+  // أيقونة إبرة صغيرة بتعمل حركة غرز (بديل عن نقطة السبينر) — بتبان وقت
+  // ما فيه تغييرات فعليًا في انتظار المزامنة، يعني وقت "الحفظ" الحقيقي.
+  function needleIcon(color){
+    return '<svg class="needle-stitch-ic" width="13" height="13" viewBox="0 0 14 14" fill="none" style="color:'+color+';flex-shrink:0;">'
+      + '<line x1="3" y1="11" x2="11" y2="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'
+      + '<ellipse cx="10.3" cy="3.7" rx="1.3" ry="0.75" transform="rotate(45 10.3 3.7)" stroke="currentColor" stroke-width="1.1"/>'
+      + '</svg>';
   }
   function updateOfflineBadge(){
     var state = badgeState();
@@ -1097,11 +1196,14 @@ setTimeout(function(){
       if(!badge){
         badge = document.createElement('span');
         badge.id = 'offlineBadge';
-        badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:0;';
+        badge.style.cssText = 'background:rgba(255,255,255,0.18);color:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:800;margin-inline-end:6px;display:inline-flex;align-items:center;gap:5px;flex-shrink:1;min-width:0;max-width:110px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;';
         var holder = document.querySelector('header.topbar > div:last-child');
         if(holder) holder.insertAdjacentElement('afterbegin', badge);
       }
-      badge.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;"></span>'+state.text;
+      var icon = state.syncing
+        ? needleIcon(state.color)
+        : '<span style="width:8px;height:8px;border-radius:50%;background:'+state.color+';display:inline-block;flex-shrink:0;"></span>';
+      badge.innerHTML = icon+state.text;
     } else if(badge){
       badge.remove();
     }
@@ -2238,6 +2340,17 @@ cloudStatusChanged = function(){
   window.renderOrdersKanban = function(){
     var box = document.getElementById('ordersKanban');
     if(!box) return;
+    // [إصلاح أداء مهم] النسخة دي من renderOrdersKanban كانت بتبني
+    // لوحة الكانبان بالكامل (فلترة كل الطلبات + HTML لكل كارت + ربط
+    // السحب والإفلات) في *كل مرة* renderOrders() بتتنفذ — حتى لو
+    // المستخدم أصلًا في وضع "قائمة" وشايل الكانبان (display:none)!
+    // ده لأن renderOrders() الأصلية في core.js بتنادي renderOrdersKanban()
+    // بدون شرط في آخرها، والنسخة الأصلية كان فيها حارس (currentOrdersView
+    // !=='kanban' => return فورًا) بيمنع الشغل الزيادة ده، لكن النسخة
+    // دي (اللي بتستبدلها بالكامل) نسيت تحط نفس الحارس. النتيجة: كل
+    // حفظ/حذف/تغيير حالة طلب كان بيعمل شغل مضاعف من غير أي فايدة —
+    // ده كان سبب رئيسي في بطء التطبيق مع زيادة عدد الطلبات.
+    if(window.ordersView!=='kanban') return;
     var all = filteredOrdersForKanban();
     var html = '<div class="kanban-wrap" id="kanbanWrap">';
     KANBAN_STATUSES.forEach(function(st){
@@ -3069,6 +3182,727 @@ cloudStatusChanged = function(){
     btn.addEventListener('click', function(){ openMeasurementClusterTool(); });
     filters.appendChild(btn);
   };
+})();
+
+/* 29-ب) ربط بانر "كسبت X من Y المطلوبين الشهر ده" (صفحة الالتزامات) بـ
+   "🎯 الهدف الشهري للإيرادات" (صفحة المالية) — نفس الفلوس (db.payments)
+   بيتعرضوا في مكانين من غير ربط؛ هنا بنضيف تنبيه لو الهدف اللي حدده
+   صاحب الورشة بنفسه أقل من احتياجه الشخصي الفعلي المحسوب تلقائيًا. لازم
+   يترنّدر قبل باتش تجميع البانرات (30) عشان يتلمّ معاهم في نفس الكارت. */
+(function(){
+  if(typeof renderPersonalAlerts !== 'function') return;
+  var origRenderPersonalAlertsGoalLink = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    origRenderPersonalAlertsGoalLink.apply(this, arguments);
+    try{
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      if(window.userRole==='receptionist') return;
+      if(db.financePassword && !window.financeUnlocked) return; // البيانات محمية، متعرضش رقم الاحتياج هنا
+      var goal = Number(db.monthlyRevenueGoal)||0;
+      if(goal<=0) return; // لسه مفيش هدف متحدد أصلاً، مفيش داعي للتنبيه
+      var prog = typeof monthlyCommitmentProgress==='function' ? monthlyCommitmentProgress() : null;
+      if(!prog || prog.requiredMonthly<=0 || goal>=prog.requiredMonthly) return;
+      var gap = Math.round(prog.requiredMonthly-goal);
+      var banner = document.createElement('div');
+      banner.className = 'alert-banner warn';
+      banner.innerHTML = '<span class="ic">🎯</span><div><b>هدف الإيرادات اللي حددته في صفحة المالية أقل من احتياجك الشخصي الشهري</b>'
+        + 'الهدف: '+goal.toLocaleString('ar-EG')+' ج.م، احتياجك الفعلي: '+Math.round(prog.requiredMonthly).toLocaleString('ar-EG')+' ج.م — فرق '+gap.toLocaleString('ar-EG')+' ج.م.'
+        + '<div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="showPage(\'finance\');setTimeout(function(){var b=document.getElementById(\'monthlyGoalBox\');if(b)b.scrollIntoView({behavior:\'smooth\'});},200)">🎯 مراجعة الهدف</button></div>'
+        + '</div>';
+      var emptyMsg = box.querySelector(':scope > .empty-msg');
+      if(emptyMsg) box.innerHTML = ''; // مفيش تنبيهات تانية، امسح رسالة "مفيش تنبيهات" الوهمية دلوقتي
+      if(box.firstChild) box.insertBefore(banner, box.firstChild); else box.appendChild(banner);
+    }catch(e){ console.warn('[patches] فشل ربط الهدف الشهري بالتزاماتك الشخصية:', e); }
+  };
+})();
+
+/* 29-ج) ربط "عملاء تجاوزوا حد المديونية" (تنبيهات الرئيسية) بالتزاماتك
+   الشخصية المستحقة قريبًا — بدل رقمين منفصلين ("عندك مديونين" و"قسطك
+   مستحق") من غير أي فعل مقترح، بنقترح تتابع مع أكبر مديون فورًا، وبنستخدم
+   sendDebtReminder الموجودة بالفعل عشان الفعل يبقى بضغطة واحدة. */
+(function(){
+  if(typeof renderPersonalAlerts !== 'function') return;
+  var origRenderPersonalAlertsDebtLink = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    origRenderPersonalAlertsDebtLink.apply(this, arguments);
+    try{
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      if(window.userRole==='receptionist') return;
+      if(db.financePassword && !window.financeUnlocked) return;
+      if(typeof getCommitmentDueAlerts!=='function' || typeof debtorCustomers!=='function' || typeof sendDebtReminder!=='function') return;
+      var dueAlerts = getCommitmentDueAlerts();
+      if(!dueAlerts.length) return;
+      var debtors = debtorCustomers();
+      if(!debtors.length) return;
+      var dueTotal = dueAlerts.reduce(function(s,a){ return s+Number(a.c.amount||0); }, 0);
+      var topDebtor = debtors[0];
+      var banner = document.createElement('div');
+      banner.className = 'alert-banner warn';
+      banner.innerHTML = '<span class="ic">🔗</span><div><b>عندك '+dueAlerts.length+' قسط مستحق قريب بإجمالي '+Math.round(dueTotal).toLocaleString('ar-EG')+' ج.م، وفي المقابل عندك '+debtors.length+' عميل متجاوز حد المديونية</b>'
+        + 'أكبرهم "'+escapeHtml(topDebtor.customer.name)+'" بمبلغ '+Math.round(topDebtor.amount).toLocaleString('ar-EG')+' ج.م — تحصيله ممكن يغطي احتياجك القريب.'
+        + '<div class="btn-row" style="margin-top:6px;"><button class="btn sm outline" onclick="sendDebtReminder(\''+topDebtor.customer.id+'\')">💬 ابعتله تذكير دلوقتي</button></div>'
+        + '</div>';
+      var emptyMsg = box.querySelector(':scope > .empty-msg');
+      if(emptyMsg) box.innerHTML = '';
+      box.appendChild(banner);
+    }catch(e){ console.warn('[patches] فشل ربط المديونين بالتزاماتك المستحقة:', e); }
+  };
+})();
+
+/* 30) [إعادة تنظيم] تجميع تنبيهات الالتزامات الشخصية في كارت واحد
+   قابل للطي بدل حائط بانرات (ممكن توصل لـ8 بانر مرة واحدة). بنسيب
+   المنطق الأصلي زي ما هو تمامًا (كل الأزرار والوظائف شغالة)، وبس
+   بنغيّر طريقة العرض بعد ما يترندر عادي. */
+(function(){
+  // [إصلاح] لو core.js المحمّل مفيهوش renderPersonalAlerts (نسخة قديمة)،
+  // كان قراية المتغيّر ده مباشرة بتعمل ReferenceError فورًا لحظة تحميل
+  // الملف — وده بيوقف تنفيذ كل حاجة بعدها في الملف كله (البنود 31-34
+  // بتاعت لوحة الصحة المالية والخريطة السنوية وصندوق الطوارئ والقروض
+  // كانت بتضيع فعليًا من غير ما حد يلاحظ ليه). دلوقتي بنتأكد الأول.
+  if(typeof renderPersonalAlerts !== 'function'){
+    console.warn('[patches] تخطّي تجميع تنبيهات الالتزامات: renderPersonalAlerts مش موجودة في core.js المحمّل.');
+    return;
+  }
+  var origRenderPersonalAlertsCollapse = renderPersonalAlerts;
+  renderPersonalAlerts = function(){
+    try{
+      origRenderPersonalAlertsCollapse.apply(this, arguments);
+      var box = document.getElementById('personalAlerts');
+      if(!box) return;
+      var banners = box.querySelectorAll(':scope > .alert-banner');
+      if(banners.length < 2) return; // بانر واحد أو صفر، مفيش داعي نلخّص
+      var level = box.querySelector(':scope > .alert-banner.danger') ? 'danger'
+                : box.querySelector(':scope > .alert-banner.warn') ? 'warn' : 'good';
+      var icon = level==='danger' ? '🔴' : (level==='warn' ? '🟡' : '🟢');
+      var inner = box.innerHTML;
+      var count = banners.length;
+      box.innerHTML = ''
+        + '<div class="alert-banner '+level+'" id="personalAlertsSummaryBtn" style="cursor:pointer;">'
+        + '<span class="ic">'+icon+'</span><div><b>عندك '+count+' تنبيهات على التزاماتك الشخصية</b>'
+        + '<span id="personalAlertsToggleTxt">اضغط لعرض التفاصيل ▾</span></div></div>'
+        + '<div id="personalAlertsDetails" style="display:none;">'+inner+'</div>';
+      document.getElementById('personalAlertsSummaryBtn').addEventListener('click', function(){
+        var details = document.getElementById('personalAlertsDetails');
+        var txt = document.getElementById('personalAlertsToggleTxt');
+        var open = details.style.display!=='none';
+        details.style.display = open ? 'none' : 'block';
+        txt.textContent = open ? 'اضغط لعرض التفاصيل ▾' : 'اضغط للإخفاء ▴';
+      });
+    }catch(e){ console.warn('[patches] فشل تجميع بانرات الالتزامات الشخصية:', e); }
+  };
+})();
+
+/* 31) لوحة "الصحة المالية الشخصية" — شاشة ملخّصة واحدة بدل التنقل بين
+   كذا قسم منفصل عشان تجمع الصورة الكاملة. */
+(function(){
+  // [إصلاح] كل قيمة بتتحسب لوحدها بـ try/catch: لو دالة معيّنة مش موجودة
+  // (زي getCommitmentDueAlerts أو savingsGoalProgress في نسخة core.js أقدم)،
+  // بنسيب قيمتها فاضية ونكمل باقي اللوحة، بدل ما اللوحة كلها توقف عن الظهور.
+  function safe(fn, fallback){ try{ return fn(); }catch(e){ return fallback; } }
+
+  function calcHealthSnapshot(){
+    var r = safe(function(){ return calcRequiredDailyCapacity(); }, {total:0});
+    var currentCapacity = Number(db.dailyCapacity)||500;
+    var coveragePct = r && r.total>0 ? Math.round((currentCapacity/r.total)*100) : 100;
+    var missedCount = (db.missedCommitmentNotices||[]).length;
+    var dueSoonCount = safe(function(){ return getCommitmentDueAlerts().length; }, 0);
+    // [إصلاح] savingsGoalProgress() اتشالت من core.js (استُبدلت بهدف ادخار
+    // بمبلغ مستهدف واحد بدل الشهري: db.savingsGoalTarget + totalSavedAmount()).
+    // بنحسب نفس الفكرة (نسبة %) من البيانات الجديدة لو موجودة، وإلا نرجع فاضي.
+    var goalProg = safe(function(){
+      if(typeof savingsGoalProgress === 'function') return savingsGoalProgress(); // توافق مع نسخ قديمة
+      var target = Number(db.savingsGoalTarget)||0;
+      if(!target || typeof totalSavedAmount !== 'function') return null;
+      var saved = totalSavedAmount();
+      return {saved:saved, goal:target, pct:Math.min(100, Math.round(saved/target*100))};
+    }, null);
+    var ef = safe(function(){ return calcEmergencyFundRunway(); }, null);
+    var totalDebt = safe(function(){ return typeof totalRemainingLoansDebt==='function' ? totalRemainingLoansDebt() : 0; }, 0);
+    // [إضافة] "اللي ليك عند العملاء" (مستحقات الورشة) و"اللي عليك من قروض"
+    // (ديون شخصية) كانوا رقمين منفصلين تمامًا في مكانين مختلفين من التطبيق —
+    // صافيهم (وضعك المالي الحقيقي) مكانش ظاهر في أي مكان. لو عندك 20,000 ج.م
+    // مستحقة عند عملاء لكن عليك 30,000 ج.م قروض، وضعك الحقيقي سالب حتى لو
+    // إحساسك إنك "مستني فلوس" بيدّيك راحة كاذبة.
+    var totalOwedToYou = safe(function(){
+      var totalFees = (db.orders||[]).reduce(function(s,o){ return s+orderTotal(o); }, 0);
+      var totalCollected = (db.payments||[]).reduce(function(s,p){ return s+Number(p.amount||0); }, 0);
+      return totalFees-totalCollected;
+    }, 0);
+    var netPosition = totalOwedToYou - totalDebt;
+    return {r:r, currentCapacity:currentCapacity, coveragePct:coveragePct, missedCount:missedCount, dueSoonCount:dueSoonCount, goalProg:goalProg, ef:ef, totalDebt:totalDebt, totalOwedToYou:totalOwedToYou, netPosition:netPosition};
+  }
+
+  window.renderFinancialHealthDashboard = function(){
+    var box = document.getElementById('financialHealthBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var hasData = (db.commitments||[]).length>0 || (db.houseExpenses||[]).length>0;
+    if(!hasData){
+      box.innerHTML = '<div class="empty-msg">أضف التزاماتك الشهرية عشان تظهر لوحة الصحة المالية هنا.</div>';
+      return;
+    }
+    var s = calcHealthSnapshot();
+    var covColor = s.coveragePct>=100 ? 'var(--primary)' : (s.coveragePct>=70 ? 'var(--warn,#b8860b)' : 'var(--danger)');
+    box.innerHTML = ''
+      + '<div class="stat-card"><div class="stat-ic">📶</div><div><div class="num" style="color:'+covColor+';">'+s.coveragePct+'%</div><div class="lbl">نسبة تغطية التزاماتك بسعتك الحالية</div></div></div>'
+      + '<div class="stat-card '+(s.missedCount>0?'danger':'')+'"><div class="stat-ic">⏮️</div><div><div class="num">'+s.missedCount+'</div><div class="lbl">التزامات فاتك تسجيلها كمدفوعة</div></div></div>'
+      + '<div class="stat-card '+(s.dueSoonCount>0?'danger':'')+'"><div class="stat-ic">🔔</div><div><div class="num">'+s.dueSoonCount+'</div><div class="lbl">مستحق خلال 3 أيام أو أقل</div></div></div>'
+      + (s.goalProg ? '<div class="stat-card"><div class="stat-ic">🎯</div><div><div class="num">'+s.goalProg.pct+'%</div><div class="lbl">تقدّم هدف الادخار</div></div></div>' : '')
+      + (s.ef ? '<div class="stat-card '+(s.ef.months<3?'danger':'')+'"><div class="stat-ic">🧳</div><div><div class="num">'+s.ef.months.toFixed(1)+'</div><div class="lbl">شهر تغطية من صندوق الطوارئ</div></div></div>' : '')
+      + (s.totalDebt>0 ? '<div class="stat-card"><div class="stat-ic">🧾</div><div><div class="num">'+Math.round(s.totalDebt).toLocaleString('ar-EG')+'</div><div class="lbl">إجمالي المتبقي على قروضك</div></div></div>' : '')
+      + ((s.totalOwedToYou>0 || s.totalDebt>0) ? '<div class="stat-card '+(s.netPosition<0?'danger':'')+'"><div class="stat-ic">📐</div><div><div class="num">'+Math.round(s.netPosition).toLocaleString('ar-EG')+'</div><div class="lbl">صافي وضعك المالي (مستحقاتك عند العملاء − قروضك المتبقية)</div></div></div>' : '');
+
+    // توزيع الالتزامات الحالية بالنوع (شامل مصاريف البيت والقروض) — عشان
+    // توضّح "ليه احتياجك اليومي/الشهري بالرقم ده بالظبط"، مش بس رقم إجمالي
+    try{
+      var byType = {};
+      (db.commitments||[]).filter(function(c){ return c.active!==false; }).forEach(function(c){
+        var key = c.type||'تانية';
+        var share = typeof commitmentMonthlyShare==='function' ? commitmentMonthlyShare(c) : Number(c.amount||0);
+        byType[key] = (byType[key]||0) + share;
+      });
+      if(s.r && s.r.houseTotal>0 && s.r.housePerDay) byType['🏠 بيت'] = s.r.housePerDay*30;
+      if(s.r && s.r.loanMonthly>0) byType['💳 قروض'] = s.r.loanMonthly;
+      var keys = Object.keys(byType).sort(function(a,b){ return byType[b]-byType[a]; });
+      if(keys.length){
+        var breakdownBox = document.getElementById('financialHealthTypeBreakdown');
+        if(!breakdownBox){
+          breakdownBox = document.createElement('div');
+          breakdownBox.id = 'financialHealthTypeBreakdown';
+          breakdownBox.style.marginTop = '10px';
+          box.parentNode.appendChild(breakdownBox);
+        }
+        breakdownBox.innerHTML = '<div class="meta" style="margin-bottom:4px;">📊 توزيع التزاماتك الشهرية بالنوع:</div>'
+          + '<div class="meta">' + keys.map(function(k){
+              var icon = (typeof commitmentTypeInfo==='function' && !/^[🏠💳]/.test(k)) ? commitmentTypeInfo(k).icon+' ' : '';
+              return icon+k+': '+Math.round(byType[k]).toLocaleString('ar-EG')+' ج.م';
+            }).join(' — ') + '</div>';
+      }
+    }catch(e){ console.warn('[patches] فشل رسم توزيع الالتزامات بالنوع:', e); }
+  };
+
+  // [إصلاح] كانت بتدوّر على دالة اسمها renderPersonalCommitments (مش موجودة
+  // في core.js أصلاً) فكانت دايمًا بترجع لـ renderFinance غلط. الاسم الصح
+  // هو renderPersonalPage، وكمان الكارت لازم يترمي جوّه تاب "نظرة عامة"
+  // (#personalTab-overview) مش جوّه #page-personal مباشرة، عشان يظهر
+  // ويختفي صح مع تبديل التابات بدل ما يفضل ظاهر فوق كل التابات.
+  var hookHealthTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookHealthContainerId = hookHealthTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-overview') ? 'personalTab-overview' : 'page-personal')
+    : 'page-finance';
+  var origRenderFinanceHealth = window[hookHealthTarget];
+  window[hookHealthTarget] = function(){
+    origRenderFinanceHealth.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookHealthContainerId);
+      if(!page) return;
+      if(!page.querySelector('#financialHealthCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'financialHealthCard';
+        card.innerHTML = '<h3>📋 لوحة الصحة المالية الشخصية</h3><div id="financialHealthBox" class="grid-cards"></div>';
+        page.appendChild(card);
+      }
+      renderFinancialHealthDashboard();
+    }catch(e){ console.warn('[patches] فشل رسم لوحة الصحة المالية:', e); }
+  };
+})();
+
+/* 32) خريطة سنوية للالتزامات — الـ12 شهر الجايين وإجمالي كل شهر،
+   شامل الالتزامات الموسمية (كل 3/6/12 شهر) — عشان تشوف "الشهر
+   التقيل" قبل ما يجيلك بفترة كافية تستعد له. */
+(function(){
+  // [إصلاح] لو core.js المحمّل نسخة قديمة مفيهاش currentYM/isCommitmentCycleMonth/
+  // addMonthsYM (دوال الالتزامات غير الشهرية)، بنرجع لحساب مبسّط بيفترض إن
+  // كل الالتزامات شهرية عادية (intervalMonths=1)، بدل ما نطلع Error ونوقف
+  // الخريطة وكل حاجة بعدها في السلسلة (صندوق الطوارئ + القروض).
+  var hasCycleHelpers = typeof currentYM==='function' && typeof isCommitmentCycleMonth==='function' && typeof addMonthsYM==='function';
+
+  function fallbackAddMonthsYM(ym, n){
+    var parts = ym.split('-'); var y = Number(parts[0]); var m = Number(parts[1]);
+    var total = (y*12+(m-1))+n;
+    var ny = Math.floor(total/12); var nm = (total%12)+1;
+    return ny+'-'+(nm<10?'0':'')+nm;
+  }
+
+  function calcAnnualCommitmentsMap(){
+    var nowYM = hasCycleHelpers ? currentYM() : todayStr().slice(0,7);
+    var housePerDay = 0;
+    try{ housePerDay = calcRequiredDailyCapacity().housePerDay||0; }catch(e){}
+    var houseMonthly = housePerDay*30;
+    var loanMonthly = (db.personalLoans||[]).filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.monthlyPayment||0); }, 0);
+    var loanSchedule = typeof calcLoanMonthlyByMonthIndex==='function' ? calcLoanMonthlyByMonthIndex() : null;
+    var months = [];
+    for(var i=0;i<12;i++){
+      var ym = hasCycleHelpers ? addMonthsYM(nowYM, i) : fallbackAddMonthsYM(nowYM, i);
+      var byType = {};
+      var commitmentsTotal = 0;
+      (db.commitments||[]).filter(function(c){
+        if(c.active===false) return false;
+        return hasCycleHelpers ? isCommitmentCycleMonth(c, ym) : true; // بدون الدوال دي منقدرش نحدد دورة الالتزامات غير الشهرية، فبنعتبرها شهرية عادية
+      }).forEach(function(c){
+        var amt = Number(c.amount||0); // القيمة كاملة في شهر استحقاقها الفعلي (مش موزّعة) عشان يبان "الشهر التقيل" بوضوح
+        var key = c.type||'تانية';
+        byType[key] = (byType[key]||0) + amt;
+        commitmentsTotal += amt;
+      });
+      // نصيب القروض للشهر ده تحديدًا — بيهبط ويوصل صفر لما القرض يتسدد
+      // بدل ما يفضل ثابت طول الـ12 شهر حتى بعد ما ينتهي فعليًا
+      var loanForMonth = loanSchedule ? loanSchedule[i] : loanMonthly;
+      if(houseMonthly>0) byType['🏠 بيت'] = houseMonthly;
+      if(loanForMonth>0) byType['💳 قروض'] = loanForMonth;
+      months.push({ym:ym, commitmentsTotal:commitmentsTotal, houseMonthly:houseMonthly, loanMonthly:loanForMonth, byType:byType, total:commitmentsTotal+houseMonthly+loanForMonth});
+    }
+    return months;
+  }
+
+  window.renderAnnualCommitmentsMap = function(){
+    var box = document.getElementById('annualCommitmentsMapBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var months = calcAnnualCommitmentsMap();
+    var avg = months.reduce(function(s,m){return s+m.total;},0)/months.length;
+    box.innerHTML = months.map(function(m, i){
+      var label = new Date(m.ym+'-01').toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
+      var heavy = avg>0 && m.total > avg*1.2;
+      var typeKeys = Object.keys(m.byType).sort(function(a,b){ return m.byType[b]-m.byType[a]; });
+      var breakdown = typeKeys.length ? '<div class="meta" style="padding-right:2px;">'
+        + typeKeys.map(function(k){
+            var icon = (typeof commitmentTypeInfo==='function' && !/^[🏠💳]/.test(k)) ? commitmentTypeInfo(k).icon+' ' : '';
+            return icon+k+': '+Math.round(m.byType[k]).toLocaleString('ar-EG')+' ج.م';
+          }).join(' — ')
+        + '</div>' : '';
+      return '<div style="padding:8px 0;'+(i<months.length-1?'border-bottom:1px solid var(--border);':'')+'">'
+        + '<div class="row" style="'+(i===0?'font-weight:800;':'')+'">'
+        + '<span>'+(i===0?'📍 ':'')+label+(heavy?' <span class="meta">🔥 شهر تقيل</span>':'')+'</span>'
+        + '<b style="color:'+(heavy?'var(--danger)':'inherit')+';">'+Math.round(m.total).toLocaleString('ar-EG')+' ج.م</b>'
+        + '</div>'
+        + breakdown
+        + '</div>';
+    }).join('');
+  };
+
+  // [إصلاح] نفس مشكلة القسم اللي فوق: اسم الدالة الصح renderPersonalPage
+  // (مش renderPersonalCommitments اللي مش موجودة أصلاً)، والخريطة دي جدول
+  // تفصيلي فمكانها الطبيعي تاب "التقارير" (#personalTab-reports) جنب
+  // التقرير الشهري، مش جوّه #page-personal مباشرة برّه كل التابات.
+  var hookMapTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookMapContainerId = hookMapTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-reports') ? 'personalTab-reports' : 'page-personal')
+    : 'page-finance';
+  var origRenderFinanceAnnualMap = window[hookMapTarget];
+  window[hookMapTarget] = function(){
+    origRenderFinanceAnnualMap.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookMapContainerId);
+      if(!page) return;
+      if(!page.querySelector('#annualCommitmentsMapCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'annualCommitmentsMapCard';
+        card.innerHTML = '<h3>🗓️ خريطة سنوية للالتزامات</h3><p class="meta">إجمالي الالتزامات المتوقعة (شاملة الموسمية) لكل شهر من الـ12 شهر الجايين، عشان تشوف الشهر التقيل بدري.</p><div id="annualCommitmentsMapBox"></div>';
+        page.appendChild(card);
+      }
+      renderAnnualCommitmentsMap();
+    }catch(e){ console.warn('[patches] فشل رسم الخريطة السنوية للالتزامات:', e); }
+  };
+})();
+
+/* 33) صندوق الطوارئ — لو الدخل وقف فجأة، هتقدر تعيش قد إيه؟
+   بيقارن رصيد مدخرات (بتدخله يدويًا) بإجمالي التزاماتك الشهرية. */
+(function(){
+  window.calcEmergencyFundRunway = function(){
+    var savings = Number(db.emergencyFundBalance)||0;
+    var monthlyCommitments = (db.commitments||[]).filter(function(c){ return c.active!==false; })
+      .reduce(function(s,c){ return s+(Number(c.amount||0)/(Number(c.intervalMonths)||1)); }, 0);
+    var loanMonthly = (db.personalLoans||[]).filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.monthlyPayment||0); }, 0);
+    var houseMonthly = calcRequiredDailyCapacity().housePerDay*30;
+    var totalMonthly = monthlyCommitments + loanMonthly + houseMonthly;
+    if(totalMonthly<=0) return null;
+    return {savings:savings, totalMonthly:totalMonthly, months:savings/totalMonthly};
+  };
+
+  window.saveEmergencyFundBalance = function(){
+    var input = document.getElementById('emergencyFundInput');
+    if(!input) return;
+    db.emergencyFundBalance = Number(input.value)||0;
+    saveDB();
+    renderEmergencyFundCard();
+    renderFinancialHealthDashboard();
+    toast('✅ اتحفظ رصيد صندوق الطوارئ');
+  };
+
+  window.renderEmergencyFundCard = function(){
+    var box = document.getElementById('emergencyFundBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var ef = calcEmergencyFundRunway();
+    var status = !ef ? {label:'', color:''}
+      : ef.months>=6 ? {label:'قوي 💪', color:'var(--primary)'}
+      : ef.months>=3 ? {label:'مقبول 👍', color:'var(--warn,#b8860b)'}
+      : ef.months>=1 ? {label:'ضعيف ⚠️', color:'var(--danger)'}
+      : {label:'خطر 🚨', color:'var(--danger)'};
+    box.innerHTML = ''
+      + '<div class="field"><label>رصيد مدخراتك الحالي (ج.م)</label><input id="emergencyFundInput" type="number" value="'+(db.emergencyFundBalance||0)+'"></div>'
+      + '<button class="btn sm outline" onclick="saveEmergencyFundBalance()">💾 حفظ الرصيد</button>'
+      + (ef ? ('<div class="meta" style="margin-top:10px;line-height:1.8;">لو الدخل وقف تمامًا النهاردة، مدخراتك هتغطي احتياجاتك الشهرية لمدة تقريبية: '
+          + '<b style="color:'+status.color+';font-size:16px;"> '+ef.months.toFixed(1)+' شهر</b> ('+status.label+')'
+          + '<br><span class="meta">إجمالي احتياجك الشهري: '+Math.round(ef.totalMonthly).toLocaleString('ar-EG')+' ج.م</span>'
+          + '<br><span class="meta">المعدل الصحي المتعارف عليه: 3-6 شهور على الأقل</span></div>')
+        : '<p class="meta" style="margin-top:8px;">أضف التزاماتك الشهرية الأول عشان نحسبلك المدة.</p>')
+      + '<div class="meta" style="margin-top:8px;">ℹ️ الرصيد هنا منفصل عن "🎯 هدف الادخار" — تقدر ترحّل رصيد أي هدف ادخار تحققه هنا كإضافة لصندوق الطوارئ.</div>';
+  };
+
+  // [إصلاح] نفس المشكلة: الاسم الصح renderPersonalPage. صندوق الطوارئ
+  // فيه إدخال بيانات (رصيد المدخرات) فمكانه الطبيعي تاب "القائمة"
+  // (#personalTab-list) جنب هدف الادخار والالتزامات، مش برّه التابات.
+  var hookEfTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookEfContainerId = hookEfTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-list') ? 'personalTab-list' : 'page-personal')
+    : 'page-finance';
+  var origRenderFinanceEmergency = window[hookEfTarget];
+  window[hookEfTarget] = function(){
+    origRenderFinanceEmergency.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookEfContainerId);
+      if(!page) return;
+      if(!page.querySelector('#emergencyFundCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'emergencyFundCard';
+        card.innerHTML = '<h3>🧳 صندوق الطوارئ</h3><div id="emergencyFundBox"></div>';
+        page.appendChild(card);
+      }
+      renderEmergencyFundCard();
+    }catch(e){ console.warn('[patches] فشل رسم كارت صندوق الطوارئ:', e); }
+  };
+})();
+
+/* 34) قروض شخصية بجدول سداد — مختلفة عن الالتزام الشهري العادي: ليها
+   مبلغ أصلي، رصيد متبقي بينزل مع كل دفعة، ونسبة سداد واضحة. */
+(function(){
+  // [إصلاح] كلاس progress-track/progress-fill في index.html معرّف بس جوّه
+  // .alert-banner، فشريط تقدّم سداد القرض هنا (جوّه .card عادي) كان
+  // بيتعرض من غير أي شكل (بلا لون ولا ارتفاع). بنضيف تعريف عام مرة واحدة.
+  if(!document.getElementById('rcLoanProgressStyle')){
+    var styleTag = document.createElement('style');
+    styleTag.id = 'rcLoanProgressStyle';
+    styleTag.textContent = '.progress-track{background:rgba(0,0,0,0.08);border-radius:8px;height:8px;overflow:hidden;}'
+      + '.progress-fill{background:var(--primary);height:100%;}';
+    document.head.appendChild(styleTag);
+  }
+
+  function ensureLoansArray(){ if(!db.personalLoans) db.personalLoans=[]; return db.personalLoans; }
+
+  // أيام متبقية لاستحقاق قسط القرض الشهري (زي commitmentDaysUntilDue بالظبط،
+  // بس للقروض) — null لو مفيش يوم استحقاق متسجل أو القرض متسدد بالكامل
+  function loanDaysUntilDue(l){
+    if(!l.dueDay || l.active===false) return null;
+    var today = todayStr();
+    var parts = today.split('-').map(Number);
+    var y = parts[0], m = parts[1];
+    var lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    var day = Math.min(Number(l.dueDay), lastDay);
+    var due = y+'-'+String(m).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    return Math.round((new Date(due)-new Date(today))/86400000);
+  }
+
+  // إجمالي المديونية المتبقية على كل القروض النشطة (رقم واحد يلخّص "قد إيه لسه عليك")
+  window.totalRemainingLoansDebt = function(){
+    return ensureLoansArray().filter(function(l){ return l.active!==false; })
+      .reduce(function(s,l){ return s+Number(l.remainingBalance||0); }, 0);
+  };
+
+  // جدول سداد القروض شهر بشهر (12 شهر جايين، index 0 = الشهر الحالي)، مراعيًا
+  // إن القرض بيوقف يساهم في الالتزام الشهري بمجرد ما يتسدد بالكامل — بدل ما
+  // نفترضه ثابت طول السنة زي ما كان بيحصل في الخريطة السنوية قبل كده
+  window.calcLoanMonthlyByMonthIndex = function(){
+    var loans = ensureLoansArray().filter(function(l){ return l.active!==false && Number(l.monthlyPayment)>0; });
+    var perMonth = new Array(12).fill(0);
+    loans.forEach(function(l){
+      var remaining = Number(l.remainingBalance)||0;
+      var pay = Number(l.monthlyPayment)||0;
+      for(var i=0;i<12 && remaining>0;i++){
+        var thisMonth = Math.min(pay, remaining);
+        perMonth[i] += thisMonth;
+        remaining -= thisMonth;
+      }
+    });
+    return perMonth;
+  };
+
+  window.addPersonalLoan = function(){
+    var desc = document.getElementById('loanDescInput').value.trim();
+    var principal = Number(document.getElementById('loanPrincipalInput').value)||0;
+    var monthlyPayment = Number(document.getElementById('loanMonthlyInput').value)||0;
+    var dueDay = Number(document.getElementById('loanDueDayInput').value)||null;
+    if(!desc || principal<=0){ toast('اكتب وصف القرض والمبلغ الأصلي على الأقل'); return; }
+    ensureLoansArray().push({id:uid(), desc:desc, principal:principal, remainingBalance:principal, monthlyPayment:monthlyPayment, dueDay:dueDay, lastPaidMonth:null, startDate:todayStr(), active:true, payments:[]});
+    saveDB();
+    document.getElementById('loanDescInput').value='';
+    document.getElementById('loanPrincipalInput').value='';
+    document.getElementById('loanMonthlyInput').value='';
+    document.getElementById('loanDueDayInput').value='';
+    renderPersonalLoans();
+    toast('✅ اتضاف القرض');
+  };
+
+  window.recordLoanPayment = async function(loanId){
+    var loan = ensureLoansArray().find(function(l){ return l.id===loanId; });
+    if(!loan) return;
+    var suggested = loan.monthlyPayment || loan.remainingBalance;
+    var input = prompt('قيمة الدفعة (ج.م):', suggested);
+    if(input===null) return;
+    var amount = Number(input)||0;
+    if(amount<=0) return;
+    loan.remainingBalance = Math.max(0, loan.remainingBalance - amount);
+    loan.payments = loan.payments||[];
+    loan.payments.push({date:todayStr(), amount:amount});
+    loan.lastPaidMonth = typeof currentYM==='function' ? currentYM() : todayStr().slice(0,7);
+    if(loan.remainingBalance<=0){ loan.active=false; logActivity('🏁 انتهى سداد قرض: '+loan.desc); }
+    saveDB();
+    renderPersonalLoans();
+    if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
+    toast(loan.active ? '✅ اتسجلت الدفعة' : '🎉 مبروك، اتسدد القرض بالكامل!');
+  };
+
+  window.deletePersonalLoan = async function(loanId){
+    var ok = await appConfirm('هل تريد حذف هذا القرض نهائيًا؟', {okText:'حذف', cancelText:'إلغاء', danger:true});
+    if(!ok) return;
+    db.personalLoans = ensureLoansArray().filter(function(l){ return l.id!==loanId; });
+    saveDB();
+    renderPersonalLoans();
+    if(typeof renderFinancialHealthDashboard==='function') renderFinancialHealthDashboard();
+  };
+
+  window.renderPersonalLoans = function(){
+    var box = document.getElementById('personalLoansBox');
+    if(!box) return;
+    if(db.financePassword && !window.financeUnlocked){ box.innerHTML=''; return; }
+    var loans = ensureLoansArray().slice().sort(function(a,b){ return (b.active?1:0)-(a.active?1:0); });
+    var nowYM = typeof currentYM==='function' ? currentYM() : todayStr().slice(0,7);
+    box.innerHTML = loans.length ? loans.map(function(l){
+      var pct = l.principal>0 ? Math.round(((l.principal-l.remainingBalance)/l.principal)*100) : 0;
+      var dueLine = '';
+      if(l.active!==false && l.dueDay){
+        var paidThisMonth = l.lastPaidMonth===nowYM;
+        var diff = loanDaysUntilDue(l);
+        if(!paidThisMonth && diff!=null){
+          if(diff<0) dueLine = '<div class="meta" style="color:var(--danger);margin-top:4px;">⏰ متأخر '+Math.abs(diff)+' يوم عن يوم استحقاقه ('+l.dueDay+' من الشهر)</div>';
+          else if(diff<=3) dueLine = '<div class="meta" style="color:var(--danger);margin-top:4px;">🔔 قسط القرض مستحق '+(diff===0?'النهاردة':diff===1?'بكرة':'خلال '+diff+' أيام')+'</div>';
+        } else if(paidThisMonth){
+          dueLine = '<div class="meta" style="margin-top:4px;">✅ مدفوع الشهر ده</div>';
+        }
+      }
+      return '<div class="card" style="padding:12px;margin-bottom:10px;'+(!l.active?'opacity:.65;':'')+'">'
+        + '<div class="row"><h3>'+escapeHtml(l.desc)+(!l.active?' <span class="meta">(مسدّد بالكامل ✅)</span>':'')+'</h3>'
+        + '<button class="btn sm outline" onclick="deletePersonalLoan(\''+l.id+'\')">🗑️</button></div>'
+        + '<div class="meta">المبلغ الأصلي: '+Number(l.principal).toLocaleString('ar-EG')+' ج.م — المتبقي: <b>'+Number(l.remainingBalance).toLocaleString('ar-EG')+' ج.م</b>'+(l.dueDay?' — 📅 يستحق يوم '+l.dueDay+' من كل شهر':'')+'</div>'
+        + '<div class="progress-track" style="margin-top:6px;"><div class="progress-fill" style="width:'+pct+'%;"></div></div>'
+        + '<div class="meta" style="margin-top:4px;">نسبة السداد: '+pct+'%</div>'
+        + dueLine
+        + (l.active ? '<button class="btn sm outline" style="margin-top:8px;" onclick="recordLoanPayment(\''+l.id+'\')">💵 تسجيل دفعة</button>' : '')
+        + '</div>';
+    }).join('') : '<p class="meta">لا توجد قروض مسجّلة.</p>';
+  };
+
+  // [إصلاح] نفس المشكلة: الاسم الصح renderPersonalPage. القروض فيها إدخال
+  // وتشغيل يومي (إضافة قرض، تسجيل دفعات) فمكانها الطبيعي تاب "القائمة".
+  var hookLoansTarget = typeof renderPersonalPage === 'function' ? 'renderPersonalPage' : 'renderFinance';
+  var hookLoansContainerId = hookLoansTarget === 'renderPersonalPage'
+    ? (document.getElementById('personalTab-list') ? 'personalTab-list' : 'page-personal')
+    : 'page-finance';
+  var origRenderFinanceLoans = window[hookLoansTarget];
+  window[hookLoansTarget] = function(){
+    origRenderFinanceLoans.apply(this, arguments);
+    try{
+      var page = document.getElementById(hookLoansContainerId);
+      if(!page) return;
+      if(!page.querySelector('#personalLoansCard')){
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.id = 'personalLoansCard';
+        card.innerHTML = '<h3>💳 قروض شخصية بجدول سداد</h3>'
+          + '<div class="field"><label>وصف القرض</label><input id="loanDescInput" type="text" placeholder="مثال: قرض سيارة"></div>'
+          + '<div class="field"><label>المبلغ الأصلي (ج.م)</label><input id="loanPrincipalInput" type="number"></div>'
+          + '<div class="field"><label>القسط الشهري المعتاد (ج.م) <span class="meta">— اختياري</span></label><input id="loanMonthlyInput" type="number"></div>'
+          + '<div class="field"><label>يوم استحقاق القسط من الشهر <span class="meta">— اختياري</span></label><input id="loanDueDayInput" type="number" min="1" max="31" placeholder="مثال: 10"></div>'
+          + '<button class="btn sm outline" onclick="addPersonalLoan()">➕ إضافة قرض</button>'
+          + '<div id="personalLoansBox" style="margin-top:14px;"></div>';
+        page.appendChild(card);
+      }
+      renderPersonalLoans();
+    }catch(e){ console.warn('[patches] فشل رسم كارت القروض الشخصية:', e); }
+  };
+})();
+
+/* 35) تجميع الأيقونات الخمسة (قفل / كثافة العرض / تباين / عرض للعميل / وضع ليلي)
+   في قائمة منسدلة واحدة بدل ما تتكدس جنب بعض في الشريط العلوي. الأزرار
+   الأصلية بتفضل موجودة في الـ DOM (مخفية بس) عشان كل المنطق اللي بيقرأ
+   حالتها (applyDarkMode, toggleDisplayMode...) يفضل شغال زي ما هو. */
+(function(){
+  function setup(){
+    if(document.getElementById('topbarMenuBtn')) return; // امنع التكرار
+    var holder = document.querySelector('header.topbar > div:last-child');
+    if(!holder) return;
+
+    var themeBtn    = document.getElementById('themeToggleBtn');
+    var displayBtn  = document.getElementById('displayModeBtn');
+    var contrastBtn = document.getElementById('contrastToggleBtn');
+    var densityBtn  = document.getElementById('densityToggleBtn');
+    var lockBtn     = holder.querySelector('.small-link');
+
+    var originals = [themeBtn, displayBtn, contrastBtn, densityBtn, lockBtn].filter(Boolean);
+    if(originals.length < 5) return; // استنى لحد ما كل الأزرار الخمسة تتعمل
+
+    // نخبّي الأزرار الأصلية بدل ما نمسحها، عشان أي كود تاني بيرجع لها بالـ id يفضل شغال
+    originals.forEach(function(b){ b.style.display = 'none'; });
+
+    if(!document.getElementById('topbarMenuStyle')){
+      var styleTag = document.createElement('style');
+      styleTag.id = 'topbarMenuStyle';
+      styleTag.textContent =
+        '.topbar-menu-wrap{display:inline-flex;}'+
+        /* [إصلاح] الشريط العلوي فيه overflow:hidden على الموبايل عشان يمنع
+           طفح محتواه، وده كان بيقص القائمة المنسدلة لو اتحطت جوّه الشريط
+           كعنصر position:absolute. الحل: القائمة بقت position:fixed ومتضافة
+           لـ body مباشرة (بره الشريط العلوي بالكامل)، ومكانها بيتحسب
+           بالجافاسكريبت وقت الفتح (شوف openPanel) عشان متتقصش. */
+        '.topbar-menu-panel{position:fixed;min-width:220px;max-width:calc(100vw - 24px);'+
+          'background:var(--card,#fff);color:var(--text,#1a1a1a);border-radius:12px;'+
+          'box-shadow:0 12px 30px rgba(0,0,0,.28);padding:6px;z-index:9999;display:none;}'+
+        '.topbar-menu-panel.open{display:block;}'+
+        '.topbar-menu-item{display:flex;align-items:center;gap:10px;width:100%;'+
+          'background:none;border:0;text-align:right;padding:10px 12px;border-radius:8px;'+
+          'font-size:14px;font-weight:700;cursor:pointer;color:inherit;}'+
+        '.topbar-menu-item:active,.topbar-menu-item:hover{background:rgba(31,109,87,0.1);}'+
+        '.topbar-menu-item .tmi-icon{font-size:16px;width:20px;text-align:center;flex-shrink:0;}'+
+        '.topbar-menu-item .tmi-state{margin-inline-start:auto;font-size:11px;color:var(--muted,#888);}';
+      document.head.appendChild(styleTag);
+    }
+
+    var wrap = document.createElement('div');
+    wrap.className = 'topbar-menu-wrap';
+
+    var toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'theme-toggle-btn';
+    toggleBtn.id = 'topbarMenuBtn';
+    toggleBtn.setAttribute('aria-label', 'المزيد من الخيارات');
+    toggleBtn.textContent = '⋮';
+
+    var panel = document.createElement('div');
+    panel.className = 'topbar-menu-panel';
+    panel.id = 'topbarMenuPanel';
+
+    function itemDefs(){
+      return [
+        {
+          icon: themeBtn.textContent.trim() || '🌙',
+          label: 'الوضع الليلي',
+          state: (document.documentElement.getAttribute('data-theme')==='dark') ? 'مفعّل' : 'متوقف',
+          run: function(){ themeBtn.click(); }
+        },
+        {
+          icon: '👁️',
+          label: 'وضع عرض للعميل',
+          state: displayBtn.classList.contains('active-display-mode') ? 'مفعّل' : 'متوقف',
+          run: function(){ displayBtn.click(); }
+        },
+        {
+          icon: '◐',
+          label: 'تباين عالٍ',
+          state: document.documentElement.classList.contains('high-contrast') ? 'مفعّل' : 'متوقف',
+          run: function(){ contrastBtn.click(); }
+        },
+        {
+          icon: densityBtn.textContent.trim() || '☰',
+          label: 'كثافة العرض',
+          state: document.documentElement.classList.contains('compact-view') ? 'مضغوط' : 'مريح',
+          run: function(){ densityBtn.click(); }
+        },
+        {
+          icon: '🔒',
+          label: 'قفل التطبيق',
+          state: '',
+          run: function(){ lockBtn.click(); }
+        }
+      ];
+    }
+
+    function renderPanel(){
+      panel.innerHTML = '';
+      itemDefs().forEach(function(def){
+        var item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'topbar-menu-item';
+        item.innerHTML =
+          '<span class="tmi-icon">'+def.icon+'</span>'+
+          '<span>'+def.label+'</span>'+
+          (def.state ? '<span class="tmi-state">'+def.state+'</span>' : '');
+        item.onclick = function(){
+          closePanel();
+          def.run();
+        };
+        panel.appendChild(item);
+      });
+    }
+
+    function positionPanel(){
+      var rect = toggleBtn.getBoundingClientRect();
+      // نحط القائمة الأول عشان نقدر نقيس عرضها الفعلي (offsetWidth) بعد ما اتملت
+      var panelWidth = panel.offsetWidth || 220;
+      var left = rect.left; // نفس بداية الزر افتراضيًا
+      // لو هتخرج بره يمين الشاشة، نلزقها بحافة الشاشة اليمين بمسافة أمان 12px
+      if(left + panelWidth > window.innerWidth - 12){
+        left = window.innerWidth - panelWidth - 12;
+      }
+      if(left < 12) left = 12;
+      var top = rect.bottom + 8;
+      var maxTop = window.innerHeight - 12;
+      panel.style.left = left + 'px';
+      panel.style.top = Math.min(top, maxTop) + 'px';
+    }
+
+    function openPanel(){
+      renderPanel();
+      panel.classList.add('open');
+      positionPanel(); // تحسب المكان بعد ما تتملى وتظهر عشان offsetWidth يبقى صحيح
+      document.addEventListener('click', onOutsideClick, true);
+      window.addEventListener('scroll', positionPanel, true);
+      window.addEventListener('resize', positionPanel);
+    }
+    function closePanel(){
+      panel.classList.remove('open');
+      document.removeEventListener('click', onOutsideClick, true);
+      window.removeEventListener('scroll', positionPanel, true);
+      window.removeEventListener('resize', positionPanel);
+    }
+    function onOutsideClick(e){
+      if(!wrap.contains(e.target) && !panel.contains(e.target)) closePanel();
+    }
+
+    toggleBtn.onclick = function(e){
+      e.stopPropagation();
+      if(panel.classList.contains('open')) closePanel();
+      else openPanel();
+    };
+
+    wrap.appendChild(toggleBtn);
+    holder.appendChild(wrap);
+    document.body.appendChild(panel); // بره الشريط العلوي خالص عشان overflow:hidden متأثرش عليها
+  }
+
+  // الأزرار التانية بتتضاف بترتيب مختلف في الملف، فبنستنى لحد ما تخلص كلها
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(setup, 0); });
+  } else {
+    setTimeout(setup, 0);
+  }
 })();
 
 })(); /* نهاية الملف — إغلاق الـ IIFE الرئيسية */
