@@ -97,6 +97,13 @@
 
   /* ========== 3) كشف التزام مستتر ========== */
   function normalizeDesc(s){ return (s||'').trim().replace(/\s+/g,' ').toLowerCase(); }
+  // [إصلاح] الترتيب القديم كان escapeHtml() الأول وبعدين استبدال '،
+  // وده بيخليه بلا فايدة: escapeHtml بيحوّل ' لـ &#39; خلاص، فمفيش '
+  // خام يتستبدل بعد كده. النتيجة: أي وصف مصروف فيه علامة اقتباس ' كان
+  // بيكسر onclick بالكامل (خطأ JS "missing ) after argument list")
+  // ويخلي الزرار "متعملش حاجة" لما تدوس عليه. الحل: نستبدل ' بـ \' في
+  // النص الخام الأول، وبعدين نعمل escapeHtml (مش العكس).
+  function escJsAttr(s){ return escapeHtml(String(s||'').replace(/'/g,"\\'")); }
 
   function detectHiddenCommitments(){
     const all = db.houseExpenses||[];
@@ -153,8 +160,8 @@
           <b>"${escapeHtml(s.desc)}" بيتكرر بنفس القيمة تقريبًا من ${s.months} شهور</b>
           يمكن يبقى الأنسب تحوّله لالتزام ثابت (${Math.round(s.avgAmount).toLocaleString('ar-EG')} ج.م/شهر) عشان محدش يفوتك.
           <div class="btn-row" style="margin-top:6px;">
-            <button class="btn sm outline" onclick="convertToFixedCommitment('${s.key}','${escapeHtml(s.desc).replace(/'/g,"\\'")}',${s.avgAmount})">➕ تحويل لالتزام ثابت</button>
-            <button class="btn sm secondary" onclick="dismissHiddenCommitment('${s.key}')">تجاهل</button>
+            <button class="btn sm outline" onclick="convertToFixedCommitment('${escJsAttr(s.key)}','${escJsAttr(s.desc)}',${s.avgAmount})">➕ تحويل لالتزام ثابت</button>
+            <button class="btn sm secondary" onclick="dismissHiddenCommitment('${escJsAttr(s.key)}')">تجاهل</button>
           </div>
         </div>
       </div>

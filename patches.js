@@ -539,7 +539,13 @@ setTimeout(function(){
     // حدث الـ click اللي المفروض ينفّذ زرار الحذف (أو أي زرار تاني جوه
     // الكارت) — فيبان للمستخدم إن الزرار "مش شغال" مع إنه شغال فعليًا.
     // الحل: أي لمسة بادئة على زرار متتسجلش كبداية سحب أصلًا.
-    if(e.target.closest('button')) return;
+    // [إصلاح] وسّعت الاستثناء ليشمل مش بس الأزرار، كمان أي عنصر تحكّم
+    // تفاعلي تاني بيتضاف جوه كارت الطلب من ملفات تانية زي checkbox
+    // "تحديد للتحويل الجماعي" (feature-today-focus.js) — نفس مشكلة
+    // زرار الحذف بالظبط: لمسة فيها اهتزاز بسيط على الـ checkbox كانت
+    // بتتحسب "سحب" وتحرك الكارت، فيفشل تحديد الـ checkbox من غير أي
+    // رسالة خطأ توضح السبب.
+    if(e.target.closest('button, input, select, textarea, label, a')) return;
     var card = e.target.closest('#ordersList .card');
     if(!card){
       // لمسة برّه أي كارت مفتوح تقفله
@@ -2334,6 +2340,17 @@ cloudStatusChanged = function(){
   window.renderOrdersKanban = function(){
     var box = document.getElementById('ordersKanban');
     if(!box) return;
+    // [إصلاح أداء مهم] النسخة دي من renderOrdersKanban كانت بتبني
+    // لوحة الكانبان بالكامل (فلترة كل الطلبات + HTML لكل كارت + ربط
+    // السحب والإفلات) في *كل مرة* renderOrders() بتتنفذ — حتى لو
+    // المستخدم أصلًا في وضع "قائمة" وشايل الكانبان (display:none)!
+    // ده لأن renderOrders() الأصلية في core.js بتنادي renderOrdersKanban()
+    // بدون شرط في آخرها، والنسخة الأصلية كان فيها حارس (currentOrdersView
+    // !=='kanban' => return فورًا) بيمنع الشغل الزيادة ده، لكن النسخة
+    // دي (اللي بتستبدلها بالكامل) نسيت تحط نفس الحارس. النتيجة: كل
+    // حفظ/حذف/تغيير حالة طلب كان بيعمل شغل مضاعف من غير أي فايدة —
+    // ده كان سبب رئيسي في بطء التطبيق مع زيادة عدد الطلبات.
+    if(window.ordersView!=='kanban') return;
     var all = filteredOrdersForKanban();
     var html = '<div class="kanban-wrap" id="kanbanWrap">';
     KANBAN_STATUSES.forEach(function(st){

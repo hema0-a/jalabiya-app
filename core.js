@@ -1686,7 +1686,7 @@ function renderGlobalSearch(){
   if(matchedCustomers.length){
     html += `<div class="section-title" style="margin-top:6px;">👥 عملاء (${matchedCustomers.length})</div>`;
     html += matchedCustomers.map(c=>`
-      <div class="card" onclick="showPage('customers');document.getElementById('custSearch').value='${escapeHtml(c.name).replace(/'/g,"\\'")}';renderCustomers();" style="cursor:pointer;">
+      <div class="card" onclick="showPage('customers');document.getElementById('custSearch').value='${escapeHtml(c.name.replace(/'/g,"\\'"))}';renderCustomers();" style="cursor:pointer;">
         <h3 class="name-row">${avatarChip(c.name)}${escapeHtml(c.name)}</h3>
         <div class="meta">📞 ${escapeHtml(c.phone||'-')}</div>
       </div>
@@ -1883,7 +1883,7 @@ function renderCustomers(){
         <span class="meta">${ordersCount} طلب</span>
       </div>
       <div class="meta">📞 ${escapeHtml(c.phone||'-')}</div>
-      ${c.family?`<div class="meta" style="cursor:pointer;" onclick="document.getElementById('custSearch').value='${escapeHtml(c.family).replace(/'/g,"\\'")}'; renderCustomers();">👪 عائلة ${escapeHtml(c.family)} <span style="text-decoration:underline;">(عرض الكل)</span></div>`:''}
+      ${c.family?`<div class="meta" style="cursor:pointer;" onclick="document.getElementById('custSearch').value='${escapeHtml(c.family.replace(/'/g,"\\'"))}'; renderCustomers();">👪 عائلة ${escapeHtml(c.family)} <span style="text-decoration:underline;">(عرض الكل)</span></div>`:''}
       <div class="meas-row">
         <span class="meas-chip m-length">📏 <span class="meas-lbl">الطول</span> ${c.length||'-'}</span>
         <span class="meas-chip m-sleeve">📏 <span class="meas-lbl">طول الكم</span> ${c.sleeve||'-'}</span>
@@ -2142,7 +2142,14 @@ function renderOrders(){
 
   const html = list.map(o=>{
     const c = customerById(o.customerId);
-    return `<div class="card" data-status="${escapeHtml(o.status||'')}" data-order-id="${o.id}" data-critical="${isCriticallyOverdue(o)?'1':''}">
+    // [تحسين أداء] كنا بنعتمد على CSS selector من نوع :has() عشان
+    // نلوّن/نعلّم الطلبات المستعجلة — ده بيضطر المتصفح يفحص جوّه كل
+    // كارت (كل الكروت، مش بس المستعجلة) في كل مرة الصفحة بترندر، وده
+    // بطيء جدًا مع عدد طلبات كبير (اختبرناه: بيضاعف وقت الرندر 2-3
+    // مرات مع 300 طلب). الحل: نحسب الشرط جافاسكريبت مرة واحدة هنا
+    // ونضيف class مباشر على الكارت — نفس الشكل بالظبط، أسرع بكتير.
+    const isUrgentVisible = o.urgent && o.status!=='تم التسليم';
+    return `<div class="card${isUrgentVisible?' urgent-order':''}" data-status="${escapeHtml(o.status||'')}" data-order-id="${o.id}" data-critical="${isCriticallyOverdue(o)?'1':''}">
       <div class="row">
         <h3 class="name-row">${pinToggleBtn(o)}${avatarChip(c?c.name:'؟')}${c?escapeHtml(c.name):'عميل محذوف'}</h3>
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end;">${daysLeftChip(o)}${statusBadge(o)}</div>

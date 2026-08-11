@@ -73,7 +73,7 @@ html.high-contrast .days-left-chip{ border:1.5px solid #000; }
 }
 
 /* شريط "طلب مستعجل" — شريط تحذير قماشي بخطوط متقاطعة في ركن الكارت، يبان من نظرة واحدة */
-.card:has(span[title="طلب مستعجل"])::after{
+.card.urgent-order::after{
   content:"مستعجل";
   position:absolute; top:10px; left:-32px;
   width:120px; padding:3px 0; text-align:center;
@@ -84,8 +84,8 @@ html.high-contrast .days-left-chip{ border:1.5px solid #000; }
   pointer-events:none;
   z-index:1;
 }
-html[dir="rtl"] .card:has(span[title="طلب مستعجل"])::after{ left:auto; right:-32px; transform:rotate(45deg); }
-html.high-contrast .card:has(span[title="طلب مستعجل"])::after{ background:repeating-linear-gradient(45deg, #000 0 8px, #fff 8px 16px); color:#000; -webkit-text-stroke:.5px #fff; }
+html[dir="rtl"] .card.urgent-order::after{ left:auto; right:-32px; transform:rotate(45deg); }
+html.high-contrast .card.urgent-order::after{ background:repeating-linear-gradient(45deg, #000 0 8px, #fff 8px 16px); color:#000; -webkit-text-stroke:.5px #fff; }
 
 /* حواف الأزرار الأساسية بخياطة مزدوجة — تفصيلة صغيرة على أزرار حفظ/إضافة الأساسية */
 .btn:not(.outline):not(.secondary):not(.sm):not(.danger)::before{
@@ -225,11 +225,11 @@ html.high-contrast .avatar.by-name::before, html.high-contrast .avatar.by-name::
 .scissor-cut-fx.hide{ animation:scFxOut .3s ease-in forwards; }
 @keyframes scFxOut{ to{ opacity:0; } }
 
-/* الشارة النصية 🔥 مستعجل بقت مستبدلة بالشريط القماشي فوق — نسيبها في الـ DOM (للـ :has selector) بس نخفيها بصريًا */
+/* الشارة النصية 🔥 مستعجل بقت مستبدلة بالشريط القماشي فوق، فبنخفيها بصريًا (باقية في الـ DOM كمرجع نصي بس، من غير أي استخدام في الـ CSS دلوقتي) */
 .badge[title="طلب مستعجل"]{ display:none; }
 
 /* توهج الطلبات المستعجلة */
-.card:has(span[title="طلب مستعجل"]) {
+.card.urgent-order {
   position:relative; overflow:hidden;
   box-shadow: 0 0 0 2px var(--danger), var(--shadow);
   animation: urgentGlow 1.8s ease-in-out infinite;
