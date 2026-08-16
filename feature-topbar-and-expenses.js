@@ -73,9 +73,16 @@
 
   const topbarMenuCss = document.createElement('style');
   topbarMenuCss.textContent = `
+    #topbarMenuPanel{
+      background:var(--card) !important;
+    }
+    .topbar-menu-item, .topbar-menu-item *{
+      color:var(--text) !important;
+      -webkit-text-fill-color:var(--text) !important;
+    }
     .topbar-menu-item{
       display:flex !important; align-items:center; justify-content:flex-start !important;
-      width:100%; background:transparent !important; color:var(--text) !important;
+      width:100%; background:transparent !important;
       border-radius:10px !important; padding:10px 12px !important; font-size:14px !important;
       box-shadow:none !important; margin:0 !important;
     }
