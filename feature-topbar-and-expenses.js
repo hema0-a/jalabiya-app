@@ -29,7 +29,7 @@
     const lockBtn = holder.querySelector('.small-link');
     // كل الأزرار اللي بفئة theme-toggle-btn (الوضع الليلي، تباين عالٍ، وضع عرض للعميل، كثافة العرض)
     const toggleBtns = Array.from(holder.querySelectorAll('.theme-toggle-btn'));
-    if(!toggleBtns.length && !lockBtn) return; // الأزرار لسه ما اتحقنتش من patches.js، هنعيد المحاولة لاحقًا
+    if(!toggleBtns.length && !lockBtn) return false; // الأزرار لسه ما اتحقنتش من patches.js، هنعيد المحاولة لاحقًا
 
     holder.style.position = 'relative';
 
@@ -38,7 +38,14 @@
     if(!menuBtn){
       menuBtn = document.createElement('button');
       menuBtn.id = 'topbarMenuBtn';
-      menuBtn.className = 'menu-btn';
+      // [إصلاح] كان بياخد class="menu-btn" بالظبط زي زرار ☰ فتح القائمة
+      // الجانبية الأساسي (index.html). أي كود بيدوّر بـ
+      // document.querySelector('.menu-btn') كان بيلاقي الاتنين، ولو
+      // ترتيبهم في الـ DOM اتغيّر (زي لو الملف ده اتحمّل قبل ما القائمة
+      // الجانبية تتحقن، أو أي تعديل مستقبلي) كان ممكن ياخد الزرار الغلط
+      // ويخلي "القائمة المنسدلة" تبان إنها مش شغالة. دلوقتي كل زرار
+      // بكلاسه المستقل، وفيه كلاس مشترك تاني للتنسيق البصري بس.
+      menuBtn.className = 'topbar-dots-btn';
       menuBtn.setAttribute('aria-label', 'قائمة الإعدادات السريعة');
       menuBtn.textContent = '⋮';
       menuBtn.style.cssText = 'color:#fff;font-size:22px;';
@@ -81,6 +88,11 @@
 
   const topbarMenuCss = document.createElement('style');
   topbarMenuCss.textContent = `
+    .topbar-dots-btn{
+      background:rgba(255,255,255,0.15);border:none;color:#fff;width:36px;height:36px;
+      border-radius:10px;font-size:22px;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+      cursor:pointer;
+    }
     #topbarMenuPanel{
       background:var(--card) !important;
     }
@@ -138,8 +150,28 @@
     };
   }
 
+  // [إصلاح] الكود القديم كان بيحاول يبني القائمة مرة واحدة بس عند
+  // DOMContentLoaded، ولو الأزرار (theme-toggle-btn) لسه ما كانتش
+  // اتحقنت من patches.js في اللحظة دي لأي سبب (تحميل بطيء، ترتيب
+  // ملفات مختلف، إلخ)، الدالة كانت بترجع وتسيب "⋮" مش متبني خالص
+  // للأبد — رغم إن التعليق بيقول "هنعيد المحاولة لاحقًا" من غير ما
+  // فيه أي إعادة محاولة فعلية. دلوقتي بنعيد المحاولة كل 300ms لحد
+  // ما تنجح (أو لحد 10 ثواني كحد أقصى كحماية من التكرار للأبد).
+  function buildTopbarMenuWithRetry(){
+    const ok = buildTopbarMenu();
+    if(ok===false){
+      let attempts = 0;
+      const timer = setInterval(function(){
+        attempts++;
+        if(buildTopbarMenu()!==false || attempts>=33){ // ~10 ثواني
+          clearInterval(timer);
+        }
+      }, 300);
+    }
+  }
+
   function boot(){
-    buildTopbarMenu();
+    buildTopbarMenuWithRetry();
     if(document.getElementById('houseExpensesList') && typeof renderHouseExpenses==='function') renderHouseExpenses();
   }
 

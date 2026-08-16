@@ -88,7 +88,7 @@
     const amountEl = document.getElementById('inventoryAddAmount');
     const noteEl = document.getElementById('inventoryAddNote');
     const amount = Number(amountEl && amountEl.value)||0;
-    if(amount<=0){ toast('أدخل مبلغ صحيح'); return; }
+    if(!(amount>0)){ toast('أدخل مبلغ صحيح'); return; } // [إصلاح] "amount<=0" كانت بتفوّت قيمة NaN (NaN<=0 == false)، فأي إدخال غير رقمي كان ممكن يخرب رصيد المخزون للأبد بقيمة NaN. "amount>0" بالنفي بيرفض NaN صح.
     db.inventoryValue += amount;
     logInventory('in', amount, (noteEl && noteEl.value.trim()) || 'إضافة رصيد مخزون');
     saveDB();

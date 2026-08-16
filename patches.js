@@ -1958,7 +1958,11 @@ cloudStatusChanged = function(){
   var btn = document.createElement('button');
   btn.className='theme-toggle-btn'; btn.id='densityToggleBtn';
   btn.setAttribute('aria-label','كثافة العرض');
-  function updateIcon(){ btn.textContent = document.documentElement.classList.contains('compact-view') ? '▤' : '☰'; }
+  // [إصلاح] الأيقونة الافتراضية كانت "☰" بالظبط زي أيقونة زرار فتح
+  // القائمة الجانبية الأساسي في الشريط العلوي، وده كان بيلخبط ويوهم
+  // إن فيه زرارين قائمة، أو إن نفس الزرار مش شغال. استبدلناها بأيقونة
+  // مختلفة عشان توضح إنه زرار "كثافة العرض" مش قائمة.
+  function updateIcon(){ btn.textContent = document.documentElement.classList.contains('compact-view') ? '▤' : '▦'; }
   btn.onclick = function(){
     document.documentElement.classList.toggle('compact-view');
     localStorage.setItem('compactView', document.documentElement.classList.contains('compact-view')?'1':'0');
