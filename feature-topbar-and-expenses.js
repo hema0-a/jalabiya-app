@@ -62,11 +62,19 @@
 
     toggleBtns.forEach(btn=>{
       btn.classList.add('topbar-menu-item');
+      btn.style.setProperty('display','flex','important');
+      btn.style.setProperty('visibility','visible','important');
+      btn.style.setProperty('opacity','1','important');
+      btn.style.setProperty('position','static','important');
       labelize(btn);
       panel.appendChild(btn);
     });
     if(lockBtn){
       lockBtn.classList.add('topbar-menu-item');
+      lockBtn.style.setProperty('display','flex','important');
+      lockBtn.style.setProperty('visibility','visible','important');
+      lockBtn.style.setProperty('opacity','1','important');
+      lockBtn.style.setProperty('position','static','important');
       panel.appendChild(lockBtn);
     }
   }
