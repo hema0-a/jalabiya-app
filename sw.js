@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v4'; // v4: إصلاح قائمة "⋮" اللي كانت بتتقص بسبب overflow:hidden + استرجاع أزرار وضع العرض/التباين/الكثافة
+const CACHE_NAME = 'workshop-app-v5'; // v5: إضافة ميزة التسليم الجزئي للطلبات متعددة القطع
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',
