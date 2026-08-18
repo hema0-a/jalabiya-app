@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v11'; // v11: إصلاح تجاوز أزرار الإجراءات السريعة لحدود الشاشة (سكرول جانبي) في تطوير الصفحة الرئيسية
+const CACHE_NAME = 'workshop-app-v4'; // v4: إصلاح قائمة "⋮" اللي كانت بتتقص بسبب overflow:hidden + استرجاع أزرار وضع العرض/التباين/الكثافة
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',

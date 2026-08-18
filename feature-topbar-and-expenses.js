@@ -35,6 +35,19 @@
 
     let menuBtn = document.getElementById('topbarMenuBtn');
     let panel = document.getElementById('topbarMenuPanel');
+
+    // [إصلاح] القائمة كانت position:absolute جوّه holder، وholder ده
+    // تابع لـ header.topbar اللي عنده overflow:hidden — فكانت القائمة
+    // بتتقص وتبان شريحة بيضا صغيرة بس بدل ما تظهر كاملة. الحل: القائمة
+    // بقت position:fixed ومتضافة لـ body مباشرة، برة أي عنصر عنده
+    // overflow:hidden، وبنحسب مكانها كل مرة بتتفتح حسب مكان الزرار
+    // فعليًا على الشاشة (نفس أسلوب الإصلاح اللي اتعمل قبل كده في مكان تاني).
+    function positionPanel(){
+      const rect = menuBtn.getBoundingClientRect();
+      panel.style.top = (rect.bottom + 8) + 'px';
+      panel.style.left = Math.max(8, rect.left) + 'px';
+    }
+
     if(!menuBtn){
       menuBtn = document.createElement('button');
       menuBtn.id = 'topbarMenuBtn';
@@ -52,19 +65,27 @@
       holder.insertBefore(menuBtn, holder.firstChild);
       menuBtn.addEventListener('click', function(e){
         e.stopPropagation();
-        panel.style.display = panel.style.display==='flex' ? 'none' : 'flex';
+        const willOpen = panel.style.display !== 'flex';
+        if(willOpen) positionPanel();
+        panel.style.display = willOpen ? 'flex' : 'none';
       });
       document.addEventListener('click', function(e){
         if(panel.style.display==='flex' && !panel.contains(e.target) && e.target!==menuBtn){
           panel.style.display = 'none';
         }
       });
+      window.addEventListener('resize', function(){
+        if(panel.style.display==='flex') positionPanel();
+      });
+      window.addEventListener('scroll', function(){
+        if(panel.style.display==='flex') positionPanel();
+      }, true);
     }
     if(!panel){
       panel = document.createElement('div');
       panel.id = 'topbarMenuPanel';
-      panel.style.cssText = 'position:absolute;top:44px;left:0;background:var(--card);color:var(--text);border-radius:14px;box-shadow:var(--shadow-lift-2, 0 10px 24px rgba(0,0,0,.25));padding:6px;display:none;flex-direction:column;gap:2px;z-index:600;min-width:190px;';
-      holder.appendChild(panel);
+      panel.style.cssText = 'position:fixed;background:var(--card);color:var(--text);border-radius:14px;box-shadow:var(--shadow-lift-2, 0 10px 24px rgba(0,0,0,.28));padding:6px;display:none;flex-direction:column;gap:2px;z-index:9999;min-width:190px;max-width:calc(100vw - 24px);';
+      document.body.appendChild(panel); // بره الهيدر خالص عشان overflow:hidden متأثرش عليها
     }
 
     toggleBtns.forEach(btn=>{
