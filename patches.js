@@ -58,7 +58,7 @@ var __skipUnsavedCheckOnce = false;
         var digits = txt.replace(/[^0-9]/g,'');
         if(digits.length>=9){
           el.dataset.rcPhone='1';
-          var waNum = digits.replace(/^0/,'2'); // افتراض رقم مصري — غيّرها لو بلدك مختلف
+          var waNum = digits.replace(/^0/,'20'); // تحويل الصفر الأول لكود مصر الدولي 20 (كان فيه خطأ بيولّد رقم ناقص خانة)
           var span=document.createElement('span');
           span.style.cssText='display:inline-flex;gap:6px;margin-inline-start:10px;';
           span.innerHTML =
@@ -285,7 +285,7 @@ var __skipUnsavedCheckOnce = false;
           var c = customerById(o.customerId);
           if(c && c.phone){
             var digits = c.phone.replace(/[^0-9]/g,'');
-            var waNum = digits.replace(/^0/,'2'); // افتراض رقم مصري
+            var waNum = digits.replace(/^0/,'20'); // تحويل الصفر الأول لكود مصر الدولي 20 (كان فيه خطأ بيولّد رقم ناقص خانة)
             var msg = buildReadyMessage(o, c);
             setTimeout(function(){
               openModal(
