@@ -220,7 +220,7 @@ function saveDB(){
   db.updatedAt = Date.now();
   // البيانات دايمًا بتتحفظ محليًا (شغل كامل بدون إنترنت)، والمزامنة السحابية
   // (لو مفعّلة) بتحصل لما يبقى فيه اتصال — لحد ما تنجح، التغيير فضل "معلّق"
-  if(db.cloudSync && db.cloudSync.enabled) cloudPendingChanges = true;
+  if(db.cloudSync && db.cloudSync.enabled){ cloudPendingChanges = true; cloudPendingChangesCount++; }
   scheduleCloudPush();
   if(typeof window.refreshConnectivityBadge==='function') window.refreshConnectivityBadge();
   saveDBPending = true;
@@ -273,6 +273,33 @@ let cloudPendingChanges = false; // true من وقت آخر تعديل لحد م
 // فاضية أو قديمة تكسب سباق ضد التحميل الحقيقي وتكتب فوق بيانات المستخدم الحقيقية.
 let cloudInitialSyncDone = false;
 let cloudPushWaitRetries = 0; // عداد أمان لمنع لوب لا نهائي لو الاتصال بالسحابة فشل باستمرار
+let lastSuccessfulSyncAt = null; // وقت آخر تأكيد حقيقي إن الجهاز ده متزامن مع السحابة
+let cloudPendingChangesCount = 0; // عدد التعديلات اللي اتعملت من وقت آخر مزامنة ناجحة
+let cloudConsecutiveFailures = 0; // عدد مرات فشل الرفع المتتالية
+let cloudLastError = null; // نص آخر خطأ حصل في المزامنة، عشان يتعرض للمستخدم
+
+// يسجّل إن المزامنة نجحت دلوقتي (ويحفظها محليًا عشان تفضل ظاهرة بعد إعادة فتح التطبيق)
+function markSyncedNow(){
+  lastSuccessfulSyncAt = Date.now();
+  try{ localStorage.setItem('jalaba_last_sync_at', String(lastSuccessfulSyncAt)); }catch(e){}
+}
+
+// بيرجع وقت آخر مزامنة ناجحة (من الذاكرة أو من localStorage لو التطبيق لسه فاتح جديد)
+function getLastSyncAt(){
+  if(lastSuccessfulSyncAt!=null) return lastSuccessfulSyncAt;
+  try{
+    const v = localStorage.getItem('jalaba_last_sync_at');
+    if(v) lastSuccessfulSyncAt = Number(v);
+  }catch(e){}
+  return lastSuccessfulSyncAt;
+}
+
+// إعادة محاولة يدوية للمزامنة بعد فشل متكرر — بتعيد الاتصال بالكامل (مش بس رفع واحد)
+// عشان تغطي سواء كانت المشكلة في آخر رفع أو في الاتصال بالسحابة نفسه
+function retryCloudSyncNow(){
+  toast('🔄 جاري إعادة محاولة الاتصال بالسحابة...');
+  initCloudSync();
+}
 
 function cloudStatusChanged(){
   const el = document.getElementById('cloudSyncStatusBadge');
@@ -317,9 +344,15 @@ async function pushToCloud(){
     await cloudDb.collection('workshops').doc(db.cloudSync.syncId).set(safeData);
     cloudStatus='online';
     cloudPendingChanges = false;
+    cloudPendingChangesCount = 0;
+    cloudConsecutiveFailures = 0;
+    cloudLastError = null;
+    markSyncedNow();
   }catch(e){
     console.warn('فشل رفع البيانات للسحابة:', e);
     cloudStatus='error';
+    cloudConsecutiveFailures++;
+    cloudLastError = (e && e.message) ? e.message : String(e);
   }
   cloudStatusChanged();
 }
@@ -372,6 +405,8 @@ function initCloudSync(){
   // قبل ما تسمح بأي رفع — منع الكارثة مش مقصور بس على أول ربط
   cloudInitialSyncDone = false;
   cloudPushWaitRetries = 0;
+  cloudConsecutiveFailures = 0;
+  cloudLastError = null;
   try{
     cloudStatus='connecting';
     cloudStatusChanged();
@@ -408,11 +443,12 @@ function initCloudSync(){
           cloudApplyingRemote = false;
           // لو الدمج حافظ على بيانات محلية مش موجودة في نسخة السحابة، لازم
           // نرفعها تاني فورًا عشان الجهاز/الأجهزة التانية تاخدها هي كمان
-          if(changed) scheduleCloudPush();
+          if(changed){ scheduleCloudPush(); toast('🔄 تم دمج بيانات جاية من جهاز تاني'); }
         }
         // دلوقتي مؤكد إن db المحلية (سواء فضلت زي ما هي أو اتحدثت من فوق) متزامنة
         // فعليًا مع آخر حالة معروفة من السحابة — آمن نسمح بالرفع بعد كده
         cloudInitialSyncDone = true;
+        markSyncedNow();
         cloudStatusChanged();
       },
       err=>{
@@ -607,7 +643,24 @@ function renderCloudSyncStatusBadge(){
   let status = cloudStatus;
   if(db && db.cloudSync && db.cloudSync.enabled && (!navigator.onLine || cloudPendingChanges)) status = 'pending';
   const [ic,label,color] = map[status]||map.off;
-  el.innerHTML = `<span style="color:${color};font-weight:700;">${ic} ${label}</span>`;
+  const countSuffix = (status==='pending' && cloudPendingChangesCount>0) ? ` (${cloudPendingChangesCount} تعديل معلّق)` : '';
+  el.innerHTML = `<span style="color:${color};font-weight:700;">${ic} ${label}${countSuffix}</span>`;
+  const lastSyncEl = document.getElementById('cloudLastSyncLine');
+  if(lastSyncEl){
+    const t = getLastSyncAt();
+    lastSyncEl.textContent = t ? ('آخر مزامنة ناجحة: '+fmtActivityTime(t)) : 'لسه ما حصلتش مزامنة ناجحة على الجهاز ده';
+  }
+  const errorBox = document.getElementById('cloudSyncErrorBox');
+  if(errorBox){
+    if(status==='error' && cloudConsecutiveFailures>=2){
+      errorBox.innerHTML = `
+        <p class="meta" style="color:var(--danger);margin-top:6px;">⚠️ فشلت المزامنة ${cloudConsecutiveFailures} مرات متتالية. السبب: ${escapeHtml(cloudLastError||'غير معروف')}</p>
+        <button class="btn sm outline" onclick="retryCloudSyncNow()">🔁 إعادة المحاولة الآن</button>
+      `;
+    } else {
+      errorBox.innerHTML = '';
+    }
+  }
 }
 
 // يبني كارت المزامنة السحابية بالكامل حسب حالة الاتصال الحالية (مش متصل / متصل)
@@ -621,6 +674,8 @@ function renderCloudSyncCard(){
     box.innerHTML = `
       <h3>☁️ المزامنة السحابية بين الأجهزة</h3>
       <p class="meta">الحالة: <span id="cloudSyncStatusBadge"></span></p>
+      <p class="meta" id="cloudLastSyncLine" style="opacity:.75;font-size:12.5px;"></p>
+      <div id="cloudSyncErrorBox"></div>
       <p class="meta">📴 لو النت قطع، التطبيق يفضل شغال عادي وأي تعديل بيتحفظ عندك — وهيتزامن تلقائي أول ما الاتصال يرجع.</p>
       <p class="meta">لربط جهاز جديد (تاني موبايل أو جهاز ويندوز)، انسخ رمز الربط ده والصقه في نفس الصفحة على الجهاز التاني.</p>
       <div class="field"><label>رمز الربط</label><textarea id="pairingCodeOutput" rows="3" readonly style="font-size:11px;direction:ltr;text-align:left;">${pairingCode}</textarea></div>
@@ -5967,658 +6022,4 @@ function recalculateAllDeliveryDates(){
 }
 
 async function saveDailyCapacity(){
-  const val = Number(document.getElementById('dailyCapacityInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  const startH = Number(document.getElementById('workStartHourInput').value);
-  const endH = Number(document.getElementById('workEndHourInput').value);
-  if(!Number.isFinite(startH) || !Number.isFinite(endH) || endH<=startH){
-    toast('تأكد إن ساعة النهاية بعد ساعة البداية'); return;
-  }
-  const capacityChanged = Number(db.dailyCapacity)!==val;
-  db.dailyCapacity = val;
-  db.workStartHour = startH;
-  db.workEndHour = endH;
-  saveDB();
-  if(currentPage==='home') renderTodayPlan();
-  toast('تم حفظ الطاقة اليومية ✅');
-
-  if(capacityChanged){
-    const hasActiveOrders = db.orders.some(o=>o.status!=='تم التسليم');
-    if(hasActiveOrders && await appConfirm('تم تغيير الطاقة الاستيعابية اليومية. هل تريد إعادة حساب مواعيد التسليم لكل الطلبات الحالية (غير المسلَّمة) بناءً على القيمة الجديدة؟', {okText:'إعادة الحساب', danger:false})){
-      recalculateAllDeliveryDates();
-      toast('تم تحديث مواعيد التسليم لكل الطلبات ✅');
-    }
-  }
-}
-
-function saveInvoiceTaxSettings(){
-  const nextInv = Number(document.getElementById('nextInvoiceInput').value);
-  const taxDef = Number(document.getElementById('taxDefaultInput').value);
-  const urgentFeeDef = Number(document.getElementById('urgentFeeDefaultInput').value);
-  if(!nextInv || nextInv<=0){ toast('أدخل رقم فاتورة صحيح أكبر من صفر'); return; }
-  if(!Number.isFinite(taxDef) || taxDef<0){ toast('نسبة الضريبة لا يمكن أن تكون رقماً سالباً'); return; }
-  if(!Number.isFinite(urgentFeeDef) || urgentFeeDef<0){ toast('نسبة رسوم الاستعجال لا يمكن أن تكون رقماً سالباً'); return; }
-  db.nextInvoiceNumber = Math.round(nextInv);
-  db.taxDefaultPercent = taxDef;
-  db.urgentFeeDefaultPercent = urgentFeeDef;
-  saveDB();
-  toast('تم الحفظ ✅');
-}
-
-function saveVipThreshold(){
-  const val = Number(document.getElementById('vipThresholdInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  const discPct = Number(document.getElementById('vipDiscountInput').value)||0;
-  if(discPct<0 || discPct>100){ toast('نسبة الخصم لازم تكون بين 0 و100'); return; }
-  db.vipThreshold = val;
-  db.vipDiscountPercent = discPct;
-  saveDB();
-  toast('تم الحفظ ✅');
-}
-
-function saveIdleLock(){
-  const val = Number(document.getElementById('idleLockInput').value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  db.idleLockMinutes = val;
-  saveDB();
-  resetIdleTimer();
-  toast('تم الحفظ ✅');
-}
-
-function renderGarmentTypes(){
-  const list = db.garmentTypes.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar'));
-  document.getElementById('garmentTypesList').innerHTML = list.length ? list.map(g=>`
-    <div class="card" style="margin-bottom:8px;">
-      <div class="row">
-        <h3>${escapeHtml(g.name)}</h3>
-        <b style="color:var(--primary)">${Number(g.price).toLocaleString('ar-EG')} ج.م</b>
-      </div>
-      <div class="btn-row">
-        <button class="btn sm secondary" onclick="openGarmentTypeModal('${g.id}')">✏️ تعديل</button>
-        <button class="btn sm danger" onclick="deleteGarmentType('${g.id}')">🗑️ حذف</button>
-      </div>
-    </div>
-  `).join('') : `<div class="empty-msg">لا توجد أنواع مضافة بعد</div>`;
-}
-
-function openGarmentTypeModal(id){
-  const g = id ? db.garmentTypes.find(x=>x.id===id) : null;
-  const html = `
-    <div class="modal-head"><h3>${g?'✏️ تعديل نوع':'➕ نوع تفصيل جديد'}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-    <div class="field"><label>اسم نوع التفصيل</label><input id="f_gtName" value="${g?escapeHtml(g.name):''}" placeholder="مثال: جلابية رجالي كلاسيك"></div>
-    <div class="field"><label>السعر الأساسي (ج.م)</label><input id="f_gtPrice" type="number" value="${g?g.price:''}" placeholder="0"></div>
-    <button class="btn" onclick="saveGarmentType(${g?`'${g.id}'`:'null'})">💾 حفظ</button>
-  `;
-  openModal(html);
-}
-
-function saveGarmentType(id){
-  const name = document.getElementById('f_gtName').value.trim();
-  const price = Number(document.getElementById('f_gtPrice').value)||0;
-  if(!name){ toast('أدخل اسم النوع'); return; }
-  if(price<=0){ toast('أدخل سعراً صحيحاً'); return; }
-  const duplicate = db.garmentTypes.find(g=>g.id!==id && g.name.trim()===name);
-  if(duplicate){ toast('يوجد نوع بنفس الاسم بالفعل'); return; }
-  if(id){
-    const g = db.garmentTypes.find(x=>x.id===id);
-    Object.assign(g, {name, price});
-  } else {
-    db.garmentTypes.push({id:uid(), name, price});
-  }
-  saveDB();
-  closeModal();
-  renderGarmentTypes();
-  toast('تم الحفظ ✅');
-}
-
-async function deleteGarmentType(id){
-  if(!await appConfirm('حذف هذا النوع؟')) return;
-  db.garmentTypes = db.garmentTypes.filter(g=>g.id!==id);
-  saveDB();
-  renderGarmentTypes();
-  toast('تم الحذف');
-}
-
-/* ============================================================
-   الإعدادات: كلمة المرور + نسخ احتياطي
-   ============================================================ */
-function changePassword(){
-  const oldP = document.getElementById('oldPass').value;
-  const newP = document.getElementById('newPass').value;
-  if(oldP !== db.password){ toast('الرقم الحالي غير صحيح'); return; }
-  if(!/^\d{4}$/.test(newP)){ toast('الرقم الجديد يجب أن يكون 4 أرقام'); return; }
-  db.password = newP;
-  saveDB();
-  document.getElementById('oldPass').value='';
-  document.getElementById('newPass').value='';
-  toast('تم تغيير الرقم السري بنجاح ✅');
-}
-
-/* ---- رقم سري إضافي ومستقل لصفحة المالية (خصوصية إضافية للبيانات
-   المالية والالتزامات الشخصية، غير رقم قفل التطبيق العام) ---- */
-function renderFinancePasswordCard(){
-  const box = document.getElementById('financePasswordCardWrap');
-  if(!box) return;
-  const isSet = !!db.financePassword;
-  box.innerHTML = `
-    <h3>🔐 رقم سري إضافي لصفحتي المالية والتزاماتي الشخصية</h3>
-    <p class="meta">حماية منفصلة عن رقم قفل التطبيق العام — تفيدك لو في حد تاني بيستخدم التطبيق (موظف استقبال مثلاً) ومش عايزه يشوف أرباحك أو التزاماتك الشخصية.</p>
-    <p class="meta">الحالة: ${isSet?'🔒 مفعّلة':'🔓 غير مفعّلة'}</p>
-    ${isSet?`<div class="field"><label>الرقم الحالي</label><input type="tel" maxlength="4" id="financeOldPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div>`:''}
-    <div class="field"><label>${isSet?'الرقم الجديد (4 أرقام)':'رقم سري المالية (4 أرقام)'}</label><input type="tel" maxlength="4" id="financeNewPass" inputmode="numeric" autocomplete="off" class="pin-input" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,4)"></div>
-    <div class="btn-row">
-      <button class="btn" onclick="saveFinancePassword()">💾 ${isSet?'تغيير الرقم':'تفعيل الحماية'}</button>
-      ${isSet?`<button class="btn danger" onclick="removeFinancePassword()">🗑️ إلغاء الحماية</button>`:''}
-    </div>
-  `;
-}
-
-function saveFinancePassword(){
-  const isSet = !!db.financePassword;
-  if(isSet){
-    const oldP = (document.getElementById('financeOldPass')||{}).value||'';
-    if(oldP !== db.financePassword){ toast('الرقم الحالي غير صحيح'); return; }
-  }
-  const newP = (document.getElementById('financeNewPass')||{}).value||'';
-  if(!/^\d{4}$/.test(newP)){ toast('الرقم يجب أن يكون 4 أرقام'); return; }
-  db.financePassword = newP;
-  window.financeUnlocked = false; // يتطلب دخول بالرقم الجديد من أول مرة
-  updateFinanceLockUI();
-  saveDB();
-  renderFinancePasswordCard();
-  toast(isSet?'تم تغيير رقم المالية ✅':'تم تفعيل حماية صفحة المالية ✅');
-}
-
-async function removeFinancePassword(){
-  if(!db.financePassword) return;
-  if(!await appConfirm('هيتم إلغاء الحماية الإضافية عن صفحة المالية، وأي حد يفتح التطبيق هيقدر يشوفها. متأكد؟')) return;
-  db.financePassword = null;
-  window.financeUnlocked = true;
-  updateFinanceLockUI();
-  saveDB();
-  renderFinancePasswordCard();
-  toast('تم إلغاء حماية صفحة المالية');
-}
-
-function csvEscape(val){
-  let s = (val===null||val===undefined) ? '' : String(val);
-  if(/[",\n]/.test(s)) s = '"'+s.replace(/"/g,'""')+'"';
-  return s;
-}
-
-async function downloadCSV(rows, filename){
-  const content = rows.map(r=>r.map(csvEscape).join(',')).join('\r\n');
-  // BOM في الأول عشان Excel يعرض العربي صح
-  const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
-  const ok = await saveOrShareFile(blob, filename);
-  if(ok) toast('تم حفظ الملف ✅');
-}
-
-/* ============================================================
-   تصدير Excel حقيقي (SpreadsheetML) — من غير أي مكتبة خارجية أو
-   اتصال إنترنت (زي رسم الفاتورة بالظبط)، عشان يشتغل جوه أي WebView
-   حتى من غير نت. الملف بيتفتح مباشرة في Excel/WPS/Google Sheets
-   بتنسيق حقيقي (أعمدة، شيتات متعددة) مش مجرد نص مفصول بفواصل.
-   ============================================================ */
-function xmlEscape(s){
-  return String(s===null||s===undefined?'':s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-// sheets: [{name, headers:['عمود1',...], rows:[[قيمة1,...], ...]}]
-function buildExcelXml(sheets){
-  const sheetsXml = sheets.map(sheet=>{
-    const headerCells = sheet.headers.map(h=>`<Cell ss:StyleID="hdr"><Data ss:Type="String">${xmlEscape(h)}</Data></Cell>`).join('');
-    const dataRows = sheet.rows.map(r=>{
-      const cells = r.map(v=>{
-        const isNum = typeof v==='number' && isFinite(v);
-        return `<Cell><Data ss:Type="${isNum?'Number':'String'}">${xmlEscape(v)}</Data></Cell>`;
-      }).join('');
-      return `<Row>${cells}</Row>`;
-    }).join('');
-    return `<Worksheet ss:Name="${xmlEscape(sheet.name)}"><Table>${`<Row>${headerCells}</Row>`}${dataRows}</Table></Worksheet>`;
-  }).join('');
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles><Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#1F6D57" ss:Pattern="Solid"/></Style></Styles>
-${sheetsXml}
-</Workbook>`;
-}
-
-async function downloadExcel(sheets, filename){
-  const xml = buildExcelXml(sheets);
-  const blob = new Blob(['\uFEFF'+xml], {type:'application/vnd.ms-excel;charset=utf-8;'});
-  const ok = await saveOrShareFile(blob, filename);
-  if(ok) toast('تم حفظ ملف الإكسل ✅');
-}
-
-// شيت واحد بس (طلبات، أو عملاء، أو مصروفات) — لو حبيت تصدير جدول لوحده كإكسل حقيقي
-function ordersExcelSheet(){
-  const headers = ['رقم الفاتورة','اسم العميل','رقم الهاتف','نوع الجلابية','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي'];
-  const rows = db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||'')).map(o=>{
-    const c = customerById(o.customerId);
-    return [o.invoiceNumber||'', c?c.name:'عميل محذوف', c?(c.phone||''):'', orderTypeLabel(o),
-      fmtDate(o.dateReceived), fmtDate(o.dateDelivery), o.status||'',
-      orderTotal(o), Number(o.paid)||0, orderRemaining(o)];
-  });
-  return {name:'الطلبات', headers, rows};
-}
-function customersExcelSheet(){
-  const headers = ['اسم العميل','رقم الهاتف','الطول','طول الكم','الصدر','الخزنة','وسع الكم','ملاحظات'];
-  const rows = db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).map(c=>
-    [c.name, c.phone||'', c.length||'', c.sleeve||'', c.chest||'', c.waist||'', c.shoulder||'', c.notes||'']);
-  return {name:'العملاء', headers, rows};
-}
-function expensesExcelSheet(){
-  const headers = ['الوصف','المبلغ','التاريخ'];
-  const rows = db.expenses.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(e=>
-    [e.desc||'', Number(e.amount)||0, fmtDate(e.date)]);
-  return {name:'المصروفات', headers, rows};
-}
-
-// الزرار الرئيسي: ملف Excel واحد فيه 3 شيتات (الطلبات + العملاء + المصروفات)
-function exportAllExcel(){
-  downloadExcel([ordersExcelSheet(), customersExcelSheet(), expensesExcelSheet()], 'تقرير_الورشة_شامل_'+todayStr()+'.xls');
-}
-
-function exportOrdersCSV(){
-  const rows = [['رقم الفاتورة','اسم العميل','رقم الهاتف','نوع الجلابية','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي']];
-  db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||'')).forEach(o=>{
-    const c = customerById(o.customerId);
-    rows.push([
-      o.invoiceNumber||'', c?c.name:'عميل محذوف', c?(c.phone||''):'', orderTypeLabel(o),
-      fmtDate(o.dateReceived), fmtDate(o.dateDelivery), o.status||'',
-      orderTotal(o), Number(o.paid)||0, orderRemaining(o)
-    ]);
-  });
-  downloadCSV(rows, 'تقرير_الطلبات_'+todayStr()+'.csv');
-}
-
-function exportCustomersCSV(){
-  const rows = [['اسم العميل','رقم الهاتف','الطول','طول الكم','الصدر','الخزنة','وسع الكم','ملاحظات']];
-  db.customers.slice().sort((a,b)=>a.name.localeCompare(b.name,'ar')).forEach(c=>{
-    rows.push([c.name, c.phone||'', c.length||'', c.sleeve||'', c.chest||'', c.waist||'', c.shoulder||'', c.notes||'']);
-  });
-  downloadCSV(rows, 'تقرير_العملاء_'+todayStr()+'.csv');
-}
-
-function exportExpensesCSV(){
-  const rows = [['الوصف','المبلغ','التاريخ']];
-  db.expenses.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).forEach(e=>{
-    rows.push([e.desc||'', Number(e.amount)||0, fmtDate(e.date)]);
-  });
-  downloadCSV(rows, 'تقرير_المصروفات_'+todayStr()+'.csv');
-}
-
-async function exportBackup(){
-  const blob = new Blob([JSON.stringify(db, null, 2)], {type:'application/json'});
-  await saveOrShareFile(blob, 'نسخة_احتياطية_ورشة_الجلابيب_'+todayStr()+'.json');
-  db.lastBackupDate = todayStr();
-  saveDB();
-  if(currentPage==='settings') renderSettings();
-  toast('تم تنزيل النسخة الاحتياطية ✅');
-}
-
-
-function importBackup(event){
-  const file = event.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = async function(e){
-    try{
-      const imported = JSON.parse(e.target.result);
-      if(!imported.customers || !imported.orders){
-        toast('ملف غير صالح');
-        return;
-      }
-      if(!await appConfirm('سيتم استبدال كل البيانات الحالية بالنسخة المستوردة. هل أنت متأكد؟')) return;
-      db = imported;
-      if(!db.password) db.password='0000';
-      if(!db.payments) db.payments=[];
-      if(!db.expenses) db.expenses=[];
-      if(!db.commitments) db.commitments=[];
-      db.commitments.forEach(c=>{
-        if(!c.priority) c.priority='essential';
-        if(c.remainingMonths===undefined) c.remainingMonths=null;
-        if(c.lastPaidMonth===undefined) c.lastPaidMonth=null;
-        if(!c.type) c.type='تانية';
-        if(!c.intervalMonths) c.intervalMonths=1;
-        if(c.cycleStartYM===undefined) c.cycleStartYM=null;
-      });
-      if(db.savingsGoalTransferredAmount===undefined) db.savingsGoalTransferredAmount=0;
-      if(!db.personalLoans) db.personalLoans=[];
-      if(!db.houseExpenses) db.houseExpenses=[];
-      if(db.lastCommitmentsMonthCheck===undefined) db.lastCommitmentsMonthCheck=null;
-      if(!db.commitmentPayments) db.commitmentPayments=[];
-      if(!db.missedCommitmentNotices) db.missedCommitmentNotices=[];
-      if(db.commitmentsNotifyEnabled===undefined) db.commitmentsNotifyEnabled=false;
-      if(db.commitmentsLastNotifiedDate===undefined) db.commitmentsLastNotifiedDate=null;
-      if(!db.houseExpenseAlertPercent) db.houseExpenseAlertPercent=50;
-      if(!db.houseExpenseAlertMinDays) db.houseExpenseAlertMinDays=10;
-      if(db.savingsGoalTarget===undefined) db.savingsGoalTarget=0;
-      rolloverCommitmentsMonthly();
-      if(db.financePassword===undefined) db.financePassword=null;
-      if(!db.dailyCapacity) db.dailyCapacity=500;
-      if(!db.garmentTypes) db.garmentTypes=[];
-      if(!db.vipThreshold) db.vipThreshold=3;
-      if(db.vipDiscountPercent===undefined || db.vipDiscountPercent===null) db.vipDiscountPercent=0;
-      if(!db.idleLockMinutes) db.idleLockMinutes=3;
-      if(!db.debtThreshold) db.debtThreshold=2000;
-      if(db.lastBackupDate===undefined) db.lastBackupDate=null;
-      if(db.dayOffWeekday===undefined || db.dayOffWeekday===null) db.dayOffWeekday=0;
-      if(!db.workshopName) db.workshopName='ورشة تفصيل الجلابيب';
-      if(db.ownerName===undefined) db.ownerName='';
-      if(db.ownerPhone===undefined) db.ownerPhone='';
-      if(db.workshopAddress===undefined) db.workshopAddress='';
-      if(db.workshopLogo===undefined) db.workshopLogo=null;
-      if(!db.theme) db.theme={...DEFAULT_THEME};
-      if(!db.btnRadius) db.btnRadius=DEFAULT_BTN_RADIUS;
-      if(db.customCSS===undefined) db.customCSS='';
-      if(db.customJS===undefined) db.customJS='';
-      if(db.darkMode===undefined) db.darkMode=false;
-      if(!db.workStartHour) db.workStartHour=9;
-      if(!db.workEndHour) db.workEndHour=18;
-      if(!db.queueManualOrder) db.queueManualOrder=[];
-      if(!db.trash) db.trash=[];
-      if(!db.nextInvoiceNumber) db.nextInvoiceNumber=1001;
-      if(db.taxDefaultPercent===undefined || db.taxDefaultPercent===null) db.taxDefaultPercent=0;
-      if(db.urgentFeeDefaultPercent===undefined || db.urgentFeeDefaultPercent===null) db.urgentFeeDefaultPercent=0;
-      if(!db.holidays) db.holidays=[];
-      if(!db.occasions) db.occasions=[];
-      if(!db.activityLog) db.activityLog=[];
-      if(db.updatedAt===undefined) db.updatedAt=0;
-      if(!db.cloudSync) db.cloudSync={enabled:false, syncId:null, firebaseConfig:null};
-      saveDB();
-      renderAll();
-      applyWorkshopBranding();
-      applyTheme();
-      applyFontSettings();
-      applyWideMode();
-      applyDarkMode();
-      applyCustomCSS();
-      applyHomeWidgetsLayout();
-      toast('تم استيراد النسخة الاحتياطية بنجاح ✅');
-    }catch(err){
-      toast('حدث خطأ أثناء قراءة الملف');
-    }
-  };
-  reader.readAsText(file);
-  event.target.value='';
-}
-
-/* ============================================================
-   سلة المحذوفات — استرجاع العملاء/الطلبات المحذوفة خلال 7 أيام
-   ============================================================ */
-const TRASH_RETENTION_DAYS = 7;
-
-function purgeOldTrash(){
-  if(!db.trash || !db.trash.length) return;
-  const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS*86400000).toISOString().slice(0,10);
-  db.trash = db.trash.filter(t=>t.deletedAt >= cutoff);
-}
-
-function renderTrash(){
-  const box = document.getElementById('trashList');
-  const countTxt = document.getElementById('trashCountTxt');
-  if(!box) return;
-  purgeOldTrash();
-  saveDB();
-  const items = (db.trash||[]).slice().sort((a,b)=>b.deletedAt.localeCompare(a.deletedAt));
-  if(countTxt) countTxt.textContent = items.length ? `(${items.length})` : '';
-  box.innerHTML = items.length ? items.map(t=>{
-    const daysLeft = Math.max(0, TRASH_RETENTION_DAYS - Math.round((new Date(todayStr())-new Date(t.deletedAt))/86400000));
-    const label = t.type==='customer' ? `👤 عميل: ${escapeHtml(t.data.name)}` : `📋 طلب: ${escapeHtml(customerById(t.data.customerId)?customerById(t.data.customerId).name:(t.data.type||'طلب'))}`;
-    return `<div class="card">
-      <div class="row"><h3 style="font-size:14.5px;">${label}</h3><span class="meta">باقي ${daysLeft} يوم</span></div>
-      <div class="meta">حُذف بتاريخ ${fmtDate(t.deletedAt)}</div>
-      <div class="btn-row">
-        <button class="btn sm outline" onclick="restoreFromTrash('${t.id}')">↩️ استرجاع</button>
-        <button class="btn sm danger" onclick="permanentlyDeleteTrashItem('${t.id}')">🗑️ حذف نهائي</button>
-      </div>
-    </div>`;
-  }).join('') : `<div class="empty-msg">سلة المحذوفات فارغة</div>`;
-}
-
-async function restoreFromTrash(trashId){
-  const t = db.trash.find(x=>x.id===trashId);
-  if(!t) return;
-  if(t.type==='customer'){
-    db.customers.push(t.data);
-  } else if(t.type==='order'){
-    db.orders.push(t.data);
-    if(t.payments && t.payments.length){
-      db.payments.push(...t.payments);
-    }
-  }
-  db.trash = db.trash.filter(x=>x.id!==trashId);
-  logActivity(`↩️ استرجاع ${t.type==='customer'?'عميل':'طلب'} من سلة المحذوفات`);
-  saveDB();
-  renderTrash();
-  renderCustomers();
-  renderOrders();
-  toast('تم الاسترجاع بنجاح ✅');
-}
-
-async function permanentlyDeleteTrashItem(trashId){
-  if(!await appConfirm('هل تريد حذف هذا العنصر نهائياً؟ لن يمكن التراجع عن هذا الإجراء.')) return;
-  db.trash = db.trash.filter(x=>x.id!==trashId);
-  logActivity('🗑️ حذف نهائي لعنصر من سلة المحذوفات');
-  saveDB();
-  renderTrash();
-  toast('تم الحذف النهائي');
-}
-
-/* ============================================================
-   المودال العام
-   ============================================================ */
-function openModal(html){
-  const box = document.getElementById('modalBox');
-  box.innerHTML = html;
-  box.scrollTop = 0;
-  document.getElementById('modalOverlay').classList.add('active');
-  syncNavState();
-}
-function closeModal(){
-  document.getElementById('modalOverlay').classList.remove('active');
-  syncNavState();
-}
-
-/* ============================================================
-   تأكيد مخصص (appConfirm) — بديل عن confirm() الأصلية
-   بعض تطبيقات الـ WebView (زي تطبيقات WebIntoApp) تمنع أو تتجاهل
-   نوافذ confirm()/alert()/prompt() الافتراضية بتاعة المتصفح، فبنستخدم
-   مودال داخلي بدلها عشان أزرار الحذف والتأكيد تشتغل دايمًا.
-   ============================================================ */
-function appConfirm(message, opts){
-  opts = opts || {};
-  const okText = opts.okText || 'تأكيد';
-  const cancelText = opts.cancelText || 'إلغاء';
-  const danger = opts.danger !== false;
-  return new Promise((resolve)=>{
-    openModal(`
-      <div class="modal-head"><h3>⚠️ تأكيد</h3></div>
-      <div style="padding:4px 2px 14px;font-size:14.5px;line-height:1.7;white-space:pre-line;">${escapeHtml(message)}</div>
-      <div class="btn-row">
-        <button class="btn outline" id="appConfirmCancel">${escapeHtml(cancelText)}</button>
-        <button class="btn ${danger?'danger':''}" id="appConfirmOk">${escapeHtml(okText)}</button>
-      </div>
-    `);
-    const cleanup = (result)=>{
-      closeModal();
-      resolve(result);
-    };
-    document.getElementById('appConfirmOk').onclick = ()=>cleanup(true);
-    document.getElementById('appConfirmCancel').onclick = ()=>cleanup(false);
-  });
-}
-document.getElementById('modalOverlay').addEventListener('click', function(e){
-  if(e.target===this) closeModal();
-});
-
-/* ============================================================
-   دعم زر الرجوع في تطبيقات الأندرويد (WebView / APK)
-   من غير الكود ده، ضغط زر الرجوع وانت فاتح مودال أو القائمة
-   الجانبية أو صفحة غير الرئيسية كان هيقفل التطبيق نفسه فورًا.
-
-   الفكرة: كل "طبقة" مفتوحة فوق الحالة الأساسية (صفحة غير الرئيسية،
-   مودال، قائمة جانبية) ليها history entry واحد بالظبط. بعد أي تغيير
-   في الواجهة بنحسب "العمق" المفروض (navDepth) ونطابق history الحقيقي
-   معاه: نزوّد entries لو بعدنا طبقة، أو نسحب نفس عدد الطبقات اللي
-   قفلناها لو رجعنا للخلف من غير ما نستخدم زرار الرجوع نفسه (زرار
-   إلغاء/إغلاق مثلاً)، عشان history الحقيقي يفضل مطابق تمامًا للي
-   ظاهر على الشاشة أيًا كان عمق التداخل.
-
-   وبما إن بعض تطبيقات الـ WebView (مش كلها بتتعامل بنفس الطريقة مع
-   زر الرجوع) ممكن ماتدعمش history.pushState فعليًا (خصوصًا لو الملف
-   شغال من مسار محلي)، أو تبعت ضغطة الرجوع كإيفنت "backbutton" مخصص
-   أو حتى كـ keydown عادي بدل تفعيل popstate، بنغطي الاحتمالات التلاتة
-   مع بعض عشان أعلى فرصة ممكنة إن زر الرجوع يشتغل صح.
-   ============================================================ */
-let handlingBackNav = false;
-let syntheticBackCount = 0;
-let navDepth = 0;
-let lockedScrollY = 0;
-let scrollLocked = false;
-
-function currentUiDepth(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  return (currentPage!=='home' ? 1:0) + (modalOpen?1:0) + (navOpen?1:0);
-}
-
-// هل فيه "طبقة عائمة" فوق الصفحة فعليًا (مودال أو قائمة جانبية)؟
-// مهم إننا نفرّقها عن currentUiDepth، لأن الانتقال بين الصفحات العادية
-// (زي فتح صفحة الطلبات أو المالية) بيزوّد currentUiDepth كمان لأغراض
-// زر الرجوع، لكنه مش المفروض يقفل تمرير الصفحة — القفل مطلوب بس
-// وقت ما يكون فيه حاجة عائمة فوق المحتوى نفسه.
-function isOverlayOpen(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  return modalOpen || navOpen;
-}
-
-/* قفل تمرير الصفحة اللي وراء المودال/القائمة الجانبية أثناء فتحها.
-   من غير القفل ده، سحب الإصبع فوق المودال ممكن "يسرّب" ويحرّك صفحة
-   الخلفية بدل محتوى المودال بس — وده اللي بيسبب إحساس إنك تقدر تسحب
-   المودال لتحت بس مش لفوق (لأن صفحة الخلفية بتتحرك في اتجاه واحد
-   ومش بترجع تاني، خصوصًا لما تفتح لوحة المفاتيح على حقل داخل المودال). */
-function lockBodyScroll(){
-  lockedScrollY = window.scrollY || document.documentElement.scrollTop || 0;
-  document.body.style.position = 'fixed';
-  document.body.style.top = (-lockedScrollY) + 'px';
-  document.body.style.left = '0';
-  document.body.style.right = '0';
-  document.body.style.width = '100%';
-}
-function unlockBodyScroll(){
-  document.body.style.position = '';
-  document.body.style.top = '';
-  document.body.style.left = '';
-  document.body.style.right = '';
-  document.body.style.width = '';
-  window.scrollTo(0, lockedScrollY);
-}
-
-// تنفيذ آمن لعمليات history — بعض بيئات WebView (خصوصًا لو الملف شغال
-// من مسار محلي مش عبر سيرفر) ممكن ترفض pushState/back برمي خطأ بصمت،
-// فبنلف كل نداء عشان أي خطأ هنا ميوقفش باقي منطق التنقل الداخلي للتطبيق
-function safeHistoryOp(fn){
-  try{ fn(); }catch(e){ /* تجاهل: التنقل الداخلي هيشتغل برضه من غير history */ }
-}
-
-// يُنادى بعد أي تغيير في الواجهة (فتح/قفل صفحة، مودال، أو قائمة جانبية)
-// عشان يزامن حالة history الحقيقية مع اللي ظاهر على الشاشة فعليًا
-function syncNavState(){
-  if(handlingBackNav) return;
-  const target = currentUiDepth();
-  const overlayOpen = isOverlayOpen();
-  if(!scrollLocked && overlayOpen){ lockBodyScroll(); scrollLocked = true; }
-  else if(scrollLocked && !overlayOpen){ unlockBodyScroll(); scrollLocked = false; }
-  if(target > navDepth){
-    while(navDepth < target){
-      navDepth++;
-      safeHistoryOp(()=>history.pushState({navLevel:navDepth}, ''));
-    }
-  } else if(target < navDepth){
-    const steps = navDepth - target;
-    navDepth = target;
-    syntheticBackCount += steps;
-    for(let i=0;i<steps;i++) safeHistoryOp(()=>history.back());
-  } else if(target === navDepth && target > 0){
-    safeHistoryOp(()=>history.replaceState({navLevel:navDepth}, ''));
-  }
-}
-
-
-// يقفل أعلى "طبقة" مفتوحة حاليًا: مودال، وإلا قائمة جانبية، وإلا يرجع للرئيسية
-function closeTopLayer(){
-  const modalOpen = document.getElementById('modalOverlay').classList.contains('active');
-  const navOpen = document.getElementById('sideNav').classList.contains('open');
-  if(modalOpen){
-    closeModal();
-  } else if(navOpen){
-    closeSideNav();
-  } else if(currentPage !== 'home'){
-    showPage('home');
-  }
-}
-
-function handleRealBackNavigation(){
-  handlingBackNav = true;
-  closeTopLayer();
-  navDepth = Math.max(0, navDepth-1);
-  setTimeout(()=>{ handlingBackNav = false; }, 0);
-}
-
-// 1) المسار المعتاد: الـ WebView بيدعم history الحقيقي، وضغط زر الرجوع بيطلق popstate
-window.addEventListener('popstate', function(){
-  if(syntheticBackCount > 0){
-    // إحنا اللي استهلكنا الحالة دي برمجيًا (مش ضغطة زرار رجوع حقيقية)
-    // فالواجهة أصلاً متزامنة، مفيش داعي نعمل أي إجراء إضافي
-    syntheticBackCount--;
-    return;
-  }
-  if(window.BACK_NAV_DEBUG) toast('🔧 popstate اشتغل');
-  handleRealBackNavigation();
-});
-
-// 2) مسار احتياطي: بعض تطبيقات الـ WebView بتبعت إيفنت "backbutton" مخصص
-//    (زي أسلوب Cordova القديم) بدل ما تعتمد على history الحقيقي فعليًا
-document.addEventListener('backbutton', function(e){
-  if(window.BACK_NAV_DEBUG) toast('🔧 backbutton اشتغل');
-  if(currentUiDepth() > 0){
-    if(e && typeof e.preventDefault==='function') e.preventDefault();
-    handleRealBackNavigation();
-  }
-}, false);
-
-// 3) مسار احتياطي أخير: لو الـ WebView بيمرر ضغطة الرجوع كـ keydown عادي
-//    (keyCode 4 هو الكود التقليدي لزر الرجوع في أندرويد)
-document.addEventListener('keydown', function(e){
-  if(e.keyCode===4 || e.key==='GoBack'){
-    if(window.BACK_NAV_DEBUG) toast('🔧 keydown اشتغل');
-    if(currentUiDepth() > 0){
-      e.preventDefault();
-      handleRealBackNavigation();
-    }
-  }
-});
-
-window.BACK_NAV_DEBUG = false;
-
-/* ============================================================
-   بدء التشغيل
-   ============================================================ */
-initLock();
-updateTopbarHeightVar();
-window.addEventListener('resize', updateTopbarHeightVar);
-window.addEventListener('load', updateTopbarHeightVar);
-
-// تسجيل الـ Service Worker (يفعّل التثبيت كتطبيق وتشغيل الأوفلاين)
-// شرط أساسي: لازم الملف يكون شغال من سيرفر HTTPS أو localhost (مش file:// مباشرة)
-if('serviceWorker' in navigator && (location.protocol==='https:' || location.hostname==='localhost')){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{ /* تجاهل الخطأ لو الملف مش موجود بجانب الصفحة */ });
-  });
-}
+  const val = Number(document.getElementById('dailyCapa                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               
