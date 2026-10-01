@@ -1647,6 +1647,15 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     </section>
   </main>
 
+  <!-- شريط التنقل السفلي (تصميم فاخر) -->
+  <nav class="dock" id="dock" aria-label="التنقل السريع">
+    <button class="dock-btn active" data-page="home" onclick="showPage('home')"><span class="ic">🏠</span>الرئيسية</button>
+    <button class="dock-btn" data-page="orders" onclick="showPage('orders')"><span class="ic">📋</span>الطلبات</button>
+    <button class="dock-btn" data-page="customers" onclick="showPage('customers')"><span class="ic">👥</span>العملاء</button>
+    <button class="dock-btn" data-page="deliveries" onclick="showPage('deliveries')"><span class="ic">📅</span>المواعيد</button>
+    <button class="dock-btn" onclick="openSideNav()"><span class="ic">☰</span>المزيد</button>
+  </nav>
+
   <button class="fab" id="fabAdd" onclick="fabAction()">＋</button>
 
   <div class="sidenav-overlay" id="sideNavOverlay" onclick="closeSideNav()"></div>
@@ -1716,5 +1725,21 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <script src="feature-partial-delivery.js"></script>
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
+<link rel="stylesheet" href="premium-theme.css">
+<script>
+/* مزامنة حالة الشريط السفلي مع التنقل (من غير تعديل showPage الأصلية) */
+(function(){
+  var orig = window.showPage;
+  if(typeof orig !== 'function') return;
+  window.showPage = function(name){
+    var r = orig.apply(this, arguments);
+    try{
+      var cur = (typeof currentPage !== 'undefined') ? currentPage : name;
+      document.querySelectorAll('.dock-btn[data-page]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-page')===cur); });
+    }catch(e){}
+    return r;
+  };
+})();
+</script>
 </body>
 </html>
