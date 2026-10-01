@@ -1640,21 +1640,19 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
           <button class="btn secondary outline" onclick="exportExpensesCSV()">🧵 تصدير المصروفات CSV</button>
         </div>
       </div>
+      <div class="card" id="dockSettingsCard">
+        <h3>📱 الشريط السفلي</h3>
+        <p class="meta">شريط تنقل سريع أسفل الشاشة. الإعداد خاص بهذا الجهاز فقط — فعّله أو ألغِه، واختر حتى 5 عناصر ورتّبها.</p>
+        <label class="dock-row" style="display:flex;gap:8px;align-items:center;padding:8px 0;cursor:pointer;"><input type="checkbox" id="dockEnabledChk" style="width:18px;height:18px;accent-color:var(--primary);"> <b>تفعيل الشريط السفلي</b></label>
+        <div id="dockItemsList"></div>
+        <button class="btn sm outline" id="dockResetBtn" style="margin-top:8px;">↩️ استعادة الافتراضي</button>
+      </div>
       <div class="card">
         <h3>ℹ️ عن التطبيق</h3>
         <p class="meta">تطبيق إدارة ورشة تفصيل جلابيب — كل البيانات محفوظة على جهازك فقط (لا يوجد إنترنت أو سيرفر).</p>
       </div>
     </section>
   </main>
-
-  <!-- شريط التنقل السفلي (تصميم فاخر) -->
-  <nav class="dock" id="dock" aria-label="التنقل السريع">
-    <button class="dock-btn active" data-page="home" onclick="showPage('home')"><span class="ic">🏠</span>الرئيسية</button>
-    <button class="dock-btn" data-page="orders" onclick="showPage('orders')"><span class="ic">📋</span>الطلبات</button>
-    <button class="dock-btn" data-page="customers" onclick="showPage('customers')"><span class="ic">👥</span>العملاء</button>
-    <button class="dock-btn" data-page="deliveries" onclick="showPage('deliveries')"><span class="ic">📅</span>المواعيد</button>
-    <button class="dock-btn" onclick="openSideNav()"><span class="ic">☰</span>المزيد</button>
-  </nav>
 
   <button class="fab" id="fabAdd" onclick="fabAction()">＋</button>
 
@@ -1726,20 +1724,6 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 <!-- feature-daily-briefing.js اتشال: نفس مهمته (متأخر + طاقة) بقى بيتغطى
      من functions/index.js على السيرفر، وده أدق لأنه بيشتغل حتى لو التطبيق مقفول -->
 <link rel="stylesheet" href="premium-theme.css">
-<script>
-/* مزامنة حالة الشريط السفلي مع التنقل (من غير تعديل showPage الأصلية) */
-(function(){
-  var orig = window.showPage;
-  if(typeof orig !== 'function') return;
-  window.showPage = function(name){
-    var r = orig.apply(this, arguments);
-    try{
-      var cur = (typeof currentPage !== 'undefined') ? currentPage : name;
-      document.querySelectorAll('.dock-btn[data-page]').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-page')===cur); });
-    }catch(e){}
-    return r;
-  };
-})();
-</script>
+<script src="dock.js"></script>
 </body>
 </html>
