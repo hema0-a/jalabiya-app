@@ -2584,6 +2584,15 @@ cloudStatusChanged = function(){
   openModal = function(html){
     var r = origOpenModalDirty.apply(this, arguments);
     snapshot = snapshotModal();
+    // بعض الحقول (مثل الموظف المسؤول/من أحال العميل) وقيم افتراضية بتتضاف بعد فتح النافذة بلحظة،
+    // فبنعيد اللقطة بعد ما الشاشة تستقر — لو المستخدم لسه ما لمسش أي حقل — عشان متظهرش تحذير كاذب
+    var touched = false, myBox = document.getElementById('modalBox');
+    var mark = function(){ touched = true; };
+    if(myBox){ myBox.addEventListener('input', mark, {once:true}); myBox.addEventListener('change', mark, {once:true}); }
+    setTimeout(function(){
+      if(!touched && snapshot!==null) snapshot = snapshotModal();
+      if(myBox){ myBox.removeEventListener('input', mark); myBox.removeEventListener('change', mark); }
+    }, 120);
     return r;
   };
 

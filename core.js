@@ -203,12 +203,6 @@ function loadDB(){
       saveDB();
     }
   }catch(e){
-    console.warn('loadDB failed:', e);
-    // حماية من فقدان البيانات: نحتفظ بنسخة من النص الخام قبل ما نرجع للافتراضي
-    try{
-      const rawBad = localStorage.getItem(STORAGE_KEY);
-      if(rawBad) localStorage.setItem(STORAGE_KEY+'_corrupt_backup', rawBad);
-    }catch(_){}
     db = defaultDB();
     saveDB();
   }
@@ -346,36 +340,8 @@ async function pushToCloud(){
   try{
     // Firestore بيرفض قيم undefined كقيمة لحقل (زي qty/unitPrice القديمة اللي بنمسحها عند التعديل)،
     // فبنعمل نسخة "نضيفة" عن طريق JSON round-trip اللي بيشيل أي مفتاح قيمته undefined تلقائيًا
-    const ref = cloudDb.collection('workshops').doc(db.cloudSync.syncId);
-    // لا نكتب فوق نسخة أحدث رفعها جهاز تاني: لو السحابة أحدث ندمجها أولًا
-    try{
-      const cur = await ref.get({source:'server'});
-      if(cur.exists){
-        const r = cur.data();
-        if(r && Number(r.updatedAt) > (Number(db.updatedAt)||0)){
-          const mySettings = db.cloudSync, myPush = db.pushNotify, myLogo = db.workshopLogo;
-          const {merged} = mergeCloudData(db, r);
-          db = merged;
-          db.cloudSync = mySettings;
-          db.pushNotify = mergePushSettings(myPush, r.pushNotify);
-          if(!db.workshopLogo && myLogo) db.workshopLogo = myLogo;
-          db.updatedAt = Math.max(Number(r.updatedAt)||0, Date.now());
-          fillMissingDefaults();
-          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(_){}
-          renderAll();
-        }
-      }
-    }catch(_){ /* أوفلاين/فشل القراءة: نكمل بالمنطق القديم */ }
-    let safeData = JSON.parse(JSON.stringify(db));
-    // حد مستند Firestore 1MB: لو قريبنا منه نشيل الشعار (يفضل محليًا) ونقلّص سجل النشاط
-    if(JSON.stringify(safeData).length > 900000){
-      delete safeData.workshopLogo;
-      safeData.activityLog = (safeData.activityLog||[]).slice(-50);
-    }
-    if(JSON.stringify(safeData).length > 1000000){
-      throw new Error('حجم البيانات تجاوز حد السحابة (1MB) — امسح سلة المحذوفات/سجل النشاط');
-    }
-    await ref.set(safeData);
+    const safeData = JSON.parse(JSON.stringify(db));
+    await cloudDb.collection('workshops').doc(db.cloudSync.syncId).set(safeData);
     cloudStatus='online';
     cloudPendingChanges = false;
     cloudPendingChangesCount = 0;
@@ -389,18 +355,6 @@ async function pushToCloud(){
     cloudLastError = (e && e.message) ? e.message : String(e);
   }
   cloudStatusChanged();
-}
-
-// (7) إعدادات الإشعارات خاصة بكل جهاز: ندمج التوكنات بدل ما نفقد توكن الجهاز ده
-function mergePushSettings(localPn, remotePn){
-  const l = localPn || {}, r = remotePn || {};
-  const tokens = Array.from(new Set([].concat(Array.isArray(l.deviceTokens)?l.deviceTokens:[], Array.isArray(r.deviceTokens)?r.deviceTokens:[])));
-  return {
-    vapidKey: l.vapidKey || r.vapidKey || null,
-    daysBefore: l.daysBefore || r.daysBefore || 1,
-    deviceTokens: tokens,
-    notifiedOrderIds: Array.isArray(r.notifiedOrderIds) ? r.notifiedOrderIds : (Array.isArray(l.notifiedOrderIds)?l.notifiedOrderIds:[])
-  };
 }
 
 // يدمج عناصر قايمة محلية مع قايمة جايه من السحابة بالـ id، بدل استبدال القايمة
@@ -463,11 +417,9 @@ function initCloudSync(){
     cloudUnsub = cloudDb.collection('workshops').doc(db.cloudSync.syncId).onSnapshot(
       snap=>{
         cloudStatus='online';
-        // snapshot جاي من الكاش المحلي مش تأكيد حقيقي من السحابة — نستنى رد السيرفر قبل نسمح بالرفع
-        const fromCache = !!(snap.metadata && snap.metadata.fromCache);
-        if(!snap.exists){ if(!fromCache) cloudInitialSyncDone = true; cloudStatusChanged(); return; }
+        if(!snap.exists){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         const remote = snap.data();
-        if(!remote || typeof remote.updatedAt!=='number'){ if(!fromCache) cloudInitialSyncDone = true; cloudStatusChanged(); return; }
+        if(!remote || typeof remote.updatedAt!=='number'){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         if(remote.updatedAt > (Number(db.updatedAt)||0)){
           // قبل ما ندمج بيانات جهاز تاني مع بيانات الجهاز ده (تعارض)، ناخد
           // نسخة احتياطية محلية من بيانات الجهاز ده الحالية أولًا — شبكة أمان
@@ -476,7 +428,6 @@ function initCloudSync(){
           if(Number(db.updatedAt) > 0) saveConflictBackup(db);
           cloudApplyingRemote = true;
           const myCloudSettings = db.cloudSync; // نحافظ على إعدادات الاتصال بتاعت الجهاز ده بالذات
-          const myPushSettings = db.pushNotify, myLogo = db.workshopLogo;
           // دمج عنصر بعنصر (بدل استبدال كل المستند) عشان لو الجهاز ده عنده
           // عميل/طلب/مصروف/التزام جديد لسه ما اتبعتش للسحابة، ميتمسحش لمجرد
           // إن جهاز تاني بعت تحديث بتاريخ أحدث على مستوى المستند كله.
@@ -484,8 +435,6 @@ function initCloudSync(){
           db = merged;
           db.updatedAt = Math.max(Number(remote.updatedAt)||0, Number(db.updatedAt)||0);
           db.cloudSync = myCloudSettings;
-          db.pushNotify = mergePushSettings(myPushSettings, remote.pushNotify);
-          if(!db.workshopLogo && myLogo) db.workshopLogo = myLogo;
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
           renderAll();
@@ -498,7 +447,8 @@ function initCloudSync(){
         }
         // دلوقتي مؤكد إن db المحلية (سواء فضلت زي ما هي أو اتحدثت من فوق) متزامنة
         // فعليًا مع آخر حالة معروفة من السحابة — آمن نسمح بالرفع بعد كده
-        if(!fromCache){ cloudInitialSyncDone = true; markSyncedNow(); }
+        cloudInitialSyncDone = true;
+        markSyncedNow();
         cloudStatusChanged();
       },
       err=>{
@@ -558,17 +508,9 @@ function saveConflictBackup(localData){
       data: safeData
     });
     while(list.length > CONFLICT_BACKUP_MAX) list.pop();
-    try{
-      localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list));
-    }catch(quotaErr){
-      // المساحة ممتلئة (غالبًا بسبب الشعار): نشيل الشعار من النسخ ونقلّل العدد ونحاول تاني
-      list.forEach(b=>{ if(b.data) delete b.data.workshopLogo; });
-      while(list.length > 2) list.pop();
-      localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list));
-    }
+    localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list));
   }catch(e){
     console.warn('تعذر حفظ نسخة احتياطية عند تعارض المزامنة:', e);
-    try{ toast('⚠️ تعذر حفظ نسخة احتياطية للتعارض (المساحة ممتلئة)'); }catch(_){}
   }
 }
 
@@ -653,7 +595,6 @@ async function connectCloudSyncSpace(){
   try{ parsed = JSON.parse(atob(code)); }catch(e){ toast('رمز الربط غير صحيح'); return; }
   if(!parsed.syncId || !parsed.firebaseConfig){ toast('رمز الربط غير مكتمل'); return; }
   if(!await appConfirm('سيتم استبدال كل البيانات الحالية على هذا الجهاز ببيانات مساحة المزامنة. هل أنت متأكد؟')) return;
-  saveConflictBackup(db); // نسخة أمان قبل الاستبدال (تقدر ترجعها من الإعدادات)
   db.cloudSync = {enabled:true, syncId:parsed.syncId, firebaseConfig:parsed.firebaseConfig};
   saveDB();
   // نصفّر الوقت المحلي عمداً (بعد saveDB اللي بيحدّثه) عشان نضمن إن أي نسخة موجودة
@@ -902,8 +843,19 @@ function uid(){
   return Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 }
 
+// التاريخ بالتوقيت المحلي للجهاز (YYYY-MM-DD) — toISOString بيرجع UTC وبيغلّط اليوم بعد منتصف الليل
+function localYMD(d){
+  d = (d instanceof Date) ? d : new Date(d);
+  const p = n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+}
+// تحويل 'YYYY-MM-DD' لتاريخ محلي (مش UTC) عشان يوم الأسبوع يطلع صح
+function parseLocalDate(s){
+  if(typeof s==='string' && /^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s+'T00:00:00');
+  return (s instanceof Date) ? s : new Date(s);
+}
 function todayStr(){
-  return new Date().toISOString().slice(0,10);
+  return localYMD(new Date());
 }
 
 const WEEKDAY_NAMES_AR = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
@@ -911,9 +863,9 @@ const WEEKDAY_NAMES_AR = ['الأحد','الإثنين','الثلاثاء','ال
 // هل التاريخ المُعطى (Date أو 'YYYY-MM-DD') يقع في يوم الإجازة الأسبوعي المحدد في الإعدادات، أو في يوم عيد/إجازة مُضاف يدوياً؟
 function isDayOff(dateLike){
   if(!dateLike) return false;
-  const d = (dateLike instanceof Date) ? dateLike : new Date(dateLike);
+  const d = parseLocalDate(dateLike);
   if(isNaN(d.getTime())) return false;
-  const dateStr = d.toISOString().slice(0,10);
+  const dateStr = localYMD(d);
   if((db.holidays||[]).some(h=>h.date===dateStr)) return true;
   return d.getDay() === Number(db.dayOffWeekday ?? 0);
 }
@@ -926,9 +878,9 @@ function dayOffName(){
 // وإلا اسم يوم الإجازة الأسبوعي لو التاريخ يصادفه، وإلا نص فاضي لو مش يوم إجازة أصلاً
 function dayOffLabel(dateLike){
   if(!dateLike) return '';
-  const d = (dateLike instanceof Date) ? dateLike : new Date(dateLike);
+  const d = parseLocalDate(dateLike);
   if(isNaN(d.getTime())) return '';
-  const dateStr = d.toISOString().slice(0,10);
+  const dateStr = localYMD(d);
   const holiday = (db.holidays||[]).find(h=>h.date===dateStr);
   if(holiday) return holiday.name;
   if(d.getDay() === Number(db.dayOffWeekday ?? 0)) return dayOffName();
@@ -941,7 +893,7 @@ function addWorkDaysFromNow(workDays){
   let d = new Date();
   let count = 0;
   while(count < workDays){
-    d = new Date(d.getTime() + 86400000);
+    d = new Date(d.getFullYear(), d.getMonth(), d.getDate()+1, 12, 0, 0);
     if(!isDayOff(d)) count++;
   }
   return d;
@@ -970,8 +922,6 @@ window.userRole = null;       // 'owner' | 'manager' | 'receptionist' — بيت
 window.financeUnlocked = false; // هل اتفتح رقم صفحة المالية المنفصل في الجلسة الحالية
 
 function initLock(){
-  if(window.__lockInitDone) return; // يمنع ربط الأزرار مرتين (كان بيضيف رقمين مع كل ضغطة)
-  window.__lockInitDone = true;
   window.userRole = null;
   window.financeUnlocked = false;
   try{ loadDB(); }catch(e){ console.warn('loadDB failed, using defaults', e); db = defaultDB(); }
@@ -997,17 +947,9 @@ function initLock(){
       }
     }
   };
-  const keypadEl = document.getElementById('keypad');
-  if(keypadEl){
-    keypadEl.addEventListener('click', handleKeyTap);
-    keypadEl.addEventListener('touchend', handleKeyTap, {passive:false});
-  } else {
-    window.__lockInitDone = false; // العنصر لسه مش موجود — نحاول تاني
-  }
+  document.getElementById('keypad').addEventListener('click', handleKeyTap);
+  document.getElementById('keypad').addEventListener('touchend', handleKeyTap, {passive:false});
 }
-// لو الصفحة ما نادتش initLock بنفسها، نشغّله أول ما الصفحة تجهز
-document.addEventListener('DOMContentLoaded', function(){ try{ initLock(); }catch(e){ console.error('initLock failed', e); } });
-if(document.readyState !== 'loading'){ setTimeout(function(){ try{ initLock(); }catch(e){ console.error('initLock failed', e); } }, 0); }
 
 function updatePinDots(){
   const dots = document.querySelectorAll('.pin-dot');
@@ -1015,7 +957,7 @@ function updatePinDots(){
     d.classList.toggle('filled', i<pin.length);
     d.classList.remove('shake-err');
   });
-  const le = document.getElementById('lockError'); if(le) le.textContent='';
+  document.getElementById('lockError').textContent='';
 }
 
 function checkPin(){
@@ -1032,19 +974,17 @@ function checkPin(){
     document.getElementById('lockScreen').style.display='none';
     document.getElementById('app').style.display='block';
     pin='';
-    try{ applyRoleUI(); }catch(e){ console.error(e); }
-    try{ boot(); }catch(e){ console.error('boot failed', e); toast('حصل خطأ أثناء تحميل الشاشة الرئيسية'); }
+    applyRoleUI();
+    boot();
     resetIdleTimer();
   } else {
     document.getElementById('lockError').textContent='الرقم السري غير صحيح، حاول مرة أخرى';
     document.querySelectorAll('.pin-dot').forEach(d=>d.classList.add('shake-err'));
-    const shakeEl = document.getElementById('keypad') && document.getElementById('keypad').parentElement;
-    if(shakeEl) shakeEl.classList.add('lock-shake');
+    document.getElementById('keypad').parentElement.classList.add('lock-shake');
     setTimeout(()=>{
       pin='';
       updatePinDots();
-      if(shakeEl) shakeEl.classList.remove('lock-shake');
-      const ls = document.getElementById('lockScreen'); if(ls) ls.classList.remove('lock-shake');
+      document.getElementById('lockScreen').classList.remove('lock-shake');
     }, 420);
   }
 }
@@ -1561,7 +1501,7 @@ function renderHomeAlerts(){
   if(isDayOff(tomorrow)){
     const dueTomorrowOrOnOff = db.orders.filter(o=>{
       if(o.status==='تم التسليم' || !o.dateDelivery) return false;
-      return o.dateDelivery===tomorrow.toISOString().slice(0,10);
+      return o.dateDelivery===localYMD(tomorrow);
     }).length;
     let msg = `بكرة (${dayOffLabel(tomorrow)}) إجازة — استغل شغل النهاردة عشان ميتأخرش شغلك.`;
     if(dueTomorrowOrOnOff>0){
@@ -1749,7 +1689,7 @@ function renderWeeklyOverview(){
   let html = '<div class="card"><div style="display:flex;overflow-x:auto;gap:8px;padding-bottom:2px;">';
   for(let i=0;i<7;i++){
     const d = new Date(Date.now()+i*86400000);
-    const dStr = d.toISOString().slice(0,10);
+    const dStr = localYMD(d);
     const dayOff = isDayOff(d);
     const pieces = active.filter(o=>o.dateDelivery===dStr).reduce((s,o)=>s+orderPieceCount(o), 0);
     const label = i===0 ? 'النهاردة' : WEEKDAY_NAMES_AR[d.getDay()];
@@ -1773,7 +1713,7 @@ function renderCommitmentLog(){
   let anyDue = false;
   for(let i=1;i<=7;i++){
     const d = new Date(Date.now()-i*86400000);
-    const dStr = d.toISOString().slice(0,10);
+    const dStr = localYMD(d);
     const due = db.orders.filter(o=>o.dateDelivery===dStr);
     if(!due.length) continue;
     anyDue = true;
@@ -1792,7 +1732,7 @@ function renderCommitmentLog(){
    ملخص نهاية الأسبوع: نظرة سريعة على أداء آخر 7 أيام
    ============================================================ */
 function showWeeklySummary(){
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
+  const sevenDaysAgo = localYMD(new Date(Date.now()-6*86400000));
   const today = todayStr();
 
   const deliveredThisWeek = db.orders.filter(o=>o.status==='تم التسليم' && o.deliveredDate && o.deliveredDate>=sevenDaysAgo && o.deliveredDate<=today);
@@ -1919,7 +1859,7 @@ function renderHome(){
   for(let i=6;i>=0;i--){
     const d = new Date();
     d.setDate(d.getDate()-i);
-    last7Days.push(d.toISOString().slice(0,10));
+    last7Days.push(localYMD(d));
   }
   const ordersTrend = last7Days.map(d=> db.orders.filter(o=>o.dateReceived===d).length);
   const revenueTrend = last7Days.map(d=> db.payments.filter(p=>p.date===d).reduce((s,p)=>s+Number(p.amount||0),0));
@@ -2731,7 +2671,7 @@ function autoSuggestDate(force){
   const safetyDays = avgDelay>0.5 ? 2+Math.ceil(avgDelay) : 2;
   const totalDays = daysNeeded + safetyDays;
   const suggested = addWorkDaysFromNow(totalDays);
-  const suggestedStr = suggested.toISOString().slice(0,10);
+  const suggestedStr = localYMD(suggested);
   document.getElementById('f_dateDelivery').value = suggestedStr;
   dateManuallyEdited = !force ? dateManuallyEdited : false;
   checkDeliveryDateWarning();
@@ -3303,8 +3243,8 @@ function sampleOrderForPreview(){
     customerId:null,
     items:[{type:'جلابة قطن', qty:1, unitPrice:225}],
     extra:0, paid:0, discountType:'none', taxPercent:0,
-    dateReceived:new Date().toISOString().slice(0,10),
-    dateDelivery:new Date().toISOString().slice(0,10)
+    dateReceived:localYMD(new Date()),
+    dateDelivery:localYMD(new Date())
   };
 }
 
@@ -3767,7 +3707,7 @@ function renderDeliveriesList(){
    ============================================================ */
 function renderFinance(){
   const today = todayStr();
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
+  const sevenDaysAgo = localYMD(new Date(Date.now()-6*86400000));
   const yearMonth = today.slice(0,7);
   const year = today.slice(0,4);
 
@@ -3857,13 +3797,13 @@ function populatePersonalMonthSelect(){
   const now = new Date();
   for(let i=0;i<12;i++){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const val = d.toISOString().slice(0,7);
+    const val = localYMD(d).slice(0,7);
     const label = d.toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
     opts += `<option value="${val}">${label}</option>`;
   }
   const prev = sel.value;
   sel.innerHTML = opts;
-  sel.value = prev || now.toISOString().slice(0,7);
+  sel.value = prev || localYMD(now).slice(0,7);
 }
 
 /* ============================================================
@@ -3906,7 +3846,7 @@ function calcRequiredDailyCapacity(){
   const wdays = workDaysInLastNDays(30); // متوسط أيام الشغل في الشهر
   const commitmentsPerDay = (monthlyCommitments+loanMonthly) / wdays;
 
-  const since = new Date(Date.now()-29*86400000).toISOString().slice(0,10);
+  const since = localYMD(new Date(Date.now()-29*86400000));
   const houseRecent = (db.houseExpenses||[]).filter(e=>e.date>=since);
   const houseTotal = houseRecent.reduce((s,e)=>s+Number(e.amount||0),0);
   const housePerDay = houseTotal / 30;
@@ -4064,7 +4004,7 @@ function houseExpenseAnomalyToday(){
   const today = todayStr();
   const todayTotal = (db.houseExpenses||[]).filter(e=>e.date===today).reduce((s,e)=>s+Number(e.amount||0),0);
   if(todayTotal<=0) return null;
-  const since = new Date(Date.now()-59*86400000).toISOString().slice(0,10);
+  const since = localYMD(new Date(Date.now()-59*86400000));
   const priorDays = {};
   (db.houseExpenses||[]).filter(e=>e.date>=since && e.date<today).forEach(e=>{
     priorDays[e.date] = (priorDays[e.date]||0) + Number(e.amount||0);
@@ -4889,7 +4829,7 @@ function renderHouseExpenseChart(){
   const months = [];
   for(let i=5;i>=0;i--){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({key:d.toISOString().slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
+    months.push({key:localYMD(d).slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
   }
   const values = months.map(m=>(db.houseExpenses||[]).filter(e=>e.date.slice(0,7)===m.key).reduce((s,e)=>s+Number(e.amount||0),0));
   const maxVal = Math.max(...values, 1);
@@ -5048,21 +4988,21 @@ function renderAdvancedAnalytics(){
   const last3 = [];
   for(let i=1;i<=3;i++){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
+    const key = localYMD(d).slice(0,7);
     last3.push(db.payments.filter(p=>p.date.slice(0,7)===key).reduce((s,p)=>s+Number(p.amount||0),0));
   }
   const validMonths = last3.filter(v=>v>0);
   const forecast = validMonths.length ? Math.round(validMonths.reduce((a,b)=>a+b,0)/validMonths.length) : 0;
 
   // 2) تنبيه تكدس الأسبوع القادم
-  const in7 = new Date(Date.now()+7*86400000).toISOString().slice(0,10);
+  const in7 = localYMD(new Date(Date.now()+7*86400000));
   const nextWeekOrders = db.orders.filter(o=>o.status!=='تم التسليم' && o.dateDelivery && o.dateDelivery>todayS && o.dateDelivery<=in7);
   const nextWeekValue = nextWeekOrders.reduce((s,o)=>s+orderTotal(o),0);
   const congested = nextWeekValue > weekCapacity;
 
   // 3) متوسط قيمة الطلب (AOV) الشهر الحالي مقابل السابق
   const thisMonthKey = todayS.slice(0,7);
-  const prevMonthKey = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().slice(0,7);
+  const prevMonthKey = localYMD(new Date(now.getFullYear(), now.getMonth()-1, 1)).slice(0,7);
   const thisMonthOrders = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===thisMonthKey);
   const prevMonthOrders = db.orders.filter(o=>(o.dateReceived||'').slice(0,7)===prevMonthKey);
   const aovThis = thisMonthOrders.length ? Math.round(thisMonthOrders.reduce((s,o)=>s+orderTotal(o),0)/thisMonthOrders.length) : 0;
@@ -5090,7 +5030,7 @@ function renderAdvancedAnalytics(){
   const retentionPct = customersWithOrders ? Math.round((repeatCustomers/customersWithOrders)*100) : 0;
 
   // 6) نسبة استخدام الطاقة — قيمة الطلبات المُستلمة آخر 7 أيام مقابل الطاقة الأسبوعية
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
+  const sevenDaysAgo = localYMD(new Date(Date.now()-6*86400000));
   const receivedLast7Value = db.orders.filter(o=>o.dateReceived && o.dateReceived>=sevenDaysAgo && o.dateReceived<=todayS).reduce((s,o)=>s+orderTotal(o),0);
   const utilizationPct = weekCapacity ? Math.round((receivedLast7Value/weekCapacity)*100) : 0;
 
@@ -5167,7 +5107,7 @@ function shareAnalyticsSummary(){
   const last3 = [];
   for(let i=1;i<=3;i++){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const key = d.toISOString().slice(0,7);
+    const key = localYMD(d).slice(0,7);
     last3.push(db.payments.filter(p=>p.date.slice(0,7)===key).reduce((s,p)=>s+Number(p.amount||0),0));
   }
   const validMonths = last3.filter(v=>v>0);
@@ -5176,7 +5116,7 @@ function shareAnalyticsSummary(){
   const activeOrders = db.orders.filter(o=>o.status!=='تم التسليم');
   const urgentPct = activeOrders.length ? Math.round((activeOrders.filter(o=>o.urgent).length/activeOrders.length)*100) : 0;
   const capacity = Number(db.dailyCapacity)||500;
-  const sevenDaysAgo = new Date(Date.now()-6*86400000).toISOString().slice(0,10);
+  const sevenDaysAgo = localYMD(new Date(Date.now()-6*86400000));
   const todayS = todayStr();
   const receivedLast7Value = db.orders.filter(o=>o.dateReceived && o.dateReceived>=sevenDaysAgo && o.dateReceived<=todayS).reduce((s,o)=>s+orderTotal(o),0);
   const utilizationPct = capacity*7 ? Math.round((receivedLast7Value/(capacity*7))*100) : 0;
@@ -5291,7 +5231,7 @@ function renderRevenueChart(){
   const months = [];
   for(let i=5;i>=0;i--){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    months.push({key:d.toISOString().slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
+    months.push({key:localYMD(d).slice(0,7), label:d.toLocaleDateString('ar-EG',{month:'short'})});
   }
   const values = months.map(m=>db.payments.filter(p=>p.date.slice(0,7)===m.key).reduce((s,p)=>s+Number(p.amount||0),0));
   const maxVal = Math.max(...values, 1);
@@ -5333,12 +5273,12 @@ function populateMonthSelect(){
   const now = new Date();
   for(let i=0;i<12;i++){
     const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
-    const val = d.toISOString().slice(0,7);
+    const val = localYMD(d).slice(0,7);
     const label = d.toLocaleDateString('ar-EG',{month:'long', year:'numeric'});
     opts += `<option value="${val}">${label}</option>`;
   }
   sel.innerHTML = opts;
-  sel.value = prev || now.toISOString().slice(0,7);
+  sel.value = prev || localYMD(now).slice(0,7);
 }
 
 function renderMonthlyReport(){
@@ -6085,111 +6025,332 @@ function recalculateAllDeliveryDates(){
     cumValue += orderTotal(o);
     const daysNeeded = Math.max(1, Math.ceil(cumValue/capacity));
     const totalDays = daysNeeded + safetyDays;
-    o.dateDelivery = addWorkDaysFromNow(totalDays).toISOString().slice(0,10);
+    o.dateDelivery = localYMD(addWorkDaysFromNow(totalDays));
   });
 
   saveDB();
   renderAll();
-}
-
-async function saveDailyCapacity(){
-  const input = document.getElementById('dailyCapacityInput');
-  const val = Number(input && input.value);
-  if(!val || val<=0){ toast('أدخل رقماً صحيحاً أكبر من صفر'); return; }
-  if(!await appConfirm(`هيتم تحديث السعة اليومية إلى ${val.toLocaleString('ar-EG')} ج.م، وده هيأثر على اقتراح مواعيد التسليم الجديدة. متأكد؟`)) return;
-  db.dailyCapacity = val;
-  saveDB();
-  renderAll();
-  toast('✅ اتحفظت السعة اليومية');
 }
 
 /* ============================================================
-   دوال أساسية اتقطعت من نهاية الملف الأصلي (أُعيد بناؤها من طريقة استخدامها)
+   ===== الجزء المُعاد بناؤه (Reconstruction) — مطابق لـ index.html =====
+   الملف الأصلي كان مبتورًا بعد saveDailyCapacity. هذا الجزء مكتوب من جديد
+   ليعوّض الدوال المفقودة بنفس أسماء العناصر (ids) والأزرار الموجودة في
+   index.html. كل دالة تُعرَّف فقط لو لم تكن موجودة (حتى لا تتعارض مع
+   نسختك الأصلية أو ملفات feature-*.js). لا يغيّر STORAGE_KEY ولا شكل البيانات.
    ============================================================ */
-// حذف عناصر سلة المحذوفات الأقدم من 7 أيام
-function purgeOldTrash(){
-  if(!Array.isArray(db.trash)) db.trash = [];
-  const cutoff = Date.now() - 7*86400000;
-  db.trash = db.trash.filter(t=>{
-    const ts = new Date(t.deletedAt).getTime();
-    return isNaN(ts) || ts >= cutoff;
+(function(){
+  const W = window;
+  const def = (name, fn)=>{ if(typeof W[name] !== 'function') W[name] = fn; };
+  const $ = id => document.getElementById(id);
+
+  /* ---------- النافذة المنبثقة العامة (#modalOverlay / #modalBox) ---------- */
+  def('openModal', function(html){
+    const ov = $('modalOverlay'), box = $('modalBox');
+    if(!ov || !box) return;
+    box.innerHTML = html;
+    box.scrollTop = 0;
+    ov.classList.add('active');
   });
-}
-
-function openModal(html){
-  closeModal();
-  const ov = document.createElement('div');
-  ov.id = '__modalOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;display:flex;align-items:center;justify-content:center;padding:12px;';
-  const box = document.createElement('div');
-  box.id = '__modalBox';
-  box.style.cssText = 'background:var(--card,#fff);color:var(--text,#222);border-radius:16px;padding:16px;width:100%;max-width:520px;max-height:90vh;overflow:auto;direction:rtl;box-shadow:0 10px 40px rgba(0,0,0,.3);';
-  box.innerHTML = html;
-  ov.appendChild(box);
-  document.body.appendChild(ov);
-}
-function closeModal(){
-  const ov = document.getElementById('__modalOverlay');
-  if(ov) ov.remove();
-}
-
-function appConfirm(message, opts){
-  opts = opts || {};
-  return new Promise(resolve=>{
-    const ov = document.createElement('div');
-    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:14px;';
-    const box = document.createElement('div');
-    box.style.cssText = 'background:var(--card,#fff);color:var(--text,#222);border-radius:16px;padding:18px;width:100%;max-width:420px;direction:rtl;box-shadow:0 10px 40px rgba(0,0,0,.35);';
-    const p = document.createElement('div');
-    p.style.cssText = 'white-space:pre-wrap;font-size:14.5px;line-height:1.8;margin-bottom:14px;';
-    p.textContent = message;
-    const row = document.createElement('div');
-    row.className = 'btn-row';
-    const cancel = document.createElement('button');
-    cancel.className = 'btn outline';
-    cancel.textContent = opts.cancelText || 'إلغاء';
-    const ok = document.createElement('button');
-    ok.className = 'btn' + (opts.danger===false ? '' : ' danger');
-    ok.textContent = opts.okText || 'تأكيد';
-    const done = v=>{ ov.remove(); resolve(v); };
-    cancel.onclick = ()=>done(false);
-    ok.onclick = ()=>done(true);
-    row.appendChild(cancel); row.appendChild(ok);
-    box.appendChild(p); box.appendChild(row); ov.appendChild(box);
-    document.body.appendChild(ov);
+  def('closeModal', function(){
+    const ov = $('modalOverlay'), box = $('modalBox');
+    if(ov) ov.classList.remove('active');
+    if(box) box.innerHTML = '';
   });
+  (function(){ // الضغط على الخلفية يقفل النافذة
+    const ov = $('modalOverlay');
+    if(ov) ov.addEventListener('click', function(e){ if(e.target===ov) closeModal(); });
+  })();
+
+  /* ---------- نافذة التأكيد: appConfirm(msg, {okText, cancelText, danger}) → Promise<boolean> ---------- */
+  def('appConfirm', function(message, opts){
+    opts = opts || {};
+    return new Promise(function(resolve){
+      const old = $('__confirmOverlay'); if(old) old.remove();
+      const ov = document.createElement('div');
+      ov.id = '__confirmOverlay';
+      ov.style.cssText = 'position:fixed;inset:0;background:rgba(18,29,24,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:16px;';
+      const box = document.createElement('div');
+      box.style.cssText = 'background:var(--card,#fff);color:var(--text,#222);width:100%;max-width:380px;border-radius:18px;padding:18px;box-sizing:border-box;';
+      const p = document.createElement('div');
+      p.style.cssText = 'font-size:15px;line-height:1.8;margin-bottom:14px;white-space:pre-wrap;';
+      p.textContent = message;
+      const row = document.createElement('div'); row.className = 'btn-row';
+      const cancel = document.createElement('button'); cancel.className = 'btn outline'; cancel.textContent = opts.cancelText || 'إلغاء';
+      const ok = document.createElement('button'); ok.className = 'btn' + (opts.danger===false ? '' : ' danger'); ok.textContent = opts.okText || 'تأكيد';
+      const done = v=>{ ov.remove(); resolve(v); };
+      cancel.onclick = ()=>done(false); ok.onclick = ()=>done(true);
+      row.appendChild(cancel); row.appendChild(ok); box.appendChild(p); box.appendChild(row); ov.appendChild(box);
+      document.body.appendChild(ov);
+    });
+  });
+
+  def('syncNavState', function(){
+    document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.getAttribute('data-page')===currentPage));
+  });
+
+  /* ---------- سلة المحذوفات (7 أيام) → #trashList / #trashCountTxt ---------- */
+  const TRASH_DAYS = 7;
+  def('purgeOldTrash', function(){
+    if(!db || !Array.isArray(db.trash)) return;
+    const now = new Date(todayStr()+'T00:00:00').getTime();
+    db.trash = db.trash.filter(t=>{
+      if(!t || !t.deletedAt) return true;
+      return !(((now - new Date(t.deletedAt+'T00:00:00').getTime())/86400000) > TRASH_DAYS);
+    });
+  });
+  def('renderTrash', function(){
+    const box = $('trashList'); if(!box) return;
+    const cnt = $('trashCountTxt');
+    const items = (db.trash||[]).slice().reverse();
+    if(cnt) cnt.textContent = items.length ? '('+items.length+')' : '';
+    if(!items.length){ box.innerHTML = '<div class="empty-msg">السلة فاضية</div>'; return; }
+    box.innerHTML = items.map(t=>{
+      const d = t.data||{};
+      const label = t.type==='customer' ? ('👤 عميل: '+escapeHtml(d.name||'')) : ('📋 طلب: '+escapeHtml(orderTypeLabel(d)));
+      return '<div class="card" style="margin-bottom:8px;"><div class="row"><b>'+label+'</b><span class="meta">'+fmtDate(t.deletedAt)+'</span></div>'
+        + '<div class="btn-row"><button class="btn sm secondary" onclick="restoreFromTrash(\''+t.id+'\')">↩️ استرجاع</button>'
+        + '<button class="btn sm danger" onclick="deleteTrashForever(\''+t.id+'\')">🗑️ حذف نهائي</button></div></div>';
+    }).join('');
+  });
+  def('restoreFromTrash', function(id){
+    const t = (db.trash||[]).find(x=>x.id===id); if(!t) return;
+    if(t.type==='customer'){
+      if(!db.customers.some(c=>c.id===t.data.id)) db.customers.push(t.data);
+    } else if(t.type==='order'){
+      if(!db.orders.some(o=>o.id===t.data.id)) db.orders.push(t.data);
+      (t.payments||[]).forEach(p=>{ if(!db.payments.some(x=>x.id===p.id)) db.payments.push(p); });
+    }
+    db.trash = db.trash.filter(x=>x.id!==id);
+    logActivity('↩️ استرجاع من السلة');
+    saveDB(); renderTrash(); renderAll();
+    toast('تم الاسترجاع ✅');
+  });
+  def('deleteTrashForever', async function(id){
+    if(!await appConfirm('حذف نهائي؟ مش هتقدر ترجعه بعد كده.')) return;
+    db.trash = (db.trash||[]).filter(x=>x.id!==id);
+    saveDB(); renderTrash();
+  });
+
+  /* ---------- أنواع التفصيل والأسعار → #garmentTypesList (+ زر openGarmentTypeModal) ---------- */
+  def('renderGarmentTypes', function(){
+    const box = $('garmentTypesList'); if(!box) return;
+    const list = (db.garmentTypes||[]).slice().sort((a,b)=>a.name.localeCompare(b.name,'ar'));
+    box.innerHTML = list.length ? list.map(g=>
+      '<div class="row" style="padding:7px 0;border-bottom:1px solid var(--border);"><span>'+escapeHtml(g.name)+' — <b>'+Number(g.price||0).toLocaleString('ar-EG')+'</b> ج.م</span>'
+      + '<span class="btn-row"><button class="btn sm outline" onclick="openGarmentTypeModal(\''+g.id+'\')">✏️</button>'
+      + '<button class="btn sm danger" onclick="deleteGarmentType(\''+g.id+'\')">🗑️</button></span></div>').join('')
+      : '<div class="empty-msg">لا توجد أنواع بعد — أضف أول نوع</div>';
+  });
+  def('openGarmentTypeModal', function(id){
+    const g = id ? db.garmentTypes.find(x=>x.id===id) : null;
+    openModal(
+      '<div class="modal-head"><h3>'+(g?'✏️ تعديل نوع':'➕ نوع جديد')+'</h3><button class="modal-close" onclick="closeModal()">✕</button></div>'
+      + '<div class="field"><label>اسم النوع</label><input id="f_gtName" value="'+(g?escapeHtml(g.name):'')+'" placeholder="مثال: جلابية"></div>'
+      + '<div class="field"><label>السعر الأساسي (ج.م)</label><input id="f_gtPrice" type="number" min="0" value="'+(g?(Number(g.price)||0):'')+'"></div>'
+      + '<button class="btn" onclick="saveGarmentType('+(g?"'"+g.id+"'":'null')+')">💾 حفظ</button>');
+  });
+  def('saveGarmentType', function(id){
+    const name = $('f_gtName').value.trim();
+    const price = Number($('f_gtPrice').value);
+    if(!name){ toast('أدخل اسم النوع'); return; }
+    if(isNaN(price) || price<0){ toast('أدخل سعرًا صحيحًا'); return; }
+    if(db.garmentTypes.some(g=>g.name===name && g.id!==id)){ toast('النوع ده موجود بالفعل'); return; }
+    if(id){ const g = db.garmentTypes.find(x=>x.id===id); if(g){ g.name = name; g.price = price; } }
+    else db.garmentTypes.push({id:uid(), name, price});
+    saveDB(); closeModal(); renderGarmentTypes(); toast('تم الحفظ ✅');
+  });
+  def('deleteGarmentType', async function(id){
+    if(!await appConfirm('حذف هذا النوع؟ الطلبات القديمة مش هتتأثر.')) return;
+    db.garmentTypes = db.garmentTypes.filter(g=>g.id!==id);
+    saveDB(); renderGarmentTypes();
+  });
+
+  /* ---------- الرقم السري للتطبيق وللمالية ---------- */
+  def('changePassword', function(){
+    const oldV = ($('oldPass').value||'').trim(), newV = ($('newPass').value||'').trim();
+    if(oldV !== (db.password||'0000')){ toast('الرقم الحالي غير صحيح'); return; }
+    if(!/^\d{4}$/.test(newV)){ toast('الرقم الجديد لازم يكون 4 أرقام'); return; }
+    db.password = newV; saveDB();
+    $('oldPass').value = ''; $('newPass').value = '';
+    toast('تم تغيير الرقم السري ✅');
+  });
+  def('renderFinancePasswordCard', function(){
+    const box = $('financePasswordCardWrap'); if(!box) return;
+    const on = !!db.financePassword;
+    box.innerHTML = '<h3>🔐 رقم سري صفحة المالية</h3>'
+      + '<p class="meta">'+(on ? '✅ مفعّل' : 'غير مفعّل')+' — رقم من 4 أرقام منفصل عن قفل التطبيق، يحمي صفحتي المالية والتزاماتي.</p>'
+      + '<div class="field"><input id="fp_new" type="tel" maxlength="4" inputmode="numeric" autocomplete="off" class="pin-input" placeholder="4 أرقام" oninput="this.value=this.value.replace(/\\D/g,\'\').slice(0,4)"></div>'
+      + '<div class="btn-row"><button class="btn" onclick="saveFinancePassword()">💾 '+(on?'تغيير':'تفعيل')+'</button>'
+      + (on ? '<button class="btn danger outline" onclick="removeFinancePassword()">إزالة</button>' : '') + '</div>';
+  });
+  def('saveFinancePassword', function(){
+    const v = (($('fp_new')||{value:''}).value||'').trim();
+    if(!/^\d{4}$/.test(v)){ toast('لازم 4 أرقام'); return; }
+    db.financePassword = v; window.financeUnlocked = true;
+    saveDB(); updateFinanceLockUI(); renderFinancePasswordCard(); toast('تم الحفظ ✅');
+  });
+  def('removeFinancePassword', async function(){
+    if(!await appConfirm('إزالة الرقم السري لصفحة المالية؟')) return;
+    db.financePassword = null; saveDB(); updateFinanceLockUI(); renderFinancePasswordCard();
+  });
+
+  /* ---------- حفظ الإعدادات من صفحة الإعدادات ---------- */
+  def('saveVipThreshold', function(){
+    const th = Math.floor(Number($('vipThresholdInput').value));
+    const disc = Number($('vipDiscountInput').value)||0;
+    if(!th || th<1){ toast('أدخل عددًا صحيحًا أكبر من صفر'); return; }
+    if(disc<0 || disc>100){ toast('نسبة الخصم لازم بين 0 و100'); return; }
+    db.vipThreshold = th; db.vipDiscountPercent = disc;
+    saveDB(); renderAll(); toast('تم الحفظ ✅');
+  });
+  def('saveIdleLock', function(){
+    const m = Number($('idleLockInput').value);
+    if(!m || m<=0){ toast('أدخل عدد دقائق صحيح'); return; }
+    db.idleLockMinutes = m; saveDB(); resetIdleTimer(); toast('تم الحفظ ✅');
+  });
+  def('saveInvoiceTaxSettings', function(){
+    const next = Math.floor(Number($('nextInvoiceInput').value));
+    const tax = Number($('taxDefaultInput').value)||0;
+    const urg = Number($('urgentFeeDefaultInput').value)||0;
+    if(!next || next<1){ toast('رقم الفاتورة لازم يكون رقم صحيح أكبر من صفر'); return; }
+    if(tax<0 || urg<0){ toast('النسب لا يمكن أن تكون سالبة'); return; }
+    db.nextInvoiceNumber = next; db.taxDefaultPercent = tax; db.urgentFeeDefaultPercent = urg;
+    saveDB(); renderInvoicePreviewCard(); toast('تم الحفظ ✅');
+  });
+
+  /* ---------- النسخ الاحتياطي (JSON) ---------- */
+  def('exportBackup', async function(){
+    flushSaveDB();
+    const copy = JSON.parse(JSON.stringify(db));
+    delete copy.cloudSync; // إعدادات الربط السحابي مش بتتصدّر (خصوصية + عشان الاستيراد ما يفكّ ربط جهاز تاني)
+    const blob = new Blob([JSON.stringify(copy, null, 1)], {type:'application/json'});
+    const ok = await saveOrShareFile(blob, 'نسخة_احتياطية_ورشة_'+todayStr()+'.json');
+    if(ok){
+      db.lastBackupDate = todayStr(); saveDB();
+      const t = $('lastBackupTxt'); if(t) t.textContent = '📅 آخر نسخة احتياطية: '+fmtDate(db.lastBackupDate);
+      toast('✅ تم تجهيز النسخة الاحتياطية');
+    }
+  });
+  def('importBackup', function(ev){
+    const input = ev && ev.target; const file = input && input.files && input.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onerror = function(){ toast('تعذر قراءة الملف'); input.value=''; };
+    reader.onload = async function(e){
+      let parsed;
+      try{ parsed = JSON.parse(e.target.result); }catch(err){ toast('الملف مش نسخة احتياطية صالحة'); input.value=''; return; }
+      if(!parsed || typeof parsed!=='object' || !Array.isArray(parsed.customers) || !Array.isArray(parsed.orders)){
+        toast('الملف مش نسخة احتياطية صالحة (لا يحتوي عملاء/طلبات)'); input.value=''; return;
+      }
+      const ok = await appConfirm('سيتم استبدال كل بيانات هذا الجهاز ('+db.customers.length+' عميل، '+db.orders.length+' طلب) ببيانات النسخة ('+parsed.customers.length+' عميل، '+parsed.orders.length+' طلب).\nهتتاخد نسخة أمان من بياناتك الحالية أولًا.', {okText:'استيراد'});
+      if(!ok){ input.value=''; return; }
+      try{ saveConflictBackup(db); }catch(err){}            // شبكة أمان: نسخة من البيانات الحالية قبل الاستبدال
+      parsed.cloudSync = db.cloudSync;                       // نحافظ على ربط المزامنة بتاع الجهاز ده
+      parsed.updatedAt = Date.now();                         // عشان الاستيراد يكسب لو المزامنة مفعّلة
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed)); }catch(err){ toast('تعذر حفظ البيانات المستوردة'); input.value=''; return; }
+      loadDB();                                              // يطبّق نفس تطبيع البيانات المعتاد
+      try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(err){}
+      saveDB(); flushSaveDB(); renderAll(); renderSettings();
+      input.value = '';
+      toast('✅ تم استيراد النسخة الاحتياطية');
+    };
+    reader.readAsText(file);
+  });
+
+  /* ---------- تصدير CSV و Excel ---------- */
+  const csvCell = v => { v = (v===undefined||v===null) ? '' : String(v); return /[",\n\r]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const toCSV = rows => '\uFEFF' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  const custName = id => { const c = customerById(id); return c ? c.name : 'عميل محذوف'; };
+  function tablesData(){
+    return {
+      'الطلبات': [['رقم الفاتورة','العميل','النوع','تاريخ الاستلام','تاريخ التسليم','الحالة','الإجمالي','المدفوع','المتبقي']]
+        .concat(db.orders.map(o=>[o.invoiceNumber||'', custName(o.customerId), orderTypeLabel(o), o.dateReceived||'', o.dateDelivery||'', o.status||'', Math.round(orderTotal(o)), Number(o.paid)||0, Math.round(orderRemaining(o))])),
+      'العملاء': [['الاسم','الهاتف','العائلة','الطول','طول الكم','الصدر','الخزنة','وسع الكم','ملاحظات']]
+        .concat(db.customers.map(c=>[c.name, c.phone||'', c.family||'', c.length||'', c.sleeve||'', c.chest||'', c.waist||'', c.shoulder||'', c.notes||''])),
+      'المصروفات': [['التاريخ','الوصف','المبلغ']]
+        .concat(db.expenses.map(e=>[e.date||'', e.desc||'', Number(e.amount)||0]))
+    };
+  }
+  async function exportCSVOf(name, fileLabel){
+    const rows = tablesData()[name];
+    if(rows.length<2){ toast('لا توجد بيانات للتصدير'); return; }
+    const ok = await saveOrShareFile(new Blob([toCSV(rows)], {type:'text/csv;charset=utf-8'}), fileLabel+'_'+todayStr()+'.csv');
+    if(ok) toast('✅ تم التصدير');
+  }
+  def('exportOrdersCSV', ()=>exportCSVOf('الطلبات','الطلبات'));
+  def('exportCustomersCSV', ()=>exportCSVOf('العملاء','العملاء'));
+  def('exportExpensesCSV', ()=>exportCSVOf('المصروفات','المصروفات'));
+  def('exportAllExcel', async function(){
+    const x = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const data = tablesData();
+    let xml = '<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?>'
+      + '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:x="urn:schemas-microsoft-com:office:excel">'
+      + '<Styles><Style ss:ID="h"><Font ss:Bold="1"/><Interior ss:Color="#E3EEE9" ss:Pattern="Solid"/></Style></Styles>';
+    Object.keys(data).forEach(sheet=>{
+      xml += '<Worksheet ss:Name="'+x(sheet)+'"><Table>';
+      data[sheet].forEach((row,ri)=>{
+        xml += '<Row>' + row.map(v=>{
+          const isNum = ri>0 && typeof v==='number' && isFinite(v);
+          return '<Cell'+(ri===0?' ss:StyleID="h"':'')+'><Data ss:Type="'+(isNum?'Number':'String')+'">'+x(v)+'</Data></Cell>';
+        }).join('') + '</Row>';
+      });
+      xml += '</Table><WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel"><DisplayRightToLeft/></WorksheetOptions></Worksheet>';
+    });
+    xml += '</Workbook>';
+    const ok = await saveOrShareFile(new Blob([xml], {type:'application/vnd.ms-excel'}), 'تقارير_الورشة_'+todayStr()+'.xls');
+    if(ok) toast('✅ تم تصدير ملف Excel');
+  });
+
+  /* ---------- صندوق الطوارئ والصحة المالية (يظهران فقط لو الـ HTML فيه مكان لهما) ---------- */
+  def('renderEmergencyFundCard', function(){
+    const box = document.querySelector('[id*="mergencyFund"]'); if(!box) return;
+    box.innerHTML = '<div class="row"><h3>🧳 صندوق الطوارئ</h3></div><div class="meta">الرصيد: <b>'+Number(db.emergencyFundBalance||0).toLocaleString('ar-EG')+' ج.م</b></div>';
+  });
+  def('renderFinancialHealthDashboard', function(){
+    const box = document.querySelector('[id*="inancialHealth"]'); if(!box) return;
+    const ym = currentYM();
+    const income = (db.payments||[]).filter(p=>(p.date||'').slice(0,7)===ym).reduce((s,p)=>s+Number(p.amount||0),0);
+    const spend = (db.expenses||[]).filter(e=>(e.date||'').slice(0,7)===ym).reduce((s,e)=>s+Number(e.amount||0),0);
+    box.innerHTML = '<div class="row"><h3>📊 الصحة المالية (هذا الشهر)</h3></div><div class="meta">المحصّل: '+income.toLocaleString('ar-EG')+' | مصروفات الورشة: '+spend.toLocaleString('ar-EG')+' | الصافي: <b>'+(income-spend).toLocaleString('ar-EG')+'</b> ج.م</div>';
+  });
+})();
+
+/* حفظ الطاقة اليومية وساعات العمل، ثم عرض إعادة حساب مواعيد التسليم (باختيارك فقط) */
+async function saveDailyCapacity(){
+  const cap = Number(document.getElementById('dailyCapacityInput').value);
+  const startH = Number(document.getElementById('workStartHourInput').value);
+  const endH = Number(document.getElementById('workEndHourInput').value);
+  if(!cap || cap<=0){ toast('أدخل طاقة يومية صحيحة'); return; }
+  if(isNaN(startH) || isNaN(endH) || startH<0 || startH>23 || endH<1 || endH>24 || endH<=startH){
+    toast('ساعات العمل غير صحيحة (البداية قبل النهاية، من 0 إلى 24)'); return;
+  }
+  const changed = cap !== Number(db.dailyCapacity);
+  db.dailyCapacity = cap; db.workStartHour = startH; db.workEndHour = endH;
+  saveDB();
+  renderRequiredCapacityCard();
+  renderAll();
+  toast('تم الحفظ ✅');
+  const activeCount = db.orders.filter(o=>o.status!=='تم التسليم').length;
+  if(changed && activeCount>0){
+    const yes = await appConfirm('الطاقة اليومية اتغيرت. هل تريد إعادة حساب مواعيد التسليم لـ '+activeCount+' طلب غير مُسلَّم بناءً عليها؟\n(المواعيد الحالية هتتغير — اختار "لا" لو مواعيدك متفق عليها مع العملاء.)', {okText:'نعم، أعد الحساب', cancelText:'لا، سيبها', danger:false});
+    if(yes){ recalculateAllDeliveryDates(); toast('✅ اتحدثت مواعيد التسليم'); }
+  }
 }
 
-function syncNavState(){
-  const side = document.getElementById('sideNav');
-  if(side) side.setAttribute('aria-hidden', side.classList.contains('open') ? 'false' : 'true');
-}
+/* لما النت يرجع نكمل المزامنة المعلّقة */
+window.addEventListener('online', function(){
+  try{ if(db && db.cloudSync && db.cloudSync.enabled && cloudPendingChanges) pushToCloud(); }catch(e){}
+  try{ renderCloudSyncStatusBadge(); }catch(e){}
+});
+window.addEventListener('offline', function(){ try{ renderCloudSyncStatusBadge(); }catch(e){} });
 
-// ---- واجهات إعدادات كانت في الجزء المقطوع: نسخة آمنة حتى لا يتعطل renderSettings ----
-function renderTrash(){
-  const box = document.getElementById('trashList');
-  if(!box) return;
-  const items = db.trash || [];
-  box.innerHTML = items.length ? items.map(t=>`
-    <div class="meta" style="padding:6px 0;border-bottom:1px dashed var(--stitch);">
-      ${t.type==='customer'?'👤 عميل':'📋 طلب'}: ${escapeHtml((t.data && (t.data.name||t.data.type))||'')} — ${fmtDate(t.deletedAt)}
-      <button class="btn sm outline" onclick="restoreTrashItem('${t.id}')">↩️ استرجاع</button>
-    </div>`).join('') : '<div class="empty-msg">سلة المحذوفات فاضية</div>';
-}
-function restoreTrashItem(id){
-  const t = (db.trash||[]).find(x=>x.id===id);
-  if(!t) return;
-  if(t.type==='customer') db.customers.push(t.data);
-  else if(t.type==='order'){ db.orders.push(t.data); (t.payments||[]).forEach(p=>db.payments.push(p)); }
-  db.trash = db.trash.filter(x=>x.id!==id);
-  saveDB(); renderTrash(); renderAll();
-  toast('✅ تم الاسترجاع');
-}
-function renderGarmentTypes(){
-  const box = document.getElementById('garmentTypesList');
-  if(!box) return;
-  box.innerHTML = (db.garmentTypes||[]).map(g=>`<div class="meta">${escapeHtml(typeof g==='string'?g:(g.name||''))}</div>`).join('') || '<div class="empty-msg">لا توجد أنواع مضافة</div>';
-}
-function renderEmergencyFundCard(){}
-function renderFinancePasswordCard(){}
-function renderFinancialHealthDashboard(){}
+/* تشغيل التطبيق: initLock مرة واحدة فقط (index.html وpatches.js وfeature-*.js مفيهمش استدعاء ليها).
+   بننادي عليها فورًا لأن سكربتات الصفحة في آخر الـ body (العناصر موجودة بالفعل)، وده بيضمن
+   إن db متحمّلة قبل ما patches.js وملفات feature-* تشتغل — زي ما التطبيق كان بيشتغل أصلًا. */
+(function(){
+  const orig = initLock; let started = false;
+  initLock = function(){ if(started) return; started = true; return orig.apply(this, arguments); };
+  if(document.getElementById('keypad')) initLock();
+  else document.addEventListener('DOMContentLoaded', function(){ initLock(); });
+})();
