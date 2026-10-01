@@ -324,6 +324,43 @@ async function pushToCloud(){
   cloudStatusChanged();
 }
 
+// يدمج عناصر قايمة محلية مع قايمة جايه من السحابة بالـ id، بدل استبدال القايمة
+// كلها — لكل id موجود في الاتنين بناخد النسخة اللي updatedAt بتاعها أكبر؛ لو
+// العنصر موجود في طرف واحد بس (سواء محلي جديد لسه ما اتبعتش، أو سحابي جديد لسه
+// ما وصلش) بنحافظ عليه. ملحوظة: لو عنصر اتمسح في جهاز وهو أوفلاين وباقي في
+// الجهاز/السحابة التانية، الدمج ده ممكن "يرجّعه" تاني لحد ما يتمسح تاني يدويًا —
+// ده تبادل مقصود عشان نمنع الأخطر: ضياع بيانات جديدة بشكل صامت بالكامل.
+function mergeArraysById(localArr, remoteArr){
+  localArr = Array.isArray(localArr) ? localArr : [];
+  remoteArr = Array.isArray(remoteArr) ? remoteArr : [];
+  const byId = new Map();
+  remoteArr.forEach(item=>{ if(item && item.id!=null) byId.set(item.id, item); });
+  localArr.forEach(item=>{
+    if(!item || item.id==null) return;
+    const remoteItem = byId.get(item.id);
+    if(!remoteItem){ byId.set(item.id, item); return; } // موجود محليًا بس
+    const localTime = Number(item.updatedAt)||0;
+    const remoteTime = Number(remoteItem.updatedAt)||0;
+    if(localTime >= remoteTime) byId.set(item.id, item); // نفس العنصر بالاتنين — الأحدث بيكسب
+  });
+  return Array.from(byId.values());
+}
+
+// يدمج بيانات جايه من السحابة مع البيانات المحلية بدل الاستبدال الكامل لكل
+// المستند، عشان تعديل محلي جديد (عميل/طلب/مصروف/التزام) ميتمسحش لمجرد إن
+// جهاز تاني بعت تحديث بتوقيت مستند أحدث. بيرجع changed=true لو فيه بيانات
+// محلية اتحافظ عليها ومش موجودة في نسخة السحابة، عشان نعرف نرفعها تاني.
+function mergeCloudData(local, remote){
+  const merged = {...remote};
+  let changed = false;
+  ['customers','orders','expenses','commitments'].forEach(key=>{
+    const mergedArr = mergeArraysById(local && local[key], remote && remote[key]);
+    merged[key] = mergedArr;
+    if(mergedArr.length !== ((remote && remote[key]) || []).length) changed = true;
+  });
+  return {merged, changed};
+}
+
 // يبني رابطة Firebase من إعدادات المشروع المحفوظة، ويشترك في تحديثات المستند لحظيًا
 function initCloudSync(){
   if(!db.cloudSync || !db.cloudSync.enabled || !db.cloudSync.firebaseConfig || !db.cloudSync.syncId){
@@ -349,14 +386,19 @@ function initCloudSync(){
         const remote = snap.data();
         if(!remote || typeof remote.updatedAt!=='number'){ cloudInitialSyncDone = true; cloudStatusChanged(); return; }
         if(remote.updatedAt > (Number(db.updatedAt)||0)){
-          // قبل ما نستبدل بيانات الجهاز ده ببيانات جاية من جهاز تاني (تعارض)،
-          // ناخد نسخة احتياطية محلية من بيانات الجهاز ده الحالية أولًا — شبكة
-          // أمان لو كان فيه تعديل محلي لسه ما اتزامنش لأي سبب. متعملش الباك أب
-          // لو الجهاز ده أصلاً ولا عمل save قبل كده (db.updatedAt=0، مفيش حاجة تتفقد).
+          // قبل ما ندمج بيانات جهاز تاني مع بيانات الجهاز ده (تعارض)، ناخد
+          // نسخة احتياطية محلية من بيانات الجهاز ده الحالية أولًا — شبكة أمان
+          // لو كان فيه تعديل محلي لسه ما اتزامنش لأي سبب. متعملش الباك أب لو
+          // الجهاز ده أصلاً ولا عمل save قبل كده (db.updatedAt=0، مفيش حاجة تتفقد).
           if(Number(db.updatedAt) > 0) saveConflictBackup(db);
           cloudApplyingRemote = true;
           const myCloudSettings = db.cloudSync; // نحافظ على إعدادات الاتصال بتاعت الجهاز ده بالذات
-          db = remote;
+          // دمج عنصر بعنصر (بدل استبدال كل المستند) عشان لو الجهاز ده عنده
+          // عميل/طلب/مصروف/التزام جديد لسه ما اتبعتش للسحابة، ميتمسحش لمجرد
+          // إن جهاز تاني بعت تحديث بتاريخ أحدث على مستوى المستند كله.
+          const {merged, changed} = mergeCloudData(db, remote);
+          db = merged;
+          db.updatedAt = Math.max(Number(remote.updatedAt)||0, Number(db.updatedAt)||0);
           db.cloudSync = myCloudSettings;
           fillMissingDefaults();
           try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
@@ -364,6 +406,9 @@ function initCloudSync(){
           renderConflictBackupsCard();
           try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
           cloudApplyingRemote = false;
+          // لو الدمج حافظ على بيانات محلية مش موجودة في نسخة السحابة، لازم
+          // نرفعها تاني فورًا عشان الجهاز/الأجهزة التانية تاخدها هي كمان
+          if(changed) scheduleCloudPush();
         }
         // دلوقتي مؤكد إن db المحلية (سواء فضلت زي ما هي أو اتحدثت من فوق) متزامنة
         // فعليًا مع آخر حالة معروفة من السحابة — آمن نسمح بالرفع بعد كده
