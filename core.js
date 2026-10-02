@@ -4,7 +4,7 @@
    ============================================================ */
 
 const STORAGE_KEY = 'jalaba_db_v1';
-let db = null;
+var db = null;
 
 function defaultDB(){
   return {
@@ -1066,7 +1066,7 @@ function resetIdleTimer(){
 /* ============================================================
    التنقل بين الصفحات
    ============================================================ */
-let currentPage='home';
+var currentPage='home';
 let calendarMonth = null; // 'YYYY-MM', يتم تعيينه أول مرة يفتح فيها صفحة المواعيد
 let calendarSelectedDay = null; // 'YYYY-MM-DD' أو null لعرض كل المواعيد
 let currentOrderFilter='all';
