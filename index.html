@@ -2,20 +2,17 @@
 <html lang="ar" dir="rtl">
    <style>
 /* ============================================================
-   إصلاح خروج الصفحة عن الحدود (Overflow Fix)
+   إصلاح خروج الصفحة عن الحدود (نسخة مُحسّنة v2)
+   بدون التأثير على التمرير
    ============================================================ */
-html, body {
-  overflow-x: hidden !important;
-  max-width: 100vw !important;
-  width: 100% !important;
+
+/* منع الخروج الأفقي فقط - دون التأثير على التمرير العمودي */
+body {
+  overflow-x: clip !important;
+  width: 100%;
 }
 
-/* منع أي عنصر من تجاوز العرض */
-* {
-  max-width: 100%;
-}
-
-/* إصلاح حقول التاريخ (المشكلة الرئيسية) */
+/* إصلاح حقول التاريخ فقط */
 input[type="date"] {
   min-width: 0 !important;
   width: 100% !important;
@@ -24,39 +21,26 @@ input[type="date"] {
   padding: 10px 8px !important;
 }
 
-/* إصلاح grid الحقول المزدوجة */
+/* إصلاح grid الحقول المزدوجة - بدون كسر */
 .field-row2 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
   gap: 8px !important;
 }
 
-/* ضمان أن كل البطاقات داخل الحدود */
-.card, .modal-box, .page {
+/* ضمان أن البطاقات ضمن الحدود */
+.card {
   max-width: 100% !important;
   box-sizing: border-box !important;
-  overflow-wrap: break-word;
-  word-wrap: break-word;
 }
 
-/* إصلاح قائمة "المزيد" */
+/* منع قائمة "المزيد" من الخروج */
 .card-more-menu {
   max-width: calc(100vw - 40px) !important;
   inset-inline-start: auto !important;
   inset-inline-end: 0 !important;
 }
 
-/* إصلاح صف الأزرار */
-.btn-row {
-  max-width: 100% !important;
-  flex-wrap: wrap !important;
-}
-
-.btn-row .btn {
-  max-width: 100% !important;
-  box-sizing: border-box !important;
-}
-
-/* إصلاح الفلاتر والعناصر الطويلة */
+/* الفلاتر - تمرير أفقي عند الحاجة */
 #orderStatusFilters {
   overflow-x: auto !important;
   flex-wrap: nowrap !important;
@@ -68,29 +52,18 @@ input[type="date"] {
   flex-shrink: 0 !important;
 }
 
-/* إصلاح بطاقة الفلتر بالتاريخ */
-#page-orders .card {
-  padding: 12px !important;
+/* صف الأزرار - التفاف */
+.btn-row {
+  flex-wrap: wrap !important;
 }
 
-/* منع النصوص الطويلة من كسر الصفحة */
-.meta, h3, p, span, div {
-  overflow-wrap: break-word;
-  word-break: break-word;
-}
-
-/* إصلاح الحقول داخل النماذج */
-.field input:not([type="date"]):not([type="checkbox"]):not([type="radio"]),
+/* الحقول - عرض كامل */
+.field input:not([type="checkbox"]):not([type="radio"]),
 .field select,
 .field textarea {
   width: 100% !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
-}
-
-/* إصلاح المودال */
-.modal-box {
-  max-width: calc(100vw - 20px) !important;
 }
 </style>
 <head>
