@@ -315,13 +315,20 @@
   // ═══════════════════════════════════════════════════════════════
   
   // ✅ استبدال renderAll بنسخة تدعم debounce
-  if (typeof window.renderAll === 'function') {
+  // ✅ إصلاح: قراءة الصفحة النشطة من DOM (بدل window.currentPage)
+if (typeof window.renderAll === 'function') {
     var origRenderAll = window.renderAll;
     window.renderAll = function() {
-      // ✅ استخدم scheduleRender بدل الرسم الفوري
-      window.scheduleRender(window.currentPage, 16);
+        // احصل على الصفحة النشطة من الـ DOM
+        var activePage = document.querySelector('.page.active');
+        var pageName = activePage ? activePage.id.replace('page-', '') : 'home';
+        if (typeof window.scheduleRender === 'function') {
+            window.scheduleRender(pageName, 16);
+        } else {
+            origRenderAll.apply(this, arguments);
+        }
     };
-  }
+}
   
   console.log('✅ renderAll محسّن');
   
