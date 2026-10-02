@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🆘 استرداد البيانات</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Tahoma, Arial, sans-serif;
+    background: linear-gradient(135deg, #1F6D57, #123C2F);
+    color: #fff;
+    margin: 0;
+    padding: 20px;
+    min-height: 100vh;
+  }
+  h1 { font-size: 22px; text-align: center; margin: 0 0 8px; }
+  .subtitle { text-align: center; color: #CFE3DA; font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: #fff;
+    color: #242420;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+  }
+  .card h2 { font-size: 15px; margin: 0 0 10px; color: #1F6D57; }
+  .info { font-size: 13px; line-height: 1.7; margin: 4px 0; }
+  .info b { color: #123C2F; }
+  .stats { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 70px; background: #F6F1E6; border-radius: 8px; padding: 8px; text-align: center; }
+  .stat .num { font-size: 20px; font-weight: 800; color: #1F6D57; }
+  .stat .lbl { font-size: 11px; color: #847C6C; }
+  .empty { color: #A23B2C; font-weight: bold; padding: 8px 0; }
+  .ok { color: #1F6D57; font-weight: bold; }
+  button {
+    background: #1F6D57;
+    color: #fff;
+    border: none;
+    padding: 12px 18px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 10px;
+  }
+  button:active { background: #123C2F; }
+  button.warn { background: #B8863B; }
+  button.danger { background: #A23B2C; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .loading { text-align: center; padding: 20px; color: #CFE3DA; }
+  .alert { background: #FAF0D8; color: #93691C; padding: 10px; border-radius: 8px; font-size: 12.5px; margin-top: 10px; line-height: 1.6; }
+  .alert.danger { background: #F6E3DD; color: #A23B2C; }
+  .alert.ok { background: #E7F1EA; color: #1F6D57; }
+</style>
+</head>
+<body>
+
+<h1>🆘 استرداد البيانات</h1>
+<p class="subtitle">هذه الصفحة آمنة تماماً - تقرأ فقط</p>
+
+<div id="results">
+  <div class="loading">⏳ جاري الفحص...</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// الأدوات المساعدة
+// ═══════════════════════════════════════════════════════════════
+
+function formatDate(ts) {
+  if (!ts) return 'غير معروف';
+  var d = new Date(ts);
+  return d.toLocaleDateString('ar-EG') + ' ' + 
+         d.toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'});
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(2) + ' MB';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 1. فحص localStorage الرئيسي
+// ═══════════════════════════════════════════════════════════════
+
+function checkMainDB() {
+  try {
+    var raw = localStorage.getItem('jalaba_db_v1');
+    if (!raw) return { exists: false };
+    
+    var data = JSON.parse(raw);
+    return {
+      exists: true,
+      data: data,
+      size: raw.length,
+      customers: (data.customers || []).length,
+      orders: (data.orders || []).length,
+      payments: (data.payments || []).length,
+      expenses: (data.expenses || []).length,
+      updatedAt: data.updatedAt
+    };
+  } catch (e) {
+    return { exists: true, error: e.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 2. فحص النسخة الاحتياطية (core-fixes)
+// ═══════════════════════════════════════════════════════════════
+
+function checkBackupDB() {
+  try {
+    var raw = localStorage.getItem('jalaba_db_backup_v1');
+    if (!raw) return { exists: false };
+    
+    var data = JSON.parse(raw);
+    return {
+      exists: true,
+      data: data,
+      size: raw.length,
+      customers: (data.customers || []).length,
+      orders: (data.orders || []).length,
+      updatedAt: data.updatedAt
+    };
+  } catch (e) {
+    return { exists: true, error: e.message };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 3. فحص IndexedDB (backup-guardian)
+// ═══════════════════════════════════════════════════════════════
+
+function checkIndexedDB() {
+  return new Promise(function(resolve) {
+    try {
+      var req = indexedDB.open('jalaba_backups', 1);
+      
+      req.onerror = function() { resolve({ exists: false }); };
+      
+      req.onupgradeneeded = function(e) {
+        // قاعدة البيانات غير موجودة - أنشئها فارغة
+        var db = e.target.result;
+        if (!db.objectStoreNames.contains('snapshots')) {
+          db.createObjectStore('snapshots', { keyPath: 'id' });
+        }
+      };
+      
+      req.onsuccess = function(e) {
+        var db = e.target.result;
+        try {
+          var tx = db.transaction('snapshots', 'readonly');
+          var store = tx.objectStore('snapshots');
+          var getAllReq = store.getAll();
+          
+          getAllReq.onsuccess = function() {
+            var list = getAllReq.result || [];
+            list.sort(function(a, b) { return b.ts - a.ts; });
+            resolve({
+              exists: true,
+              snapshots: list,
+              count: list.length
+            });
+          };
+          
+          getAllReq.onerror = function() {
+            resolve({ exists: true, snapshots: [], count: 0 });
+          };
+        } catch (err) {
+          resolve({ exists: true, snapshots: [], count: 0 });
+        }
+      };
+    } catch (e) {
+      resolve({ exists: false });
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 4. فحص نسخ Firebase المحلية (conflict backups)
+// ═══════════════════════════════════════════════════════════════
+
+function checkConflictBackups() {
+  try {
+    var raw = localStorage.getItem('jalaba_conflict_backups_v1');
+    if (!raw) return { exists: false };
+    
+    var list = JSON.parse(raw);
+    return {
+      exists: true,
+      count: list.length,
+      list: list
+    };
+  } catch (e) {
+    return { exists: false };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 5. تنفيذ جميع الفحوصات
+// ═══════════════════════════════════════════════════════════════
+
+async function runAllChecks() {
+  var main = checkMainDB();
+  var backup = checkBackupDB();
+  var indexed = await checkIndexedDB();
+  var conflict = checkConflictBackups();
+  
+  renderResults({
+    main: main,
+    backup: backup,
+    indexed: indexed,
+    conflict: conflict
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 6. عرض النتائج
+// ═══════════════════════════════════════════════════════════════
+
+function renderResults(r) {
+  var html = '';
+  
+  // ═══ المصدر 1: localStorage الرئيسي ═══
+  html += '<div class="card">';
+  html += '<h2>📦 قاعدة البيانات الرئيسية</h2>';
+  if (r.main.exists && !r.main.error) {
+    html += '<div class="stats">';
+    html += '<div class="stat"><div class="num">' + r.main.customers + '</div><div class="lbl">عميل</div></div>';
+    html += '<div class="stat"><div class="num">' + r.main.orders + '</div><div class="lbl">طلب</div></div>';
+    html += '<div class="stat"><div class="num">' + r.main.payments + '</div><div class="lbl">دفعة</div></div>';
+    html += '<div class="stat"><div class="num">' + r.main.expenses + '</div><div class="lbl">مصروف</div></div>';
+    html += '</div>';
+    html += '<div class="info">📅 آخر تحديث: <b>' + formatDate(r.main.updatedAt) + '</b></div>';
+    html += '<div class="info">💾 الحجم: <b>' + formatSize(r.main.size) + '</b></div>';
+    
+    if (r.main.customers === 0 && r.main.orders === 0) {
+      html += '<div class="alert danger">⚠️ هذه القاعدة فارغة! قد تكون هذه المشكلة.</div>';
+    }
+  } else if (r.main.error) {
+    html += '<div class="empty">❌ ملف تالف: ' + r.main.error + '</div>';
+  } else {
+    html += '<div class="empty">❌ غير موجود</div>';
+  }
+  html += '</div>';
+  
+  // ═══ المصدر 2: النسخة الاحتياطية ═══
+  html += '<div class="card">';
+  html += '<h2>🛟 نسخة احتياطية تلقائية</h2>';
+  if (r.backup.exists && !r.backup.error) {
+    html += '<div class="stats">';
+    html += '<div class="stat"><div class="num">' + r.backup.customers + '</div><div class="lbl">عميل</div></div>';
+    html += '<div class="stat"><div class="num">' + r.backup.orders + '</div><div class="lbl">طلب</div></div>';
+    html += '</div>';
+    html += '<div class="info">📅 آخر تحديث: <b>' + formatDate(r.backup.updatedAt) + '</b></div>';
+    html += '<div class="info">💾 الحجم: <b>' + formatSize(r.backup.size) + '</b></div>';
+    
+    if (r.backup.customers > 0 || r.backup.orders > 0) {
+      html += '<div class="alert ok">✅ هذه النسخة بها بيانات!</div>';
+      html += '<button onclick="restoreFromBackup()">🔄 استرجع من هذه النسخة</button>';
+    } else {
+      html += '<div class="alert danger">⚠️ هذه النسخة فارغة أيضاً.</div>';
+    }
+  } else if (r.backup.error) {
+    html += '<div class="empty">❌ ملف تالف: ' + r.backup.error + '</div>';
+  } else {
+    html += '<div class="empty">❌ غير موجود</div>';
+  }
+  html += '</div>';
+  
+  // ═══ المصدر 3: IndexedDB ═══
+  html += '<div class="card">';
+  html += '<h2>💾 نسخ IndexedDB التلقائية</h2>';
+  if (r.indexed.exists && r.indexed.count > 0) {
+    html += '<div class="info">📊 <b>' + r.indexed.count + '</b> نسخة محفوظة</div>';
+    
+    // ابحث عن أفضل نسخة (بها أكبر عدد بيانات)
+    var best = null;
+    r.indexed.snapshots.forEach(function(s) {
+      var sCount = (s.stats && s.stats.customers || 0) + (s.stats && s.stats.orders || 0);
+      if (!best || sCount > ((best.stats && best.stats.customers || 0) + (best.stats && best.stats.orders || 0))) {
+        best = s;
+      }
+    });
+    
+    if (best) {
+      html += '<div class="info">🎯 أفضل نسخة: <b>' + formatDate(best.ts) + '</b></div>';
+      html += '<div class="stats">';
+      html += '<div class="stat"><div class="num">' + ((best.stats && best.stats.customers) || 0) + '</div><div class="lbl">عميل</div></div>';
+      html += '<div class="stat"><div class="num">' + ((best.stats && best.stats.orders) || 0) + '</div><div class="lbl">طلب</div></div>';
+      html += '</div>';
+      html += '<button onclick="restoreFromIndexedDB(\'' + best.id + '\')">🔄 استرجع من أفضل نسخة</button>';
+    }
+    
+    // قائمة النسخ
+    html += '<details style="margin-top:12px;">';
+    html += '<summary style="cursor:pointer;color:#1F6D57;font-weight:bold;">👁️ عرض كل النسخ (' + r.indexed.count + ')</summary>';
+    html += '<div style="margin-top:8px;max-height:300px;overflow-y:auto;">';
+    r.indexed.snapshots.slice(0, 20).forEach(function(s) {
+      var custN = (s.stats && s.stats.customers) || 0;
+      var ordN = (s.stats && s.stats.orders) || 0;
+      if (custN === 0 && ordN === 0) return; // تخطى الفارغة
+      
+      html += '<div style="padding:8px;border-bottom:1px solid #eee;font-size:12px;">';
+      html += '<div><b>' + formatDate(s.ts) + '</b></div>';
+      html += '<div>' + custN + ' عميل • ' + ordN + ' طلب</div>';
+      html += '<button onclick="restoreFromIndexedDB(\'' + s.id + '\')" style="padding:6px;font-size:12px;margin-top:4px;">استرجاع</button>';
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</details>';
+  } else if (r.indexed.exists) {
+    html += '<div class="empty">⚠️ لا توجد نسخ محفوظة</div>';
+  } else {
+    html += '<div class="empty">❌ IndexedDB غير متاح</div>';
+  }
+  html += '</div>';
+  
+  // ═══ المصدر 4: conflict backups ═══
+  if (r.conflict.exists && r.conflict.count > 0) {
+    html += '<div class="card">';
+    html += '<h2>⚔️ نسخ عند تعارض المزامنة</h2>';
+    html += '<div class="info">📊 <b>' + r.conflict.count + '</b> نسخة</div>';
+    html += '<button onclick="restoreFromConflict()">🔄 استرجع من الأحدث</button>';
+    html += '</div>';
+  }
+  
+  // ═══ زر إعادة الفحص ═══
+  html += '<button onclick="location.reload()" class="warn">🔄 إعادة الفحص</button>';
+  
+  document.getElementById('results').innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 7. دوال الاسترجاع
+// ═══════════════════════════════════════════════════════════════
+
+window.restoreFromBackup = function() {
+  if (!confirm('سيتم استبدال البيانات الحالية بالنسخة الاحتياطية.\n\nمتابعة؟')) return;
+  
+  try {
+    var backup = localStorage.getItem('jalaba_db_backup_v1');
+    if (!backup) {
+      alert('❌ النسخة الاحتياطية غير موجودة');
+      return;
+    }
+    
+    // ✅ احفظ النسخة الحالية أولاً كأمان
+    var current = localStorage.getItem('jalaba_db_v1');
+    if (current) {
+      localStorage.setItem('jalaba_before_recovery_' + Date.now(), current);
+    }
+    
+    // ✅ استرجع
+    localStorage.setItem('jalaba_db_v1', backup);
+    
+    alert('✅ تم الاسترجاع!\n\nسيتم إعادة التحميل للتطبيق.');
+    location.href = 'index.html';
+  } catch (e) {
+    alert('❌ فشل الاسترجاع: ' + e.message);
+  }
+};
+
+window.restoreFromIndexedDB = function(snapshotId) {
+  if (!confirm('سيتم استبدال البيانات الحالية بهذه النسخة.\n\nمتابعة؟')) return;
+  
+  var req = indexedDB.open('jalaba_backups', 1);
+  req.onsuccess = function(e) {
+    var db = e.target.result;
+    var tx = db.transaction('snapshots', 'readonly');
+    var store = tx.objectStore('snapshots');
+    var getReq = store.get(snapshotId);
+    
+    getReq.onsuccess = function() {
+      var snapshot = getReq.result;
+      if (!snapshot || !snapshot.data) {
+        alert('❌ النسخة غير موجودة');
+        return;
+      }
+      
+      try {
+        // ✅ احفظ الحالية كأمان
+        var current = localStorage.getItem('jalaba_db_v1');
+        if (current) {
+          localStorage.setItem('jalaba_before_recovery_' + Date.now(), current);
+        }
+        
+        // ✅ استرجع
+        localStorage.setItem('jalaba_db_v1', JSON.stringify(snapshot.data));
+        
+        alert('✅ تم الاسترجاع!\n\nسيتم إعادة التحميل.');
+        location.href = 'index.html';
+      } catch (err) {
+        alert('❌ فشل: ' + err.message);
+      }
+    };
+  };
+};
+
+window.restoreFromConflict = function() {
+  try {
+    var list = JSON.parse(localStorage.getItem('jalaba_conflict_backups_v1') || '[]');
+    if (!list.length) {
+      alert('❌ لا توجد نسخ');
+      return;
+    }
+    
+    var best = list[0];
+    if (!confirm('سيتم استرجاع النسخة من ' + formatDate(best.ts) + '\n\nمتابعة؟')) return;
+    
+    var current = localStorage.getItem('jalaba_db_v1');
+    if (current) {
+      localStorage.setItem('jalaba_before_recovery_' + Date.now(), current);
+    }
+    
+    localStorage.setItem('jalaba_db_v1', JSON.stringify(best.data));
+    alert('✅ تم الاسترجاع!');
+    location.href = 'index.html';
+  } catch (e) {
+    alert('❌ فشل: ' + e.message);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// التشغيل
+// ═══════════════════════════════════════════════════════════════
+
+runAllChecks();
+</script>
+</body>
+</html>
