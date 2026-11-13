@@ -1279,9 +1279,9 @@ function stopOrderWork(orderId){
 }
 function orderTypeLabel(o){
   if(Array.isArray(o.items) && o.items.length){
-    return o.items.map(it=> ((it.qty||1)>1 ? (it.qty+' × ') : '') + it.type).join('، ');
+    return o.items.map(it=> ((it.qty||1)>1 ? (it.qty+' × ') : '') + (it.type||'')).join('، ');
   }
-  return (o.qty && o.qty>1) ? (o.qty+' × '+o.type) : o.type;
+  return (o.qty && o.qty>1) ? (o.qty+' × '+(o.type||'')) : (o.type||'');
 }
 function itemsBreakdownLines(o){
   if(Array.isArray(o.items) && o.items.length){
@@ -1783,13 +1783,13 @@ function renderGlobalSearch(){
   wrap.style.display = 'none';
 
   const matchedCustomers = db.customers.filter(c=>
-    c.name.toLowerCase().includes(q) || (c.phone||'').includes(q)
+    String(c.name||'').toLowerCase().includes(q) || String(c.phone||'').includes(q)
   ).slice(0,8);
 
   const matchedOrders = db.orders.filter(o=>{
     const label = orderTypeLabel(o).toLowerCase();
     const c = customerById(o.customerId);
-    return label.includes(q) || (c && c.name.toLowerCase().includes(q));
+    return label.includes(q) || (c && String(c.name||'').toLowerCase().includes(q));
   }).slice(0,8);
 
   let html = '';
@@ -4590,7 +4590,15 @@ function renderCommitments(){
   }
 
   // --- تطبيق فلتر النوع على القائمتين النشطة والمؤرشفة ---
-  const matchesFilter = c => commitmentsTypeFilter==='all' || (c.type||'تانية')===commitmentsTypeFilter;
+  // فلتر البحث النصي (خانة "ابحث في الالتزامات بالاسم") — كانت الخانة بتستدعي الدالة دي بس من غير ما تقرأ قيمتها
+  const normAr = t => String(t||'').toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g,'')
+    .replace(/[أإآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ة/g,'ه');
+  const searchEl = document.getElementById('commitmentsSearchInput');
+  const commQ = normAr(searchEl ? searchEl.value.trim() : '');
+  const matchesFilter = c =>
+    (commitmentsTypeFilter==='all' || (c.type||'تانية')===commitmentsTypeFilter) &&
+    (!commQ || normAr(c.desc).includes(commQ) || normAr(c.type).includes(commQ));
   const allActive = activeAll.filter(matchesFilter).slice();
   const allArchived = (db.commitments||[]).filter(c=>c.active===false).filter(matchesFilter).slice().sort((a,b)=>Number(b.amount)-Number(a.amount));
 
@@ -4616,7 +4624,7 @@ function renderCommitments(){
     ${farDue.length>farList.length ? `<button class="btn sm outline" style="margin-top:6px;" onclick="showMoreCommitments()">⬇️ عرض المزيد (${farDue.length-farList.length} متبقي)</button>` : ''}
   ` : '';
 
-  const rows = (nearSection || farSection) ? (nearSection + farSection) : `<div class="empty-msg">${activeAll.length?'لا توجد التزامات من هذا النوع':'لا توجد التزامات نشطة مسجلة'}</div>`;
+  const rows = (nearSection || farSection) ? (nearSection + farSection) : `<div class="empty-msg">${activeAll.length?(commQ?'لا توجد نتائج مطابقة للبحث':'لا توجد التزامات من هذا النوع'):'لا توجد التزامات نشطة مسجلة'}</div>`;
 
   let archiveSection = '';
   if(allArchived.length){
