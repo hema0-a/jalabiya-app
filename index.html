@@ -1246,7 +1246,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 
     <!-- ---------- العملاء ---------- -->
     <section class="page" id="page-customers">
-      <div class="search-box"><input id="custSearch" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." oninput="renderCustomers()"></div>
+      <div class="search-box"><input id="custSearch" placeholder="🔍 ابحث بالاسم أو رقم الهاتف..." oninput="renderCustomersDebounced()"></div>
       <div class="btn-row" style="margin-bottom:12px;">
         <button class="btn sm outline" onclick="toggleVipOnly()" id="vipFilterBtn">⭐ VIP فقط</button>
       </div>
@@ -1255,7 +1255,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
 
     <!-- ---------- الطلبات ---------- -->
     <section class="page" id="page-orders">
-      <div class="search-box"><input id="orderSearch" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." oninput="renderOrders()"></div>
+      <div class="search-box"><input id="orderSearch" placeholder="🔍 ابحث باسم العميل أو نوع الجلابية..." oninput="renderOrdersDebounced()"></div>
       <div class="btn-row" style="margin-bottom:8px;">
         <button class="btn sm outline active" id="ordersViewListBtn" onclick="setOrdersView('list')">☰ قائمة</button>
         <button class="btn sm outline" id="ordersViewKanbanBtn" onclick="setOrdersView('kanban')">🗂️ كانبان</button>

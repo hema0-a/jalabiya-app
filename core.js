@@ -1975,18 +1975,32 @@ function toggleVipOnly(){
   renderCustomers();
 }
 
+/* [تحسين أداء] نفس فكرة الطلبات: أول CUSTOMERS_PAGE عميل + «عرض المزيد»، وعدّاد طلبات كل عميل بيتحسب مرة واحدة
+   (كان db.orders.filter لكل عميل ⟵ مليونين مقارنة مع ٣٠٠٠ طلب و٧٥٠ عميل في كل رسم). */
+const CUSTOMERS_PAGE = 60;
+let customersShown = CUSTOMERS_PAGE, customersSig = '';
+function showMoreCustomers(){ customersShown += CUSTOMERS_PAGE; renderCustomers(); }
+let _custSearchT = null;
+function renderCustomersDebounced(){ clearTimeout(_custSearchT); _custSearchT = setTimeout(function(){ renderCustomers(); }, 180); }
+
 function renderCustomers(){
   const q = (document.getElementById('custSearch').value||'').trim();
   let list = db.customers.filter(c=> !q || c.name.includes(q) || (c.phone||'').includes(q) || (c.family||'').includes(q));
   const vipThreshold = Number(db.vipThreshold)||3;
-  list = list.map(c=>({c, ordersCount: db.orders.filter(o=>o.customerId===c.id).length}))
+  const ordersCountByCustomer = {};
+  db.orders.forEach(o=>{ ordersCountByCustomer[o.customerId] = (ordersCountByCustomer[o.customerId]||0) + 1; });
+  list = list.map(c=>({c, ordersCount: ordersCountByCustomer[c.id]||0}))
     .sort((a,b)=>{
       const aVip = a.ordersCount>=vipThreshold, bVip = b.ordersCount>=vipThreshold;
       if(aVip!==bVip) return aVip? -1:1;
       return b.ordersCount-a.ordersCount;
     });
   if(vipOnlyFilter) list = list.filter(({ordersCount})=>ordersCount>=vipThreshold);
-  const html = list.map(({c, ordersCount})=>{
+  const customersSigNow = q+'|'+vipOnlyFilter;
+  if(customersSigNow!==customersSig){ customersSig = customersSigNow; customersShown = CUSTOMERS_PAGE; }
+  const customersTotalCount = list.length;
+  const customersVisible = list.length>customersShown ? list.slice(0, customersShown) : list;
+  const html = customersVisible.map(({c, ordersCount})=>{
     const isVip = ordersCount >= vipThreshold;
     return `<div class="card">
       <div class="row">
@@ -2013,7 +2027,9 @@ function renderCustomers(){
         <button class="btn sm danger" onclick="deleteCustomer('${c.id}')">🗑️ حذف</button>
       </div>
     </div>`;
-  }).join('');
+  }).join('') + (customersTotalCount>customersVisible.length
+    ? `<div class="empty-msg" style="padding:14px 0;"><button class="btn outline" onclick="showMoreCustomers()">⬇️ عرض المزيد (${customersVisible.length} من ${customersTotalCount} عميل)</button></div>`
+    : '');
   document.getElementById('customersList').innerHTML = html || (vipOnlyFilter ? `<div class="empty-msg">لا يوجد عملاء VIP حاليًا</div>` : `<div class="empty-msg">لا يوجد عملاء بعد. اضغط ➕ لإضافة عميل جديد</div>`);
 }
 
@@ -2225,6 +2241,15 @@ function setOrderFilter(f){
   renderOrders();
 }
 
+/* [تحسين أداء] كانت renderOrders بترسم كل الطلبات (كارت بـ٦ أزرار لكل طلب) في كل مرة — مع آلاف الطلبات
+   ده بيبطّئ الصفحة وكتابة البحث. دلوقتي بنرسم أول ORDERS_PAGE طلب ومعاهم زر «عرض المزيد». الفلاتر والبحث
+   بتتطبّق على كل الطلبات الأول (فمفيش نتيجة بتضيع)، وبيرجع العدّاد لأول صفحة لما الفلتر أو البحث يتغيّر. */
+const ORDERS_PAGE = 60;
+let ordersShown = ORDERS_PAGE, ordersSig = '';
+function showMoreOrders(){ ordersShown += ORDERS_PAGE; renderOrders(); }
+let _ordersSearchT = null;
+function renderOrdersDebounced(){ clearTimeout(_ordersSearchT); _ordersSearchT = setTimeout(function(){ renderOrders(); }, 180); }
+
 function renderOrders(){
   const q = (document.getElementById('orderSearch').value||'').trim();
   const dateFrom = document.getElementById('orderDateFrom').value;
@@ -2251,7 +2276,12 @@ function renderOrders(){
     summaryBox.textContent = '';
   }
 
-  const html = list.map(o=>{
+  const ordersSigNow = q+'|'+dateFrom+'|'+dateTo+'|'+currentOrderFilter;
+  if(ordersSigNow!==ordersSig){ ordersSig = ordersSigNow; ordersShown = ORDERS_PAGE; }
+  const ordersTotalCount = list.length;
+  const ordersVisible = list.length>ordersShown ? list.slice(0, ordersShown) : list;
+
+  const html = ordersVisible.map(o=>{
     const c = customerById(o.customerId);
     // [تحسين أداء] كنا بنعتمد على CSS selector من نوع :has() عشان
     // نلوّن/نعلّم الطلبات المستعجلة — ده بيضطر المتصفح يفحص جوّه كل
@@ -2281,7 +2311,9 @@ function renderOrders(){
         <button class="btn sm danger" onclick="deleteOrder('${o.id}')">🗑️ حذف</button>
       </div>
     </div>`;
-  }).join('');
+  }).join('') + (ordersTotalCount>ordersVisible.length
+    ? `<div class="empty-msg" style="padding:14px 0;"><button class="btn outline" onclick="showMoreOrders()">⬇️ عرض المزيد (${ordersVisible.length} من ${ordersTotalCount} طلب)</button></div>`
+    : '');
   document.getElementById('ordersList').innerHTML = html || `<div class="empty-msg">لا توجد طلبات مطابقة. اضغط ➕ لإضافة طلب جديد</div>`;
   renderOrdersKanban();
 }
@@ -2302,6 +2334,9 @@ function setOrdersView(view){
   if(view==='kanban') renderOrdersKanban();
 }
 
+const KANBAN_DELIVERED_PAGE = 60;
+let kanbanDeliveredShown = KANBAN_DELIVERED_PAGE;
+function showMoreKanbanDelivered(){ kanbanDeliveredShown += KANBAN_DELIVERED_PAGE; renderOrdersKanban(); }
 function renderOrdersKanban(){
   const box = document.getElementById('ordersKanban');
   if(!box) return;
@@ -2321,7 +2356,9 @@ function renderOrdersKanban(){
   if(dateTo) list = list.filter(o=> o.dateReceived && o.dateReceived<=dateTo);
 
   box.innerHTML = `<div class="kanban-wrap">${ORDER_KANBAN_STATUSES.map(status=>{
-    const colOrders = list.filter(o=>o.status===status);
+    const colAll = list.filter(o=>o.status===status);
+    // [تحسين أداء] عمود «تم التسليم» بيكبر مع السنين — بنعرض أحدث KANBAN_DELIVERED_PAGE وتحتهم زر «عرض المزيد»
+    const colOrders = (status==='تم التسليم' && colAll.length>kanbanDeliveredShown) ? colAll.slice(0, kanbanDeliveredShown) : colAll;
     const cards = colOrders.map(o=>{
       const c = customerById(o.customerId);
       return `<div class="kanban-card" draggable="true" ondragstart="kanbanDragStart(event,'${o.id}')" ondragend="kanbanDragEnd(event)">
@@ -2339,8 +2376,8 @@ function renderOrdersKanban(){
       </div>`;
     }).join('');
     return `<div class="kanban-col" data-status="${status}" ondragover="kanbanDragOver(event)" ondragleave="kanbanDragLeave(event)" ondrop="kanbanDrop(event,'${status}')">
-      <div class="kanban-col-head"><span>${status}</span><span class="cnt">${colOrders.length}</span></div>
-      ${cards || `<div class="kanban-empty-col">لا توجد طلبات</div>`}
+      <div class="kanban-col-head"><span>${status}</span><span class="cnt">${colAll.length}</span></div>
+      ${cards || `<div class="kanban-empty-col">لا توجد طلبات</div>`}${colAll.length>colOrders.length?`<div class="kanban-empty-col"><button class="btn sm outline" onclick="showMoreKanbanDelivered()">⬇️ عرض المزيد (${colOrders.length} من ${colAll.length})</button></div>`:''}
     </div>`;
   }).join('')}</div>`;
 }
@@ -5347,10 +5384,14 @@ function printMonthlyReport(){
 /* ============================================================
    المصروفات
    ============================================================ */
+const EXPENSES_PAGE = 60;
+let expensesShown = EXPENSES_PAGE;
+function showMoreExpenses(){ expensesShown += EXPENSES_PAGE; renderExpenses(); }
 function renderExpenses(){
   const total = db.expenses.reduce((s,e)=>s+Number(e.amount||0),0);
   document.getElementById('totalExpensesTxt').textContent = total.toLocaleString('ar-EG')+' ج.م';
-  const list = db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const listAll = db.expenses.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const list = listAll.length>expensesShown ? listAll.slice(0, expensesShown) : listAll;   // [تحسين أداء] أحدث EXPENSES_PAGE مصروف + «عرض المزيد»
   document.getElementById('expensesList').innerHTML = list.length ? list.map(e=>`
     <div class="card" data-expense-id="${e.id}">
       <div class="row">
@@ -5362,7 +5403,7 @@ function renderExpenses(){
         <button class="btn sm danger" onclick="deleteExpense('${e.id}')">🗑️ حذف</button>
       </div>
     </div>
-  `).join('') : `<div class="empty-msg">لا توجد مصروفات مسجلة</div>`;
+  `).join('') + (listAll.length>list.length ? `<div class="empty-msg" style="padding:14px 0;"><button class="btn outline" onclick="showMoreExpenses()">⬇️ عرض المزيد (${list.length} من ${listAll.length} مصروف)</button></div>` : '') : `<div class="empty-msg">لا توجد مصروفات مسجلة</div>`;
 }
 
 function openExpenseModal(){

@@ -906,6 +906,8 @@
     renderExpenses();
   };
 
+  // [تحسين أداء] ترقيم المصروفات: أحدث EXPENSES_PAGE + «عرض المزيد»، والعدّاد بيرجع لأول صفحة لما فلتر الفئة يتغيّر
+  var __expFilterSig = null;
   renderExpenses = function() {
     var all = db.expenses;
     var filtered = expenseCatFilter === 'all' ? all : all.filter(function(e) {
@@ -940,7 +942,9 @@
     }
     chipsBox.innerHTML = chipsHtml;
 
-    var list = filtered.slice().sort(function(a, b) { return b.date.localeCompare(a.date); });
+    var listAll = filtered.slice().sort(function(a, b) { return b.date.localeCompare(a.date); });
+    if (__expFilterSig !== expenseCatFilter) { __expFilterSig = expenseCatFilter; expensesShown = EXPENSES_PAGE; }
+    var list = listAll.length > expensesShown ? listAll.slice(0, expensesShown) : listAll;
     var listEl = document.getElementById('expensesList');
     if (listEl) {
       listEl.innerHTML = list.length ? list.map(function(e) {
@@ -949,7 +953,7 @@
           '<div class="meta">📅 ' + fmtDate(e.date) + ' — <span class="badge">' + escapeHtml(e.cat || 'أخرى') + '</span></div>' +
           '<div class="btn-row"><button class="btn sm danger" onclick="deleteExpense(\'' + e.id + '\')">🗑️ حذف</button></div>' +
           '</div>';
-      }).join('') : '<div class="empty-msg">لا توجد مصروفات ' + (expenseCatFilter === 'all' ? 'مسجلة' : 'في هذه الفئة') + '</div>';
+      }).join('') + (listAll.length > list.length ? '<div class="empty-msg" style="padding:14px 0;"><button class="btn outline" onclick="showMoreExpenses()">⬇️ عرض المزيد (' + list.length + ' من ' + listAll.length + ' مصروف)</button></div>' : '') : '<div class="empty-msg">لا توجد مصروفات ' + (expenseCatFilter === 'all' ? 'مسجلة' : 'في هذه الفئة') + '</div>';
     }
   };
 
