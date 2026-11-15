@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-app-v5'; // v5: إضافة ميزة التسليم الجزئي للطلبات متعددة القطع
+const CACHE_NAME = 'workshop-app-v6'; // v6: الـ Service Worker مبقاش يعترض الموارد الخارجية (خطوط/Firebase) — v5: التسليم الجزئي
 const CORE_ASSETS = [
   'index.html',
   'manifest.json',
@@ -29,6 +29,9 @@ self.addEventListener('activate', (event) => {
 // ده عكس الاستراتيجية القديمة اللي كانت بتستخدم الكاش دايمًا حتى لو فيه نسخة أحدث على السيرفر.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // الموارد الخارجية (خطوط جوجل، Firebase...) نسيبها للمتصفح يتعامل معاها مباشرة:
+  // لو اعترضناها وفشل الطلب كنا بنرجّع ردّ فاضي بدل ما المتصفح يتصرف طبيعي.
+  if (!event.request.url.startsWith(self.location.origin)) return;
 
   event.respondWith(
     fetch(event.request)
