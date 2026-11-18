@@ -1771,6 +1771,11 @@ function shareWeeklySummary(msg){
   openExternalLink(`https://wa.me/?text=${encodeURIComponent(msg)}`);
 }
 
+/* [تحسين أداء] تأخير 180ms لخانتَي البحث العام والالتزامات بدل إعادة الرسم مع كل حرف */
+let _gsT = null, _cmT = null;
+function renderGlobalSearchDebounced(){ clearTimeout(_gsT); _gsT = setTimeout(function(){ renderGlobalSearch(); }, 180); }
+function renderCommitmentsDebounced(){ clearTimeout(_cmT); _cmT = setTimeout(function(){ renderCommitments(); }, 180); }
+
 function renderGlobalSearch(){
   const q = document.getElementById('globalSearch').value.trim().toLowerCase();
   const wrap = document.getElementById('homeQuickActionsWrap');
@@ -2254,13 +2259,16 @@ function renderOrders(){
   const q = (document.getElementById('orderSearch').value||'').trim();
   const dateFrom = document.getElementById('orderDateFrom').value;
   const dateTo = document.getElementById('orderDateTo').value;
+  // [تحسين أداء] خريطة العملاء مرة واحدة (customerById = find بيمشي على كل العملاء لكل طلب). أول عميل بنفس الـid بيكسب زي find بالظبط.
+  const custById = {};
+  db.customers.forEach(c=>{ if(!(c.id in custById)) custById[c.id] = c; });
   let list = db.orders.slice().sort((a,b)=>(b.dateReceived||'').localeCompare(a.dateReceived||''));
   if(currentOrderFilter!=='all'){
     list = list.filter(o=>o.status===currentOrderFilter);
   }
   if(q){
     list = list.filter(o=>{
-      const c = customerById(o.customerId);
+      const c = custById[o.customerId];
       return (c && c.name.includes(q)) || orderTypeLabel(o).includes(q);
     });
   }
@@ -2282,7 +2290,7 @@ function renderOrders(){
   const ordersVisible = list.length>ordersShown ? list.slice(0, ordersShown) : list;
 
   const html = ordersVisible.map(o=>{
-    const c = customerById(o.customerId);
+    const c = custById[o.customerId];
     // [تحسين أداء] كنا بنعتمد على CSS selector من نوع :has() عشان
     // نلوّن/نعلّم الطلبات المستعجلة — ده بيضطر المتصفح يفحص جوّه كل
     // كارت (كل الكروت، مش بس المستعجلة) في كل مرة الصفحة بترندر، وده
@@ -2315,7 +2323,8 @@ function renderOrders(){
     ? `<div class="empty-msg" style="padding:14px 0;"><button class="btn outline" onclick="showMoreOrders()">⬇️ عرض المزيد (${ordersVisible.length} من ${ordersTotalCount} طلب)</button></div>`
     : '');
   document.getElementById('ordersList').innerHTML = html || `<div class="empty-msg">لا توجد طلبات مطابقة. اضغط ➕ لإضافة طلب جديد</div>`;
-  renderOrdersKanban();
+  // [تحسين أداء] الكانبان مخفي في عرض القائمة — بنرسمه بس لو معروض (setOrdersView بيرسمه عند التبديل)
+  if(currentOrdersView==='kanban') renderOrdersKanban();
 }
 
 const ORDER_KANBAN_STATUSES = ['قيد العمل', 'جاهز للتسليم', 'تم التسليم'];

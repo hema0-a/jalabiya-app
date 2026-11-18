@@ -1203,7 +1203,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
     </div>
     <!-- ---------- الرئيسية ---------- -->
     <section class="page active" id="page-home">
-      <div class="search-box"><input id="globalSearch" placeholder="🔍 بحث شامل بالاسم، الهاتف، أو نوع الجلابية..." oninput="renderGlobalSearch()"></div>
+      <div class="search-box"><input id="globalSearch" placeholder="🔍 بحث شامل بالاسم، الهاتف، أو نوع الجلابية..." oninput="renderGlobalSearchDebounced()"></div>
       <div id="globalSearchResults"></div>
       <div id="homeQuickActionsWrap">
         <div id="undoBarWrap"></div>
@@ -1341,7 +1341,7 @@ html[data-theme="dark"]{ --muted:#BFB6A2; }
         </div>
         <div class="card" id="savingsGoalCard" style="margin-top:10px;"></div>
         <div id="commitmentsSummaryLine" class="meta" style="margin:8px 2px 0;"></div>
-        <div class="search-box" style="margin-top:8px;"><input id="commitmentsSearchInput" placeholder="🔍 ابحث في الالتزامات بالاسم..." oninput="renderCommitments()"></div>
+        <div class="search-box" style="margin-top:8px;"><input id="commitmentsSearchInput" placeholder="🔍 ابحث في الالتزامات بالاسم..." oninput="renderCommitmentsDebounced()"></div>
         <div class="field" style="margin-top:6px;">
           <label>ترتيب حسب</label>
           <select id="commitmentsSortSelect" onchange="renderCommitments()">

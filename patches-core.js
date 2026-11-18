@@ -75,6 +75,8 @@
     document.querySelectorAll('.meta').forEach(function(el) {
       if (el.dataset.rcPhone) return;
       const txt = el.textContent || '';
+      // [تحسين أداء] السطر اللي مش رقم هاتف بنعلّمه «اتفحص» عشان مانقرأ نصّه تاني في كل تشغيلة (الأسطر الفاضية لسه بتتفحص)
+      if (txt.trim() && txt.trim().indexOf('📞') !== 0) { el.dataset.rcPhone = '0'; return; }
       if (txt.trim().indexOf('📞') === 0) {
         const digits = txt.replace(/[^0-9]/g, '');
         if (digits.length >= 9) {
@@ -90,7 +92,16 @@
       }
     });
   }
-  new MutationObserver(enhancePhones).observe(document.getElementById('app'), { childList: true, subtree: true });
+  // [تحسين أداء] تجميع التشغيلات في إطار واحد (بدل تشغيلة بعد كل دفعة تغييرات في أي مكان في الصفحة)
+  var __phonesQueued = false;
+  new MutationObserver(function() {
+    if (__phonesQueued) return;
+    __phonesQueued = true;
+    (window.requestAnimationFrame || function(f) { return setTimeout(f, 16); })(function() {
+      __phonesQueued = false;
+      try { enhancePhones(); } catch (e) { console.warn('[patches] enhancePhones:', e); }
+    });
+  }).observe(document.getElementById('app'), { childList: true, subtree: true });
   enhancePhones();
 
   /* ============================================================

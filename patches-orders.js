@@ -193,10 +193,24 @@
     });
   }
 
-  new MutationObserver(function() {
+  /* [تحسين أداء] المراقبات اللي بتتفعّل على أي تغيير في #app كانت بتشتغل بعد كل دفعة تغييرات (ومنها تغييراتها هي) —
+     دلوقتي بنجمّع كل اللي بيحصل في نفس الإطار في تشغيلة واحدة. */
+  function onceInFrame(fn) {
+    var scheduled = false;
+    return function() {
+      if (scheduled) return;
+      scheduled = true;
+      (window.requestAnimationFrame || function(f) { return setTimeout(f, 16); })(function() {
+        scheduled = false;
+        try { fn(); } catch (e) { console.warn('[patches] observer:', e); }
+      });
+    };
+  }
+
+  new MutationObserver(onceInFrame(function() {
     addDaysBadges(document.getElementById('ordersList'));
     addDaysBadges(document.getElementById('todayPlan'));
-  }).observe(document.getElementById('app'), { childList: true, subtree: true });
+  })).observe(document.getElementById('app'), { childList: true, subtree: true });
 
   /* ============================================================
      [4] سحب بطاقات الطلبات (Swipe Gestures)
@@ -983,26 +997,36 @@
   /* ============================================================
      [18] تمييز الطلبات عالية القيمة
      ============================================================ */
-  function isHighValueUrgent(o) {
+  // [تحسين أداء] متوسط الطلبات النشطة بيتحسب مرة واحدة لكل تشغيلة (كان بيتحسب لكل بطاقة ⟵ بطاقات × طلبات)
+  function computeActiveStats() {
+    var active = db.orders.filter(function(x) { return x.status !== 'تم التسليم'; });
+    var avg = active.length ? active.reduce(function(s, x) { return s + orderTotal(x); }, 0) / active.length : 0;
+    return { count: active.length, avg: avg };
+  }
+  function isHighValueUrgent(o, stats) {
     if (!o || o.status === 'تم التسليم' || !o.dateDelivery) return false;
     var diffDays = Math.round((new Date(o.dateDelivery) - new Date(todayStr())) / 86400000);
     if (diffDays > 2) return false;
-    var active = db.orders.filter(function(x) { return x.status !== 'تم التسليم'; });
-    if (active.length < 3) return false;
-    var avg = active.reduce(function(s, x) { return s + orderTotal(x); }, 0) / active.length;
-    return orderTotal(o) >= avg * 1.5;
+    var st = stats || computeActiveStats();
+    if (st.count < 3) return false;
+    return orderTotal(o) >= st.avg * 1.5;
   }
 
   function tagHighValueCards(container) {
     if (!container) return;
-    container.querySelectorAll('.card').forEach(function(card) {
+    var allCards = container.querySelectorAll('.card');
+    if (!allCards.length) return;
+    var stats = computeActiveStats();
+    var byId = {};
+    db.orders.forEach(function(x) { byId[x.id] = x; });
+    allCards.forEach(function(card) {
       var btn = card.querySelector('[onclick*="openOrderModal("]') || card.querySelector('[onclick*="markOrderDelivered("]');
       if (!btn) return;
       var m = btn.getAttribute('onclick').match(/(?:openOrderModal|markOrderDelivered)\('([^']+)'/);
       if (!m) return;
-      var o = db.orders.find(function(x) { return x.id === m[1]; });
+      var o = byId[m[1]];
       var badge = card.querySelector('.high-value-badge');
-      if (isHighValueUrgent(o)) {
+      if (isHighValueUrgent(o, stats)) {
         card.classList.add('high-value-alert');
         if (!badge) {
           badge = document.createElement('span');
@@ -1019,10 +1043,10 @@
     });
   }
 
-  new MutationObserver(function() {
+  new MutationObserver(onceInFrame(function() {
     tagHighValueCards(document.getElementById('ordersList'));
     tagHighValueCards(document.getElementById('todayPlan'));
-  }).observe(document.getElementById('app'), { childList: true, subtree: true });
+  })).observe(document.getElementById('app'), { childList: true, subtree: true });
 
   /* ============================================================
      [19] خطة اليوم عند فتح التطبيق (مرة واحدة يومياً)
