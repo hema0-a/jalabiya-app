@@ -436,10 +436,10 @@ function initCloudSync(){
           db.updatedAt = Math.max(Number(remote.updatedAt)||0, Number(db.updatedAt)||0);
           db.cloudSync = myCloudSettings;
           fillMissingDefaults();
-          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
+          try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){ console.warn('[cloud-apply: localStorage.setItem]', e); }
           renderAll();
           renderConflictBackupsCard();
-          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){}
+          try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(e){ console.warn('[cloud-apply: appliers]', e); }
           cloudApplyingRemote = false;
           // لو الدمج حافظ على بيانات محلية مش موجودة في نسخة السحابة، لازم
           // نرفعها تاني فورًا عشان الجهاز/الأجهزة التانية تاخدها هي كمان
@@ -535,7 +535,7 @@ async function restoreConflictBackupLocal(id){
 
 function deleteConflictBackup(id){
   const list = loadConflictBackups().filter((b) => b.id !== id);
-  try{ localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list)); }catch(e){}
+  try{ localStorage.setItem(CONFLICT_BACKUP_KEY, JSON.stringify(list)); }catch(e){ console.warn('[deleteConflictBackup]', e); }
   renderConflictBackupsCard();
 }
 
@@ -600,7 +600,7 @@ async function connectCloudSyncSpace(){
   // نصفّر الوقت المحلي عمداً (بعد saveDB اللي بيحدّثه) عشان نضمن إن أي نسخة موجودة
   // على السحابة، حتى لو أقدم، تتحمل بدل بيانات الجهاز ده — إحنا وافقنا على الاستبدال فوق
   db.updatedAt = 0;
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){}
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }catch(e){ console.warn('[cloud-restore: localStorage.setItem]', e); }
   initCloudSync();
   renderSettings();
   toast('جاري الاتصال وتحميل البيانات...');
@@ -4340,7 +4340,7 @@ function maybeSendLocalCommitmentNotification(dueAlerts){
     new Notification(title, {body});
     db.commitmentsLastNotifiedDate = todayStr();
     saveDB();
-  }catch(e){ /* تجاهل أي خطأ في الإشعار المحلي، مش حرج لباقي الفيتشر */ }
+  }catch(e){ console.warn('[commitments local notification]', e); }
 }
 
 // إعدادات مجمّعة: تفعيل الإشعار المحلي + حساسية تنبيه المصروف غير الطبيعي
@@ -6303,12 +6303,12 @@ function recalculateAllDeliveryDates(){
       }
       const ok = await appConfirm('سيتم استبدال كل بيانات هذا الجهاز ('+db.customers.length+' عميل، '+db.orders.length+' طلب) ببيانات النسخة ('+parsed.customers.length+' عميل، '+parsed.orders.length+' طلب).\nهتتاخد نسخة أمان من بياناتك الحالية أولًا.', {okText:'استيراد'});
       if(!ok){ input.value=''; return; }
-      try{ saveConflictBackup(db); }catch(err){}            // شبكة أمان: نسخة من البيانات الحالية قبل الاستبدال
+      try{ saveConflictBackup(db); }catch(err){ console.warn('[saveConflictBackup قبل الاستيراد]', err); }            // شبكة أمان: نسخة من البيانات الحالية قبل الاستبدال
       parsed.cloudSync = db.cloudSync;                       // نحافظ على ربط المزامنة بتاع الجهاز ده
       parsed.updatedAt = Date.now();                         // عشان الاستيراد يكسب لو المزامنة مفعّلة
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed)); }catch(err){ toast('تعذر حفظ البيانات المستوردة'); input.value=''; return; }
       loadDB();                                              // يطبّق نفس تطبيع البيانات المعتاد
-      try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(err){}
+      try{ applyWorkshopBranding(); applyTheme(); applyFontSettings(); applyWideMode(); applyDarkMode(); applyCustomCSS(); applyHomeWidgetsLayout(); }catch(err){ console.warn('[import: appliers]', err); }
       saveDB(); flushSaveDB(); renderAll(); renderSettings();
       input.value = '';
       toast('✅ تم استيراد النسخة الاحتياطية');
