@@ -5566,14 +5566,43 @@ function onLogoFileChosen(input){
   }
   const reader = new FileReader();
   reader.onload = function(e){
-    db.workshopLogo = e.target.result;
-    saveDB();
-    applyWorkshopBranding();
-    renderSettings();
-    toast('✅ اتحفظ شعار الورشة');
+    shrinkLogoDataUrl(e.target.result, file.type, function(url){
+      db.workshopLogo = url;
+      saveDB();
+      applyWorkshopBranding();
+      renderSettings();
+      toast('✅ اتحفظ شعار الورشة');
+    });
   };
   reader.onerror = function(){ toast('تعذر قراءة الصورة'); };
   reader.readAsDataURL(file);
+}
+
+/* [تحسين مساحة] الشعار بيتخزّن جوّه البيانات (localStorage حدّه ~5 مليون حرف) وبيظهر بحجم ٥٠–١٠٠ بكسل بس —
+   صورة 900KB كانت ممكن تاخد ربع المساحة. دلوقتي بنصغّرها لأكبر ضلع LOGO_MAX_SIDE بكسل.
+   أي فشل (صورة تالفة/كانفاس مش متاح/الناتج أكبر) ⟵ بنحفظ الصورة الأصلية زي الأول بالظبط. */
+const LOGO_MAX_SIDE = 256;
+function shrinkLogoDataUrl(dataUrl, mime, done){
+  try{
+    if(mime==='image/svg+xml'){ done(dataUrl); return; }
+    const img = new Image();
+    img.onload = function(){
+      try{
+        const w = img.naturalWidth||img.width, h = img.naturalHeight||img.height;
+        if(!w || !h || Math.max(w,h) <= LOGO_MAX_SIDE){ done(dataUrl); return; }
+        const k = LOGO_MAX_SIDE/Math.max(w,h);
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w*k)); c.height = Math.max(1, Math.round(h*k));
+        const ctx = c.getContext('2d');
+        if(!ctx){ done(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const out = mime==='image/jpeg' ? c.toDataURL('image/jpeg', 0.85) : c.toDataURL('image/png');
+        done(out && out.length < dataUrl.length ? out : dataUrl);
+      }catch(err){ console.warn('[shrinkLogo]', err); done(dataUrl); }
+    };
+    img.onerror = function(){ done(dataUrl); };
+    img.src = dataUrl;
+  }catch(err){ console.warn('[shrinkLogo]', err); done(dataUrl); }
 }
 
 function removeWorkshopLogo(){
